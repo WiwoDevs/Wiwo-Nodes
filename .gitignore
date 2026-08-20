@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+dist/
+dist-api/
+data/
+outputs/
+coverage/
+playwright-report/
+test-results/
+
+# CI/CD queda fuera del primer commit hasta que Wiwo Devs defina el entorno.
+.github/workflows/
+
+*.log
+*.zip
+*.xlsx
+*.tsbuildinfo
+.DS_Store
+Thumbs.db

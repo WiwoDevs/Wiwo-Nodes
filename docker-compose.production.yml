@@ -1,0 +1,117 @@
+x-sac-flow-app: &sac-flow-app
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-/api}"
+      VITE_APP_BASE_PATH: "${VITE_APP_BASE_PATH:-/}"
+  image: sac-flow:production
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  environment: &sac-flow-environment
+    NODE_ENV: production
+    LOG_LEVEL: "${LOG_LEVEL:-info}"
+    API_HOST: 0.0.0.0
+    PORT: 8787
+    SERVE_FRONTEND: "true"
+    SAC_FLOW_API_KEY: "${SAC_FLOW_API_KEY:?Set SAC_FLOW_API_KEY}"
+    SAC_FLOW_REQUIRE_API_KEY: "true"
+    SAC_FLOW_CORS_ORIGINS: "${SAC_FLOW_CORS_ORIGINS:-}"
+    SAC_FLOW_SECURITY_HEADERS: "true"
+    SAC_FLOW_ENFORCE_ORIGIN_CHECK: "true"
+    SAC_FLOW_RATE_LIMIT_ENABLED: "true"
+    SAC_FLOW_RATE_LIMIT_WINDOW_MS: "${SAC_FLOW_RATE_LIMIT_WINDOW_MS:-60000}"
+    SAC_FLOW_RATE_LIMIT_MAX: "${SAC_FLOW_RATE_LIMIT_MAX:-600}"
+    SAC_FLOW_REPOSITORY: postgres
+    SAC_FLOW_POSTGRES_URL: "postgresql://sac_flow:${SAC_FLOW_POSTGRES_PASSWORD:?Set SAC_FLOW_POSTGRES_PASSWORD}@postgres:5432/sac_flow"
+    SAC_FLOW_POSTGRES_ENCRYPTION_KEY: "${SAC_FLOW_POSTGRES_ENCRYPTION_KEY:?Set SAC_FLOW_POSTGRES_ENCRYPTION_KEY}"
+    SAC_FLOW_POSTGRES_ORGANIZATION_SLUG: "${SAC_FLOW_POSTGRES_ORGANIZATION_SLUG:-techlab-sac}"
+    SAC_FLOW_POSTGRES_ORGANIZATION_NAME: "${SAC_FLOW_POSTGRES_ORGANIZATION_NAME:-Techlab SAC}"
+    SAC_FLOW_POSTGRES_SEED_DEMO: "${SAC_FLOW_POSTGRES_SEED_DEMO:-false}"
+    SAC_FLOW_ALLOW_JSON_IN_LIVE: "false"
+    SAC_FLOW_TRUST_ACTOR_HEADERS: "${SAC_FLOW_TRUST_ACTOR_HEADERS:-false}"
+    SAC_FLOW_REQUIRE_ACTOR_CONTEXT: "${SAC_FLOW_REQUIRE_ACTOR_CONTEXT:-false}"
+    SAC_FLOW_DEFAULT_ROLE: "${SAC_FLOW_DEFAULT_ROLE:-admin}"
+    SAC_FLOW_INBOX_SYNC_ENABLED: "${SAC_FLOW_INBOX_SYNC_ENABLED:-false}"
+    SAC_FLOW_DISABLE_OUTBOUND_SENDS: "${SAC_FLOW_DISABLE_OUTBOUND_SENDS:-true}"
+    SAC_FLOW_ENABLE_MANUAL_REPLIES: "${SAC_FLOW_ENABLE_MANUAL_REPLIES:-false}"
+    SAC_FLOW_DISABLE_EXTERNAL_NODES: "${SAC_FLOW_DISABLE_EXTERNAL_NODES:-true}"
+    SAC_FLOW_DISABLE_METRICOOL_MUTATIONS: "${SAC_FLOW_DISABLE_METRICOOL_MUTATIONS:-true}"
+    SAC_FLOW_AUTO_REPLY_DISPATCH_MODE: "${SAC_FLOW_AUTO_REPLY_DISPATCH_MODE:-shadow}"
+    SAC_FLOW_AUTO_REPLY_MAX_PENDING: "${SAC_FLOW_AUTO_REPLY_MAX_PENDING:-1000}"
+    SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY: "${SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY:?Set SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY}"
+    METRICOOL_MODE: "${METRICOOL_MODE:-live}"
+    METRICOOL_BASE_URL: "${METRICOOL_BASE_URL:-https://app.metricool.com/api}"
+    METRICOOL_API_TOKEN: "${METRICOOL_API_TOKEN:-}"
+    METRICOOL_ACCOUNTS_JSON: "${METRICOOL_ACCOUNTS_JSON:-}"
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sac_flow
+      POSTGRES_USER: sac_flow
+      POSTGRES_PASSWORD: "${SAC_FLOW_POSTGRES_PASSWORD:?Set SAC_FLOW_POSTGRES_PASSWORD}"
+    volumes:
+      - sac-flow-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sac_flow -d sac_flow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    <<: *sac-flow-app
+    command: ["npm", "run", "migrate"]
+    restart: "no"
+    environment:
+      <<: *sac-flow-environment
+      DATABASE_URL: "postgresql://sac_flow:${SAC_FLOW_POSTGRES_PASSWORD:?Set SAC_FLOW_POSTGRES_PASSWORD}@postgres:5432/sac_flow"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *sac-flow-app
+    restart: unless-stopped
+    ports:
+      - "${SAC_FLOW_BIND_ADDRESS:-127.0.0.1}:${SAC_FLOW_PORT:-8787}:8787"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+
+  worker:
+    <<: *sac-flow-app
+    command: ["npm", "run", "start:worker"]
+    restart: unless-stopped
+    environment:
+      <<: *sac-flow-environment
+      SAC_FLOW_INTERNAL_API_URL: http://api:8787
+      SAC_FLOW_WORKER_HEALTH_PORT: 8788
+      SERVE_FRONTEND: "false"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+volumes:
+  sac-flow-postgres:
+    name: sac-flow-postgres
