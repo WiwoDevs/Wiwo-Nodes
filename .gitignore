@@ -20,3 +20,9 @@ test-results/
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+clave-integracion.txt
+plantilla-sac.pptx
+reportes/
+plantilla-sac-v2.pptx
+scratch-*.mjs
+.openai/slides-*/
