@@ -139,7 +139,22 @@ export interface ActorContext {
   tenantId: string;
   role: ActorRole;
   brandIds: string[] | "all";
-  source: "local" | "trusted_headers";
+  source: "local" | "trusted_headers" | "firebase";
+}
+
+/**
+ * Triaje asistido por IA. Vive aparte de `category`/`sentiment` porque responde algo que
+ * esas dos no pueden: si el mensaje es siquiera un caso de atención, y si contestarlo
+ * exige información interna. El reporte SAC necesita ambas distinciones para no contar
+ * reacciones sociales como casos.
+ */
+export interface SacTriage {
+  categoria: string;
+  esCasoSac: boolean;
+  requiereDerivacion: boolean;
+  confianza: number;
+  clasificadoEn: string;
+  modelo: string;
 }
 
 export interface MetricoolAccountReference {
@@ -443,7 +458,8 @@ export interface Interaction {
   sentiment: Sentiment;
   confidence: number;
   status: InteractionStatus;
-  source: "demo" | "metricool";
+  /** `planilla`: cargado desde la bitácora manual del equipo, no desde el inbox de Metricool. */
+  source: "demo" | "metricool" | "planilla";
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -473,6 +489,8 @@ export interface Interaction {
     };
   };
   audit: InteractionAuditEntry[];
+  /** Triaje IA; ausente mientras la interacción no se haya clasificado. */
+  sacTriage?: SacTriage;
 }
 
 export interface ConversationMessage {
@@ -665,6 +683,10 @@ export interface InteractionStats {
   knowledgeBlocked: number;
   responseRate: number;
   averageResponseMinutes: number | null;
+  /** Mediana en minutos. Representa mejor la operación que el promedio, que arrastra la cola larga. */
+  medianResponseMinutes: number | null;
+  /** Casos respondidos que sustentan las cifras de tiempo. */
+  responseSampleSize: number;
   byChannel: Record<Channel, number>;
   byStatus: Record<InteractionStatus, number>;
   byBrand: Array<{
@@ -676,5 +698,9 @@ export interface InteractionStats {
     reviews: number;
     pending: number;
     replied: number;
+    /** Tiempo de respuesta propio de la marca; null cuando aún no tiene casos respondidos. */
+    medianResponseMinutes: number | null;
+    averageResponseMinutes: number | null;
+    responseSampleSize: number;
   }>;
 }

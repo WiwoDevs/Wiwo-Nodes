@@ -23,6 +23,8 @@ export interface MetricoolReviewReplyPayload {
 
 export interface MetricoolGateway {
   getBrand?(account: MetricoolAccountReference): Promise<unknown>;
+  /** Lista las marcas visibles para el token, para dar de alta cuentas reales sin tipear blogIds. */
+  listBrands?(userId: string): Promise<unknown>;
   listConversations(account: MetricoolAccountReference, provider: MetricoolInboxProvider): Promise<unknown>;
   listPostComments(account: MetricoolAccountReference, provider: MetricoolInboxProvider): Promise<unknown>;
   listReviews(account: MetricoolAccountReference, provider: MetricoolInboxProvider): Promise<unknown>;
@@ -103,6 +105,16 @@ export class MetricoolClient implements MetricoolGateway {
 
   getBrand(account: MetricoolAccountReference): Promise<unknown> {
     return this.request("GET", `/v2/settings/brands/${encodeURIComponent(account.blogId)}`, account, {});
+  }
+
+  /**
+   * Marcas visibles para el token. A diferencia del resto del API de inbox, este
+   * endpoint solo recibe `userId`: es el catálogo previo a conocer cualquier `blogId`.
+   */
+  listBrands(userId: string): Promise<unknown> {
+    const url = new URL(`${this.baseUrl}/admin/simpleProfiles`);
+    url.searchParams.set("userId", userId);
+    return this.requestUrl("GET", url, undefined, "/admin/simpleProfiles");
   }
 
   listConversations(account: MetricoolAccountReference, provider: MetricoolInboxProvider): Promise<unknown> {

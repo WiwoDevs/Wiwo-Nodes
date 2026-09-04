@@ -6,6 +6,7 @@ import {
   type ActorRole,
   type MetricoolAccountReference,
 } from "./types.js";
+import type { FirebaseAuthConfig } from "./firebase-auth.js";
 
 const modeSchema = z.enum(["demo", "live"]);
 const repositoryDriverSchema = z.enum(["json", "postgres"]);
@@ -41,6 +42,12 @@ export interface AppConfig {
   metricool: {
     token?: string;
     baseUrl: string;
+    /**
+     * Identificador de la cuenta Metricool dueña del portafolio. Es independiente del
+     * `blogId` de cada marca: se necesita para listar las marcas disponibles, que es
+     * justamente el paso previo a conocer cualquier `blogId`.
+     */
+    userId?: string;
     fallbackAccount?: MetricoolAccountReference;
     allowFallbackAccount: boolean;
     accounts: Record<string, MetricoolAccountReference>;
@@ -74,6 +81,13 @@ export interface AppConfig {
       defaultRole: ActorRole;
     };
   };
+  auth: FirebaseAuthConfig;
+  /**
+   * Clave de lectura servidor-a-servidor para las rutas de integración. Existe aparte de
+   * la identidad Firebase porque un consumidor como METRIQ no tiene navegador ni cookie;
+   * solo habilita lecturas y nunca alcanza al resto de la API.
+   */
+  serviceApiKey?: string;
   serveFrontend: boolean;
   frontendDir: string;
 }
@@ -171,6 +185,32 @@ export function loadConfig(
   const requireActorContext = parseBoolean(env.SAC_FLOW_REQUIRE_ACTOR_CONTEXT, false);
   const trustActorHeaders = parseBoolean(env.SAC_FLOW_TRUST_ACTOR_HEADERS, requireActorContext);
   const defaultRole = z.enum(ACTOR_ROLES).parse(env.SAC_FLOW_DEFAULT_ROLE || "admin");
+
+  // Identidad Firebase compartida con METRIQ. Cuando está activa reemplaza tanto la clave
+  // compartida como los headers de gateway: el actor sale de la sesión firmada.
+  const authMode = z.enum(["local", "firebase"]).parse(env.SAC_FLOW_AUTH_MODE || "local");
+  const serviceAccountKey = env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim() || undefined;
+  if (authMode === "firebase" && !serviceAccountKey) {
+    throw new Error("SAC_FLOW_AUTH_MODE=firebase requiere FIREBASE_SERVICE_ACCOUNT_KEY.");
+  }
+  const serviceApiKey = env.SAC_FLOW_SERVICE_API_KEY?.trim() || undefined;
+  if (serviceApiKey && serviceApiKey.length < 32) {
+    throw new Error("SAC_FLOW_SERVICE_API_KEY debe tener al menos 32 caracteres.");
+  }
+  const auth: FirebaseAuthConfig = {
+    enabled: authMode === "firebase",
+    projectId: env.FIREBASE_PROJECT_ID?.trim() || undefined,
+    serviceAccountKey,
+    cookieName: env.SAC_FLOW_AUTH_COOKIE?.trim() || "wiwo_nodes_session",
+    sessionTtlMs: z.coerce.number().int().min(3_600_000).max(1_209_600_000).parse(
+      env.SAC_FLOW_AUTH_SESSION_TTL_MS || 5 * 24 * 60 * 60 * 1_000,
+    ),
+    allowedUsersCollection: env.SAC_FLOW_AUTH_ALLOWED_USERS_COLLECTION?.trim() || "allowed_users",
+    requiredPermission: (env.SAC_FLOW_AUTH_REQUIRED_PERMISSION?.trim() || "sac").toLowerCase(),
+    adminPermission: (env.SAC_FLOW_AUTH_ADMIN_PERMISSION?.trim() || "admin").toLowerCase(),
+    defaultRole: z.enum(ACTOR_ROLES).parse(env.SAC_FLOW_AUTH_DEFAULT_ROLE || "agent"),
+    tenantId: env.SAC_FLOW_AUTH_TENANT_ID?.trim() || "wiwo",
+  };
   const repositoryDriver = repositoryDriverSchema.parse(
     env.SAC_FLOW_REPOSITORY || env.SAC_FLOW_STORAGE_DRIVER || "json",
   );
@@ -214,7 +254,7 @@ export function loadConfig(
   }
   if (repositoryDriver === "json" && requestedMode === "live" && !allowJsonInLive) {
     throw new Error(
-      "SAC_FLOW_REPOSITORY=json no está permitido en live con NODE_ENV=production salvo que SAC_FLOW_ALLOW_JSON_IN_LIVE=true.",
+      "SAC_FLOW_REPOSITORY=json no está permitido con METRICOOL_MODE=live salvo que SAC_FLOW_ALLOW_JSON_IN_LIVE=true. El destino productivo es SAC_FLOW_REPOSITORY=postgres.",
     );
   }
   if (production && (credentialEncryptionKey === "local-development-credential-key-not-for-production" || credentialEncryptionKey.length < 32)) {
@@ -242,6 +282,7 @@ export function loadConfig(
     metricool: {
       token,
       baseUrl: (env.METRICOOL_BASE_URL || "https://app.metricool.com/api").replace(/\/$/, ""),
+      userId: fallbackUserId,
       fallbackAccount,
       allowFallbackAccount,
       accounts: parseAccounts(env.METRICOOL_ACCOUNTS_JSON),
@@ -275,6 +316,8 @@ export function loadConfig(
         defaultRole,
       },
     },
+    auth,
+    serviceApiKey,
     serveFrontend: parseBoolean(env.SERVE_FRONTEND, production),
     frontendDir: path.resolve(env.FRONTEND_DIR || path.join(cwd, "dist", "client")),
   };

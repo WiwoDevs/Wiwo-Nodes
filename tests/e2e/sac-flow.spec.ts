@@ -671,14 +671,15 @@ test("manages one account in a simplified two-pane manual workspace with exact h
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Centro de operaciones SAC" })).toBeVisible();
-  await page.getByRole("button", { name: "Gestión manual", exact: true }).click();
+  await page.getByRole("button", { name: "Gestión comentarios", exact: true }).click();
   const workspace = page.locator(".manual-inbox-view");
-  await expect(workspace.getByRole("heading", { name: "Gestión manual", exact: true })).toBeVisible();
+  await expect(workspace.getByRole("heading", { name: "Gestión de comentarios", exact: true })).toBeVisible();
   await expect(page.locator(".manual-inbox-grid > .manual-inbox-column")).toHaveCount(2);
   await expect(page.getByLabel("Cuenta obligatoria")).toHaveValue("account-01");
   expect(syncRequests).toBe(0);
 
-  await workspace.getByRole("tab", { name: /Instagram · Comentarios/ }).click();
+  // Con la superficie fijada, la pestaña es solo la red.
+  await workspace.getByRole("tab", { name: "Instagram", exact: true }).click();
   const postCards = workspace.locator(".manual-inbox-contact");
   await expect(postCards).toHaveCount(2);
   await expect(postCards.nth(0)).toContainText("Chuck 70: colores disponibles");
@@ -723,9 +724,9 @@ test("manages one account in a simplified two-pane manual workspace with exact h
 
 test("keeps the manual workspace within the mobile viewport", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("mobile"), "Mobile-only responsive assertion.");
-  await page.getByRole("button", { name: "Gestión manual", exact: true }).click();
+  await page.getByRole("button", { name: "Gestión DMs", exact: true }).click();
   const workspace = page.locator(".manual-inbox-view");
-  await expect(workspace.getByRole("heading", { name: "Gestión manual", exact: true })).toBeVisible();
+  await expect(workspace.getByRole("heading", { name: "Gestión de DMs", exact: true })).toBeVisible();
   const grid = workspace.locator(".manual-inbox-grid");
   await expect(grid).toBeVisible();
   const geometry = await workspace.evaluate((element) => ({

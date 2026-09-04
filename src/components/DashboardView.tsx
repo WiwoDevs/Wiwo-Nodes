@@ -10,6 +10,7 @@ import {
   Robot,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { formatMinutes } from "../lib/duration";
 import type {
   BrandPerformance,
   DashboardKpi,
@@ -163,7 +164,7 @@ export function DashboardView({
                   <th scope="col">Interacciones</th>
                   <th scope="col">Pendientes</th>
                   <th scope="col">Automáticas</th>
-                  <th scope="col">Tiempo medio</th>
+                  <th scope="col">Tiempo de respuesta</th>
                   <th scope="col">Tendencia</th>
                 </tr>
               </thead>
@@ -203,20 +204,35 @@ export function DashboardView({
                       <span className="numeric-value">{brand.automaticResponseRate}%</span>
                     </td>
                     <td>
-                      <span className="numeric-value">{brand.averageResponseMinutes} min</span>
+                      {brand.medianResponseMinutes === null ? (
+                        <span className="cell-detail">Sin respuestas</span>
+                      ) : (
+                        <>
+                          <span className="numeric-value">{formatMinutes(brand.medianResponseMinutes)}</span>
+                          <small className="cell-detail">
+                            sobre {brand.responseSampleSize} {brand.responseSampleSize === 1 ? "caso" : "casos"}
+                          </small>
+                        </>
+                      )}
                     </td>
                     <td>
-                      <span
-                        className={`trend trend--${brand.changePercent >= 0 ? "up" : "down"}`}
-                        aria-label={`${Math.abs(brand.changePercent)} por ciento ${brand.changePercent >= 0 ? "de aumento" : "de disminución"}`}
-                      >
-                        {brand.changePercent >= 0 ? (
-                          <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
-                        ) : (
-                          <ArrowDownRight size={14} weight="bold" aria-hidden="true" />
-                        )}
-                        {brand.changePercent >= 0 ? "+" : ""}{brand.changePercent}%
-                      </span>
+                      {brand.changePercent === null ? (
+                        <span className="cell-detail" title="Requiere al menos dos períodos sincronizados">
+                          Sin histórico
+                        </span>
+                      ) : (
+                        <span
+                          className={`trend trend--${brand.changePercent >= 0 ? "up" : "down"}`}
+                          aria-label={`${Math.abs(brand.changePercent)} por ciento ${brand.changePercent >= 0 ? "de aumento" : "de disminución"}`}
+                        >
+                          {brand.changePercent >= 0 ? (
+                            <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
+                          ) : (
+                            <ArrowDownRight size={14} weight="bold" aria-hidden="true" />
+                          )}
+                          {brand.changePercent >= 0 ? "+" : ""}{brand.changePercent}%
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

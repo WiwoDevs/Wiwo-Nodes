@@ -308,3 +308,25 @@ export const idempotencyKeySchema = z.string().trim().min(8).max(200).regex(
 export const apiSessionSchema = z.object({
   apiKey: z.string().trim().min(16).max(512),
 }).strict();
+
+/** Canje del idToken de Google por la cookie de sesión de Wiwo Nodes. */
+export const firebaseSessionSchema = z.object({
+  idToken: z.string().trim().min(20).max(8192),
+}).strict();
+
+/** Consulta de filas SAC para METRIQ. Las fechas son días completos, no instantes. */
+export const sacRowsQuerySchema = z.object({
+  brandId: z.string().trim().min(1).max(120),
+  from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD.").optional(),
+  to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD.").optional(),
+}).strict().refine((value) => !value.from || !value.to || value.from <= value.to, {
+  message: "El rango de fechas está invertido.",
+});
+
+/** Alta de marcas locales desde el catálogo real de Metricool. */
+export const metricoolBrandImportSchema = z.object({
+  blogIds: z.array(z.string().trim().min(1).max(64)).min(1).max(100),
+  instagramProvider: z.enum(METRICOOL_INSTAGRAM_PROVIDERS).default("INSTAGRAM"),
+  color: colorSchema.default("#2563eb"),
+  active: z.boolean().default(true),
+}).strict();

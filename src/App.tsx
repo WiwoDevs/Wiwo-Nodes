@@ -6,6 +6,7 @@ import {
   CaretDown,
   ChartLineUp,
   ChatCircleDots,
+  ChatCircleText,
   ChatsCircle,
   CheckCircle,
   ClockCounterClockwise,
@@ -82,13 +83,22 @@ const AutomationPlatform = lazy(() =>
   import("./components/AutomationPlatform").then((module) => ({ default: module.AutomationPlatform })),
 );
 
-type ViewId = "platform-home" | "automations" | "automation-executions" | "templates" | "credentials" | "workflow" | "dashboard" | "interactions" | "manual-inbox" | "accounts" | "settings";
+type ViewId = "platform-home" | "automations" | "automation-executions" | "templates" | "credentials" | "workflow" | "dashboard" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "settings";
 type EditorTab = "editor" | "executions" | "evaluations";
+
+/** Vistas de respuesta por cuenta. Comparten componente y difieren solo en la superficie. */
+const MANUAL_VIEWS = ["manual-dms", "manual-comments"] as const;
+type ManualViewId = (typeof MANUAL_VIEWS)[number];
+
+function isManualView(value: ViewId): value is ManualViewId {
+  return (MANUAL_VIEWS as readonly string[]).includes(value);
+}
 
 const navigation = [
   { id: "platform-home" as const, label: "Inicio", icon: House, group: "Operación SAC" },
   { id: "interactions" as const, label: "Bandeja SAC", icon: ChatCircleDots, badge: "0", group: "Operación SAC" },
-  { id: "manual-inbox" as const, label: "Gestión manual", icon: ChatsCircle, group: "Operación SAC" },
+  { id: "manual-dms" as const, label: "Gestión DMs", icon: ChatsCircle, group: "Operación SAC" },
+  { id: "manual-comments" as const, label: "Gestión comentarios", icon: ChatCircleText, group: "Operación SAC" },
   { id: "dashboard" as const, label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
   { id: "workflow" as const, label: "Flujo SAC", icon: GitBranch, group: "Operación SAC" },
   { id: "accounts" as const, label: "Cuentas", icon: Buildings, badge: "0", group: "Operación SAC" },
@@ -138,9 +148,13 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
     title: "Conversaciones",
     description: "Una bandeja por persona con todo su contexto",
   },
-  "manual-inbox": {
-    title: "Gestión manual por cuenta",
-    description: "Mensajes, comentarios y contexto de publicación en un solo espacio",
+  "manual-dms": {
+    title: "Gestión de mensajes directos",
+    description: "Conversaciones privadas por contacto, con su historial completo",
+  },
+  "manual-comments": {
+    title: "Gestión de comentarios",
+    description: "Comentarios agrupados por publicación, con el contexto del post",
   },
   accounts: {
     title: "Cuentas conectadas",
@@ -457,7 +471,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!(["interactions", "manual-inbox"] as ViewId[]).includes(view) || isLoadingData || connectionIssue) return;
+    if (!(view === "interactions" || isManualView(view)) || isLoadingData || connectionIssue) return;
 
     const refreshWhenAvailable = () => {
       if (
@@ -487,7 +501,7 @@ export function App() {
   }, [connectionIssue, isLoadingData, isMutatingInteraction, isRunning, refreshInboxData, view]);
 
   useEffect(() => {
-    if (view !== "manual-inbox" || !manualAccountId || !selectedManualAccount || connectionIssue) return;
+    if (view !== "manual-comments" || !manualAccountId || !selectedManualAccount || connectionIssue) return;
     const requestSequence = ++manualCommentsRequestSequence.current;
     let cancelled = false;
     setRefreshingManualPosts(true);
@@ -514,7 +528,7 @@ export function App() {
 
   useEffect(() => {
     if (
-      view !== "manual-inbox"
+      view !== "manual-comments"
       || !selectedManualPostKey
       || !selectedManualAccount
       || connectionIssue
@@ -1388,17 +1402,17 @@ export function App() {
 
   function navigateToView(destination: ViewId) {
     if (
-      view === "manual-inbox"
+      isManualView(view)
       && destination !== view
       && manualDraftDirty
       && !window.confirm("Hay una respuesta manual sin guardar. ¿Salir y descartar esos cambios locales?")
     ) {
       return;
     }
-    if (view === "manual-inbox" && destination !== view) {
+    if (isManualView(view) && destination !== view) {
       setManualDraftDirty(false);
       closeInteractionDetail();
-    } else if (destination === "manual-inbox" && view !== destination) {
+    } else if (isManualView(destination) && view !== destination) {
       closeInteractionDetail();
     }
     setView(destination);
@@ -1627,10 +1641,14 @@ export function App() {
             />
           </div>
         ) : null}
-        {view === "manual-inbox" ? (
+        {isManualView(view) ? (
           <div className="content-page content-page--manual-inbox">
             <ManualManagementView
-              accounts={visibleData.accounts}
+              surfaceKind={view === "manual-comments" ? "comment" : "dm"}
+              // Solo cuentas operativas: una marca desactivada no debe poder seleccionarse
+              // para responder. Sigue apareciendo en Cuentas para poder reactivarla.
+              accounts={visibleData.accounts.filter((account) =>
+                account.brandActive !== false && account.accountActive !== false)}
               interactions={manualInteractions}
               selectedAccountId={manualAccountId}
               selectedInteractionId={selectedInteractionId}
@@ -1758,7 +1776,7 @@ export function App() {
           statusReasons={visibleData.statusReasons}
           isLoading={isLoadingDetail}
           isSaving={isMutatingInteraction || isRunning}
-          onClose={view === "manual-inbox"
+          onClose={isManualView(view)
             ? () => setDetailPresentation("embedded")
             : closeInteractionDetail}
           onSaveDraft={saveDetailDraft}

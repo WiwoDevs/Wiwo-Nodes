@@ -1,3 +1,4 @@
+import { formatMinutes } from "./duration";
 import type {
   BrandAccount,
   BrandAdminInput,
@@ -205,6 +206,8 @@ type ApiStats = {
   knowledgeBlocked: number;
   responseRate: number;
   averageResponseMinutes: number | null;
+  medianResponseMinutes: number | null;
+  responseSampleSize: number;
   byBrand: Array<{
     brandId: string;
     brandName: string;
@@ -214,6 +217,9 @@ type ApiStats = {
     reviews: number;
     pending: number;
     replied: number;
+    medianResponseMinutes: number | null;
+    averageResponseMinutes: number | null;
+    responseSampleSize: number;
   }>;
 };
 
@@ -298,6 +304,41 @@ export async function openApiSession(apiKey: string): Promise<void> {
     body: JSON.stringify({ apiKey }),
   });
   if (!response.ok) await throwApiError(response);
+}
+
+export type AuthConfig = { enabled: boolean; requiredPermission: string };
+
+/** Indica si este entorno exige inicio de sesión con Google. */
+export async function loadAuthConfig(): Promise<AuthConfig> {
+  const response = await fetch(`${API_BASE}/auth/config`);
+  if (!response.ok) return { enabled: false, requiredPermission: "sac" };
+  const payload = await response.json() as { data: AuthConfig };
+  return payload.data;
+}
+
+/** Canjea el idToken de Google por la cookie de sesión del servidor. */
+export async function openFirebaseSession(idToken: string): Promise<SessionActor & { email: string }> {
+  const response = await fetch(`${API_BASE}/auth/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: SessionActor & { email: string } };
+  return payload.data;
+}
+
+/** Devuelve el actor de la sesión vigente, o null si no hay sesión válida. */
+export async function loadCurrentActor(): Promise<SessionActor | null> {
+  const response = await fetch(`${API_BASE}/me`);
+  if (response.status === 401 || response.status === 403) return null;
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: SessionActor };
+  return payload.data;
+}
+
+export async function closeFirebaseSession(): Promise<void> {
+  await fetch(`${API_BASE}/auth/session`, { method: "DELETE" }).catch(() => undefined);
 }
 
 async function throwApiError(response: Response): Promise<never> {
@@ -758,9 +799,13 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
     },
     {
       id: "response_time",
-      label: "Tiempo medio de respuesta",
-      value: stats.averageResponseMinutes === null ? "Sin datos" : `${stats.averageResponseMinutes} min`,
-      detail: `${stats.responseRate}% de interacciones respondidas`,
+      // Mediana y no promedio: la cola de hilos que tardan días distorsiona el promedio
+      // muy por encima de lo que espera un cliente típico.
+      label: "Tiempo habitual de respuesta",
+      value: formatMinutes(stats.medianResponseMinutes),
+      detail: stats.medianResponseMinutes === null
+        ? "Aún no hay casos respondidos"
+        : `${stats.responseRate}% respondidas · promedio ${formatMinutes(stats.averageResponseMinutes)}`,
       change: "Dato servidor",
       trend: "neutral",
     },
@@ -782,8 +827,10 @@ function mapBrandPerformance(brands: ApiBrand[], stats: ApiStats): BrandPerforma
       reviews: brand.reviews,
       pending: brand.pending,
       automaticResponseRate: brand.total ? Math.round((brand.replied / brand.total) * 100) : 0,
-      averageResponseMinutes: stats.averageResponseMinutes ?? 0,
-      changePercent: 0,
+      medianResponseMinutes: brand.medianResponseMinutes,
+      responseSampleSize: brand.responseSampleSize,
+      // Sin histórico almacenado no hay con qué comparar: mostrar 0% simularía una medición.
+      changePercent: null,
     };
   });
 }

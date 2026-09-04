@@ -691,7 +691,7 @@ describe("SAC Flow API", () => {
       METRICOOL_MODE: "live",
       METRICOOL_API_TOKEN: "configured-token",
       SAC_FLOW_API_KEY: TEST_API_KEY,
-    })).toThrow("SAC_FLOW_REPOSITORY=json no está permitido en live");
+    })).toThrow("SAC_FLOW_REPOSITORY=json no está permitido con METRICOOL_MODE=live");
 
     expect(() => loadConfig({
       METRICOOL_MODE: "demo",

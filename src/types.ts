@@ -356,8 +356,11 @@ export interface BrandPerformance {
   reviews: number;
   pending: number;
   automaticResponseRate: number;
-  averageResponseMinutes: number;
-  changePercent: number;
+  /** Mediana propia de la marca; null cuando todavía no tiene casos respondidos. */
+  medianResponseMinutes: number | null;
+  responseSampleSize: number;
+  /** Variación respecto del período anterior. null mientras no exista histórico comparable. */
+  changePercent: number | null;
 }
 
 export type IntegrationKind =

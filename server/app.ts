@@ -33,6 +33,9 @@ import {
   accountMetricoolUpdateSchema,
   accountParamsSchema,
   apiSessionSchema,
+  firebaseSessionSchema,
+  metricoolBrandImportSchema,
+  sacRowsQuerySchema,
   brandCreateSchema,
   brandParamsSchema,
   brandQaWorkbookUpdateSchema,
@@ -102,6 +105,13 @@ import {
 } from "./workflow-service.js";
 import { validateWorkflow } from "./workflow-validation.js";
 import { buildSecurityAudit } from "./security-audit.js";
+import { normalizeDiscoveredBrands } from "./metricool-brands.js";
+import { buildSacRows } from "./sac-rows.js";
+import {
+  createFirebaseAuth,
+  FirebaseAuthError,
+  type FirebaseAuthService,
+} from "./firebase-auth.js";
 import {
   conversationKey,
   detectConversationResponses,
@@ -143,6 +153,8 @@ export interface BuildAppOptions {
   metricoolClient?: MetricoolGateway;
   logger?: FastifyServerOptions["logger"];
   serveFrontend?: boolean;
+  /** Permite inyectar una identidad simulada en pruebas sin contactar Firebase. */
+  firebaseAuth?: FirebaseAuthService;
 }
 
 export interface SacFlowApp extends FastifyInstance {
@@ -353,7 +365,21 @@ function actorContextFromHeaders(config: AppConfig, headers: Record<string, unkn
   };
 }
 
+/**
+ * Actores resueltos por la sesión Firebase durante el ciclo de vida de la solicitud.
+ * Se usa un WeakMap en vez de decorar `FastifyRequest` para no ampliar el tipo público
+ * del framework desde este módulo.
+ */
+const firebaseActors = new WeakMap<FastifyRequest, ActorContext>();
+
 function requestActor(config: AppConfig, request: FastifyRequest): ActorContext {
+  // La sesión firmada manda sobre los headers: cuando Firebase está activo, el gateway
+  // deja de ser la fuente de identidad.
+  const sessionActor = firebaseActors.get(request);
+  if (sessionActor) return sessionActor;
+  if (config.auth.enabled) {
+    throw new ApiError(401, "SESSION_REQUIRED", "Inicia sesión para usar Wiwo Nodes.");
+  }
   return actorContextFromHeaders(config, request.headers as Record<string, unknown>);
 }
 
@@ -448,7 +474,22 @@ function isProtectedApiPath(url: string): boolean {
   const routePath = url.split("?", 1)[0] || "/";
   return routePath.startsWith("/api/")
     && routePath !== "/api/session"
+    // El canje de idToken por cookie es la puerta de entrada: no puede exigir sesión previa.
+    && routePath !== "/api/auth/session"
+    && routePath !== "/api/auth/config"
+    && !isServiceApiPath(routePath)
     && !isOperationalProbePath(routePath);
+}
+
+/**
+ * Rutas de integración servidor-a-servidor. No pasan por la sesión Firebase porque el
+ * consumidor no tiene navegador; se autentican con `SAC_FLOW_SERVICE_API_KEY` y son de
+ * solo lectura. Mantenerlas en un prefijo propio deja explícito qué superficie queda
+ * expuesta a una clave estática.
+ */
+function isServiceApiPath(url: string): boolean {
+  const routePath = url.split("?", 1)[0] || "/";
+  return routePath.startsWith("/api/integrations/");
 }
 
 function isApiPath(url: string): boolean {
@@ -1209,6 +1250,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     genReqId: () => randomUUID(),
   }) as unknown as SacFlowApp;
   const apiSessionSigningKey = randomBytes(32);
+  const firebaseAuth = options.firebaseAuth ?? await createFirebaseAuth(config.auth);
   let syncInProgress = false;
   app.sacFlow = { config, repository };
   app.addHook("onClose", async () => {
@@ -1282,6 +1324,146 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (config.security.actorContext.require && protectedPath) {
       actorContextFromHeaders(config, request.headers as Record<string, unknown>);
     }
+    if (isServiceApiPath(request.url)) {
+      // Solo lectura: cualquier otro método sobre este prefijo es un error de integración.
+      if (request.method !== "GET") {
+        return reply.code(405).send({
+          error: { code: "METHOD_NOT_ALLOWED", message: "Las rutas de integración son de solo lectura.", requestId: request.id },
+          meta: apiMeta(config),
+        });
+      }
+      const received = extractApiKey(request.headers as Record<string, unknown>);
+      if (!config.serviceApiKey || !received || !safeTokenEqual(received, config.serviceApiKey)) {
+        return reply.code(401).send({
+          error: { code: "SERVICE_KEY_REQUIRED", message: "Clave de integración inválida o ausente.", requestId: request.id },
+          meta: apiMeta(config),
+        });
+      }
+      return;
+    }
+    if (firebaseAuth && protectedPath) {
+      const cookie = requestCookie(request.headers as Record<string, unknown>, config.auth.cookieName);
+      if (!cookie) {
+        return reply.code(401).send({
+          error: { code: "SESSION_REQUIRED", message: "Inicia sesión para usar Wiwo Nodes.", requestId: request.id },
+          meta: apiMeta(config),
+        });
+      }
+      try {
+        firebaseActors.set(request, await firebaseAuth.resolveActor(cookie));
+      } catch (error) {
+        if (error instanceof FirebaseAuthError) {
+          return reply.code(error.status).send({
+            error: { code: error.code, message: error.message, requestId: request.id },
+            meta: apiMeta(config),
+          });
+        }
+        request.log.error(error, "Falló la verificación de la sesión Firebase.");
+        return reply.code(503).send({
+          error: {
+            code: "AUTH_UNAVAILABLE",
+            message: "El servicio de identidad no está disponible.",
+            requestId: request.id,
+          },
+          meta: apiMeta(config),
+        });
+      }
+    }
+  });
+
+  /**
+   * Filas SAC para METRIQ. Devuelve la bandeja de una marca proyectada al mismo formato
+   * que hoy leen sus planillas de Google Sheets, de modo que el consumidor no cambia su
+   * manera de trabajar: solo cambia de dónde vienen las filas.
+   */
+  app.get("/api/integrations/sac-rows", async (request) => {
+    const query = sacRowsQuerySchema.parse(request.query);
+    const store = await repository.snapshot();
+    const brand = store.brands.find((item) => item.id === query.brandId);
+    if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
+    if (!brand.active || !brand.account.active) {
+      throw new ApiError(409, "BRAND_INACTIVE", "La marca está desactivada en Wiwo Nodes.");
+    }
+    const { rows, droppedNoDate } = buildSacRows(brand, store.interactions, {
+      from: query.from,
+      to: query.to,
+    });
+    return {
+      data: {
+        brandKey: brand.id,
+        brandLabel: brand.name,
+        rows,
+      },
+      meta: {
+        ...apiMeta(config),
+        count: rows.length,
+        droppedNoDate,
+        from: query.from,
+        to: query.to,
+        generatedAt: new Date().toISOString(),
+      },
+    };
+  });
+
+  /** Catálogo de marcas disponibles como fuente SAC, para configurar el mapeo en METRIQ. */
+  app.get("/api/integrations/sac-brands", async () => {
+    const store = await repository.snapshot();
+    const brands = store.brands
+      .filter((brand) => brand.active && brand.account.active)
+      .map((brand) => ({
+        brandKey: brand.id,
+        brandLabel: brand.name,
+        handle: brand.account.handle,
+        channels: brand.account.channels,
+        interactions: store.interactions.filter((item) =>
+          item.brandId === brand.id && item.direction === "inbound").length,
+      }))
+      .sort((left, right) => left.brandLabel.localeCompare(right.brandLabel, "es"));
+    return { data: brands, meta: { ...apiMeta(config), count: brands.length } };
+  });
+
+  /** Configuración pública del cliente Firebase. No contiene secretos. */
+  app.get("/api/auth/config", async () => ({
+    data: {
+      enabled: config.auth.enabled,
+      requiredPermission: config.auth.requiredPermission,
+    },
+    meta: apiMeta(config),
+  }));
+
+  app.post("/api/auth/session", async (request, reply) => {
+    if (!firebaseAuth) {
+      throw new ApiError(503, "AUTH_DISABLED", "La identidad Firebase no está configurada en este entorno.");
+    }
+    const body = firebaseSessionSchema.parse(request.body);
+    let created: Awaited<ReturnType<FirebaseAuthService["createSession"]>>;
+    try {
+      created = await firebaseAuth.createSession(body.idToken);
+    } catch (error) {
+      if (error instanceof FirebaseAuthError) throw new ApiError(error.status, error.code, error.message);
+      throw error;
+    }
+    const forwardedProtocol = headerString((request.headers as Record<string, unknown>)["x-forwarded-proto"]);
+    const secure = request.protocol === "https" || forwardedProtocol === "https";
+    reply.header(
+      "Set-Cookie",
+      `${config.auth.cookieName}=${encodeURIComponent(created.cookie)}; Path=/; Max-Age=${Math.floor(config.auth.sessionTtlMs / 1_000)}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`,
+    );
+    return {
+      data: {
+        userId: created.actor.userId,
+        displayName: created.actor.displayName,
+        email: created.user.email,
+        role: created.actor.role,
+        brandIds: created.actor.brandIds,
+      },
+      meta: apiMeta(config),
+    };
+  });
+
+  app.delete("/api/auth/session", async (_request, reply) => {
+    reply.header("Set-Cookie", `${config.auth.cookieName}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
+    return reply.code(204).send();
   });
 
   app.post("/api/session", async (request, reply) => {
@@ -1349,6 +1531,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       rateLimitEnabled: config.security.rateLimit.enabled,
       actorContextRequired: config.security.actorContext.require,
       trustedActorHeaders: config.security.actorContext.trustHeaders,
+      identity: config.auth.enabled ? "firebase" : "local",
       defaultRole: config.security.actorContext.trustHeaders ? undefined : config.security.actorContext.defaultRole,
     },
     persistence: {
@@ -1536,6 +1719,174 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return {
       data: publicBrand(config, created),
       meta: { ...apiMeta(config), created: true, externalWrites: false },
+    };
+  });
+
+  /**
+   * Catálogo de marcas reales visibles para el token de Metricool, con el estado de
+   * vinculación local de cada una. Solo lectura: no crea ni modifica nada.
+   */
+  app.get("/api/metricool/brands", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    assertPortfolioAdmin(actor);
+    if (!metricoolClient?.listBrands) {
+      throw new ApiError(503, "METRICOOL_NOT_CONFIGURED", "Metricool no está configurado para modo live.");
+    }
+    const userId = config.metricool.userId
+      || config.metricool.fallbackAccount?.userId
+      || Object.values(config.metricool.accounts)[0]?.userId;
+    if (!userId) {
+      throw new ApiError(
+        503,
+        "METRICOOL_USER_ID_MISSING",
+        "Configure METRICOOL_USER_ID para descubrir las marcas del portafolio.",
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await metricoolClient.listBrands(userId);
+    } catch (error) {
+      if (error instanceof MetricoolRequestError) {
+        throw new ApiError(502, "METRICOOL_ERROR", "Metricool no respondió al listar las marcas.", {
+          status: error.status,
+        });
+      }
+      throw error;
+    }
+
+    const discovered = normalizeDiscoveredBrands(payload);
+    const store = await repository.snapshot();
+    // Un blogId ya vinculado no debe volver a importarse: duplicaría el inbox de esa marca.
+    const linked = new Map<string, { brandId: string; brandName: string }>();
+    for (const brand of store.brands) {
+      const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
+      if (reference) linked.set(reference.blogId, { brandId: brand.id, brandName: brand.name });
+    }
+
+    const data = discovered.map((brand) => ({
+      ...brand,
+      linkedTo: linked.get(brand.blogId),
+    }));
+    return {
+      data,
+      meta: {
+        ...apiMeta(config),
+        count: data.length,
+        linked: data.filter((brand) => brand.linkedTo).length,
+        available: data.filter((brand) => !brand.linkedTo).length,
+        externalWrites: false,
+      },
+    };
+  });
+
+  /**
+   * Da de alta marcas locales a partir del catálogo de Metricool y guarda su referencia.
+   * Es idempotente por `blogId`: repetir la importación no duplica marcas.
+   */
+  app.post("/api/metricool/brands/import", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    assertPortfolioAdmin(actor);
+    if (!metricoolClient?.listBrands) {
+      throw new ApiError(503, "METRICOOL_NOT_CONFIGURED", "Metricool no está configurado para modo live.");
+    }
+    const body = metricoolBrandImportSchema.parse(request.body);
+    const userId = config.metricool.userId
+      || config.metricool.fallbackAccount?.userId
+      || Object.values(config.metricool.accounts)[0]?.userId;
+    if (!userId) {
+      throw new ApiError(
+        503,
+        "METRICOOL_USER_ID_MISSING",
+        "Configure METRICOOL_USER_ID para importar marcas.",
+      );
+    }
+
+    const discovered = normalizeDiscoveredBrands(await metricoolClient.listBrands(userId));
+    const byBlogId = new Map(discovered.map((brand) => [brand.blogId, brand]));
+    const requested = body.blogIds.map((blogId) => {
+      const brand = byBlogId.get(blogId);
+      if (!brand) {
+        throw new ApiError(404, "METRICOOL_BRAND_NOT_FOUND", `El token no ve la marca ${blogId}.`, { blogId });
+      }
+      return brand;
+    });
+
+    const store = await repository.snapshot();
+    const alreadyLinked = new Set<string>();
+    for (const brand of store.brands) {
+      const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
+      if (reference) alreadyLinked.add(reference.blogId);
+    }
+
+    const created: Array<{ blogId: string; brandId: string; accountId: string; name: string; channels: Channel[] }> = [];
+    const skipped: Array<{ blogId: string; reason: string }> = [];
+
+    for (const source of requested) {
+      if (alreadyLinked.has(source.blogId)) {
+        skipped.push({ blogId: source.blogId, reason: "ALREADY_LINKED" });
+        continue;
+      }
+      // Solo se importan marcas con al menos un canal que el inbox sepa leer; el resto
+      // generaría una cuenta que nunca sincroniza.
+      const channels = source.channels.filter((channel) => metricoolInboxSurfacesForChannel(channel).length);
+      if (!channels.length) {
+        skipped.push({ blogId: source.blogId, reason: "NO_SUPPORTED_CHANNELS" });
+        continue;
+      }
+
+      const brand = await repository.mutate((current) => {
+        const usedBrandIds = new Set(current.brands.map((item) => item.id));
+        const usedAccountIds = new Set(current.brands.map((item) => item.account.id));
+        const usedHandles = new Set(current.brands.map((item) => item.account.handle.toLowerCase()));
+        const brandId = uniqueSlug(slugify(source.label), usedBrandIds);
+        const accountId = uniqueSlug(`${brandId}-account`, usedAccountIds);
+        const baseHandle = `@${(source.instagramHandle || slugify(source.label)).replace(/^@/, "")}`;
+        const handle = usedHandles.has(baseHandle.toLowerCase()) ? `${baseHandle}-${brandId}` : baseHandle;
+        const record: Brand = {
+          id: brandId,
+          name: source.label,
+          color: body.color,
+          active: body.active,
+          resources: [],
+          account: {
+            id: accountId,
+            brandId,
+            name: source.label,
+            handle,
+            channels,
+            active: body.active,
+          },
+        };
+        current.brands.push(record);
+        current.workflow.updatedAt = new Date().toISOString();
+        return record;
+      });
+
+      await repository.updateAccountMetricool(brand.account.id, {
+        userId: source.userId,
+        blogId: source.blogId,
+        instagramProvider: body.instagramProvider,
+      });
+      alreadyLinked.add(source.blogId);
+      created.push({
+        blogId: source.blogId,
+        brandId: brand.id,
+        accountId: brand.account.id,
+        name: brand.name,
+        channels,
+      });
+    }
+
+    return {
+      data: { created, skipped },
+      meta: {
+        ...apiMeta(config),
+        created: created.length,
+        skipped: skipped.length,
+        credentialsStored: created.length > 0,
+        externalWrites: false,
+      },
     };
   });
 
@@ -3075,12 +3426,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   app.get("/api/export/xlsx", async (request, reply) => {
     const actor = requireRole(config, request, "supervisor");
     const snapshot = await repository.snapshot();
-    const filters = scopedInteractionFilters(actor, snapshot.brands, {});
+    // El export honra los mismos filtros que la bandeja: sin esto, pedir "agosto de una
+    // marca" devolvía el histórico completo de todas y había que recortarlo a mano.
+    const requested = interactionFiltersSchema.parse(request.query);
+    const filters = scopedInteractionFilters(actor, snapshot.brands, requested);
     const workbook = await buildInteractionsWorkbook(repository, filters);
     const date = new Date().toISOString().slice(0, 10);
+    // El nombre del archivo refleja el recorte para no confundir dos exports en disco.
+    const brandLabel = requested.brandId
+      ? `-${snapshot.brands.find((brand) => brand.id === requested.brandId)?.id ?? requested.brandId}`
+      : "";
+    const rangeLabel = requested.from || requested.to
+      ? `-${(requested.from ?? "inicio").slice(0, 10)}_${(requested.to ?? date).slice(0, 10)}`
+      : `-${date}`;
     return reply
       .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-      .header("Content-Disposition", `attachment; filename="sac-flow-${date}.xlsx"`)
+      .header("Content-Disposition", `attachment; filename="sac-flow${brandLabel}${rangeLabel}.xlsx"`)
       .header("Cache-Control", "no-store")
       .send(workbook);
   });

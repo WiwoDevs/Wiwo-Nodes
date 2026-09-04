@@ -33,6 +33,7 @@ import {
   metricoolContentForDisplay,
   shouldReplaceMetricoolContent,
 } from "./metricool-content.js";
+import { summarizeResponseTimes } from "./response-time.js";
 
 const persistedStoreSchema = z.object({
   version: z.literal(1),
@@ -106,6 +107,23 @@ function normalizeDemoSacPolicies(store: DataStore): void {
       brand.sacPolicy = demo.sacPolicy;
     }
   }
+}
+
+/**
+ * Marcas que participan de la operación diaria. Una marca desactivada deja de sincronizar,
+ * y sus casos históricos tampoco deben aparecer en bandeja ni en métricas: lo contrario
+ * haría que "desactivar" no significara nada para quien mira la pantalla. El registro se
+ * conserva y sigue visible en la vista de Cuentas, de modo que reactivar la devuelve entera.
+ */
+function activeBrandIds(store: DataStore): Set<string> {
+  return new Set(store.brands
+    .filter((brand) => brand.active && brand.account.active)
+    .map((brand) => brand.id));
+}
+
+function fromActiveBrands(interactions: Interaction[], store: DataStore): Interaction[] {
+  const active = activeBrandIds(store);
+  return interactions.filter((interaction) => active.has(interaction.brandId));
 }
 
 function matchesInteraction(interaction: Interaction, filters: InteractionFilters): boolean {
@@ -287,7 +305,7 @@ export class JsonRepository implements SacFlowRepository {
 
   async listInteractions(filters: InteractionFilters = {}): Promise<Interaction[]> {
     const store = await this.snapshot();
-    return store.interactions
+    return fromActiveBrands(store.interactions, store)
       .filter((interaction) => matchesInteraction(interaction, filters))
       .sort((left, right) =>
         Date.parse(right.createdAt) - Date.parse(left.createdAt)
@@ -734,16 +752,16 @@ export class JsonRepository implements SacFlowRepository {
 
   async stats(filters: InteractionFilters = {}): Promise<InteractionStats> {
     const store = await this.snapshot();
-    const items = store.interactions.filter((interaction) => matchesInteraction(interaction, filters));
+    const items = fromActiveBrands(store.interactions, store)
+      .filter((interaction) => matchesInteraction(interaction, filters));
     const inboundItems = items.filter((item) => item.direction === "inbound");
     const pendingStatuses = new Set(["new", "pending", "drafted"]);
     const replied = inboundItems.filter((item) => item.status === "replied").length;
-    const responseMinutes = inboundItems
-      .filter((item) => item.respondedAt)
-      .map((item) => (Date.parse(item.respondedAt!) - Date.parse(item.createdAt)) / 60_000)
-      .filter((minutes) => Number.isFinite(minutes) && minutes >= 0);
+    const responseTimes = summarizeResponseTimes(inboundItems);
 
     const byBrand = store.brands
+      // Una marca desactivada no debe ocupar una fila con ceros en el rendimiento.
+      .filter((brand) => brand.active && brand.account.active)
       .filter((brand) => !filters.brandId || brand.id === filters.brandId)
       .filter((brand) => !filters.brandIds || filters.brandIds.includes(brand.id))
       .map((brand) => {
@@ -757,6 +775,12 @@ export class JsonRepository implements SacFlowRepository {
           reviews: brandItems.filter((item) => item.type === "review").length,
           pending: brandItems.filter((item) => pendingStatuses.has(item.status)).length,
           replied: brandItems.filter((item) => item.direction === "inbound" && item.status === "replied").length,
+          // Cada marca reporta su propio tiempo: antes la vista repetía el valor global en todas las filas.
+          ...(({ medianMinutes, averageMinutes, sampleSize }) => ({
+            medianResponseMinutes: medianMinutes,
+            averageResponseMinutes: averageMinutes,
+            responseSampleSize: sampleSize,
+          }))(summarizeResponseTimes(brandItems)),
         };
       })
       .sort((left, right) => right.total - left.total || left.brandName.localeCompare(right.brandName));
@@ -785,9 +809,9 @@ export class JsonRepository implements SacFlowRepository {
         || item.automation?.knowledge.status === "live_source_required",
       ).length,
       responseRate: inboundItems.length ? Math.round((replied / inboundItems.length) * 1000) / 10 : 0,
-      averageResponseMinutes: responseMinutes.length
-        ? Math.round((responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length) * 10) / 10
-        : null,
+      averageResponseMinutes: responseTimes.averageMinutes,
+      medianResponseMinutes: responseTimes.medianMinutes,
+      responseSampleSize: responseTimes.sampleSize,
       byChannel: Object.fromEntries(
         CHANNELS.map((channel) => [channel, items.filter((item) => item.channel === channel).length]),
       ) as InteractionStats["byChannel"],

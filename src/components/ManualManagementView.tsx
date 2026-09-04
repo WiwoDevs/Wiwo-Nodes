@@ -64,6 +64,12 @@ interface ManualInboxEntry {
 }
 
 export interface ManualManagementViewProps {
+  /**
+   * Superficie que atiende esta vista. Responder un DM y responder un comentario son
+   * trabajos distintos: el primero es una conversación privada por contacto, el segundo
+   * es público y se agrupa por publicación. Sin valor, la vista muestra ambas.
+   */
+  surfaceKind?: "dm" | "comment";
   accounts: BrandAccount[];
   interactions: Interaction[];
   selectedAccountId: string | null;
@@ -404,6 +410,7 @@ export function ManualManagementView({
   onClearSelection,
   onRetryPostComments,
   postCommentsError = null,
+  surfaceKind,
 }: ManualManagementViewProps) {
   const [activeSurfaceId, setActiveSurfaceId] = useState<ManualSurfaceId>("all");
   const [query, setQuery] = useState("");
@@ -417,13 +424,23 @@ export function ManualManagementView({
   const draftDirtyRef = useRef(false);
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId);
+  // Las reseñas acompañan a los comentarios: ambas son respuestas públicas sobre contenido.
+  // Así ninguna superficie queda inalcanzable al separar las vistas.
+  const allowedKinds = useMemo<InteractionKind[]>(
+    () => surfaceKind === "dm" ? ["dm"]
+      : surfaceKind === "comment" ? ["comment", "review"]
+        : ["dm", "comment", "review"],
+    [surfaceKind],
+  );
   const accountInteractions = useMemo(
     () => selectedAccountId
-      ? interactions.filter((interaction) => interaction.accountId === selectedAccountId)
+      ? interactions.filter((interaction) => interaction.accountId === selectedAccountId
+        && allowedKinds.includes(interaction.kind))
       : [],
-    [interactions, selectedAccountId],
+    [allowedKinds, interactions, selectedAccountId],
   );
   const visibleDetail = detail?.accountId === selectedAccountId
+    && allowedKinds.includes(detail.kind)
     && (activeSurfaceId === "all" || activeSurfaceId === `${detail.platform}:${detail.kind}`)
     ? detail
     : null;
@@ -439,7 +456,7 @@ export function ManualManagementView({
     ])];
     const tabs: ManualSurfaceTab[] = [];
     for (const platform of platforms) {
-      for (const kind of surfaceKinds(platform)) {
+      for (const kind of surfaceKinds(platform).filter((item) => allowedKinds.includes(item))) {
         const count = kind === "comment" && postSummaries
           ? postSummaries
             .filter((post) => post.accountId === selectedAccount.id && post.platform === platform)
@@ -450,7 +467,8 @@ export function ManualManagementView({
           id: `${platform}:${kind}`,
           platform,
           kind,
-          label: `${platformLabel(platform)} · ${surfaceLabel(kind)}`,
+          // Con la superficie fija basta el nombre de la red; repetirla sería ruido.
+          label: surfaceKind ? platformLabel(platform) : `${platformLabel(platform)} · ${surfaceLabel(kind)}`,
           count,
         });
       }
@@ -459,7 +477,7 @@ export function ManualManagementView({
       { id: "all", label: "Todos", count: tabs.reduce((total, tab) => total + tab.count, 0) },
       ...tabs,
     ];
-  }, [accountInteractions, postSummaries, selectedAccount]);
+  }, [accountInteractions, allowedKinds, postSummaries, selectedAccount, surfaceKind]);
 
   useEffect(() => {
     setActiveSurfaceId("all");
@@ -472,7 +490,8 @@ export function ManualManagementView({
   }, [activeSurfaceId, surfaceTabs]);
 
   const activeTab = surfaceTabs.find((tab) => tab.id === activeSurfaceId) ?? surfaceTabs[0]!;
-  const isCommentSurface = activeTab.kind === "comment";
+  // Con la vista fijada en comentarios, incluso "Todos" agrupa por publicación.
+  const isCommentSurface = surfaceKind === "comment" || activeTab.kind === "comment";
   const entries = useMemo(() => {
     const normalizedQuery = normalizeSearch(query);
     const matchingPostSummaries = isCommentSurface && postSummaries
@@ -655,8 +674,18 @@ export function ManualManagementView({
       <header className="manual-inbox-header">
         <div className="manual-inbox-header__copy">
           <p>Operación humana por cuenta</p>
-          <h1 id="manual-inbox-title">Gestión manual</h1>
-          <span>Revisa el contexto completo y confirma cada respuesta antes de enviarla.</span>
+          <h1 id="manual-inbox-title">
+            {surfaceKind === "dm" ? "Gestión de DMs"
+              : surfaceKind === "comment" ? "Gestión de comentarios"
+                : "Gestión manual"}
+          </h1>
+          <span>
+            {surfaceKind === "dm"
+              ? "Conversaciones privadas agrupadas por contacto, con su historial completo."
+              : surfaceKind === "comment"
+                ? "Comentarios y reseñas agrupados por publicación, con el contexto del post."
+                : "Revisa el contexto completo y confirma cada respuesta antes de enviarla."}
+          </span>
         </div>
         <div className="manual-inbox-account-picker">
           <label htmlFor="manual-inbox-account">Cuenta obligatoria</label>
