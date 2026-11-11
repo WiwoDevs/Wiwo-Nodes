@@ -6,7 +6,7 @@ import {
   type ActorRole,
   type MetricoolAccountReference,
 } from "./types.js";
-import type { FirebaseAuthConfig } from "./firebase-auth.js";
+import type { IdentityConfig } from "./identity.js";
 
 const modeSchema = z.enum(["demo", "live"]);
 const repositoryDriverSchema = z.enum(["json", "postgres"]);
@@ -81,10 +81,10 @@ export interface AppConfig {
       defaultRole: ActorRole;
     };
   };
-  auth: FirebaseAuthConfig;
+  auth: IdentityConfig;
   /**
    * Clave de lectura servidor-a-servidor para las rutas de integración. Existe aparte de
-   * la identidad Firebase porque un consumidor como METRIQ no tiene navegador ni cookie;
+   * la sesión de usuario porque un consumidor como METRIQ no tiene navegador ni cookie;
    * solo habilita lecturas y nunca alcanza al resto de la API.
    */
   serviceApiKey?: string;
@@ -163,7 +163,18 @@ export function loadConfig(
   const port = z.coerce.number().int().min(1).max(65_535).parse(env.PORT || 8787);
   const production = env.NODE_ENV === "production";
   const apiKey = env.SAC_FLOW_API_KEY?.trim() || undefined;
-  const requireApiKey = parseBoolean(env.SAC_FLOW_REQUIRE_API_KEY, production || requestedMode === "live");
+  // Con inicio de sesión (Google o prueba local) la sesión firmada reemplaza a la clave
+  // compartida del sitio: no se le pide además SAC_FLOW_API_KEY al navegador.
+  if (env.SAC_FLOW_AUTH_MODE?.trim() === "firebase") {
+    throw new Error("SAC_FLOW_AUTH_MODE=firebase ya no existe: use SAC_FLOW_AUTH_MODE=google con GOOGLE_OAUTH_CLIENT_ID y GOOGLE_OAUTH_CLIENT_SECRET.");
+  }
+  const authMode = z.enum(["local", "google", "dev"]).parse(env.SAC_FLOW_AUTH_MODE || "local");
+  if (authMode === "dev" && production) {
+    throw new Error("SAC_FLOW_AUTH_MODE=dev es solo para pruebas locales y no puede usarse con NODE_ENV=production.");
+  }
+  const requireApiKey = authMode !== "local"
+    ? false
+    : parseBoolean(env.SAC_FLOW_REQUIRE_API_KEY, production || requestedMode === "live");
   if (requireApiKey && !apiKey) {
     throw new Error("SAC_FLOW_API_KEY debe estar configurado cuando SAC_FLOW_REQUIRE_API_KEY está activo.");
   }
@@ -186,26 +197,46 @@ export function loadConfig(
   const trustActorHeaders = parseBoolean(env.SAC_FLOW_TRUST_ACTOR_HEADERS, requireActorContext);
   const defaultRole = z.enum(ACTOR_ROLES).parse(env.SAC_FLOW_DEFAULT_ROLE || "admin");
 
-  // Identidad Firebase compartida con METRIQ. Cuando está activa reemplaza tanto la clave
+  // Identidad propia (Google o prueba local). Cuando está activa reemplaza tanto la clave
   // compartida como los headers de gateway: el actor sale de la sesión firmada.
-  const authMode = z.enum(["local", "firebase"]).parse(env.SAC_FLOW_AUTH_MODE || "local");
-  const serviceAccountKey = env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim() || undefined;
-  if (authMode === "firebase" && !serviceAccountKey) {
-    throw new Error("SAC_FLOW_AUTH_MODE=firebase requiere FIREBASE_SERVICE_ACCOUNT_KEY.");
+  const googleClientId = env.GOOGLE_OAUTH_CLIENT_ID?.trim() || undefined;
+  const googleClientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() || undefined;
+  const googleRedirectUri = env.GOOGLE_OAUTH_REDIRECT_URI?.trim()
+    || (production ? undefined : "http://localhost:5173/api/auth/google/callback");
+  if (authMode === "google" && (!googleClientId || !googleClientSecret || !googleRedirectUri)) {
+    throw new Error("SAC_FLOW_AUTH_MODE=google requiere GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET y, en producción, GOOGLE_OAUTH_REDIRECT_URI.");
+  }
+  const sessionSecret = env.SAC_FLOW_AUTH_SESSION_SECRET?.trim() || undefined;
+  if (sessionSecret && sessionSecret.length < 32) {
+    throw new Error("SAC_FLOW_AUTH_SESSION_SECRET debe tener al menos 32 caracteres.");
+  }
+  if (authMode === "google" && production && !sessionSecret) {
+    throw new Error("SAC_FLOW_AUTH_MODE=google en producción requiere SAC_FLOW_AUTH_SESSION_SECRET.");
   }
   const serviceApiKey = env.SAC_FLOW_SERVICE_API_KEY?.trim() || undefined;
   if (serviceApiKey && serviceApiKey.length < 32) {
     throw new Error("SAC_FLOW_SERVICE_API_KEY debe tener al menos 32 caracteres.");
   }
-  const auth: FirebaseAuthConfig = {
-    enabled: authMode === "firebase",
-    projectId: env.FIREBASE_PROJECT_ID?.trim() || undefined,
-    serviceAccountKey,
+  const auth: IdentityConfig = {
+    enabled: authMode !== "local",
+    provider: authMode === "local" ? undefined : authMode,
+    devUsersFile: authMode === "dev"
+      ? path.resolve(cwd, env.SAC_FLOW_DEV_AUTH_USERS_FILE?.trim() || "dev-users.example.json")
+      : undefined,
+    allowedUsersFile: path.resolve(cwd, env.SAC_FLOW_AUTH_ALLOWED_USERS_FILE?.trim() || path.join("data", "allowed-users.json")),
+    allowedDomains: (env.SAC_FLOW_AUTH_ALLOWED_DOMAINS || "")
+      .split(",")
+      .map((domain) => domain.trim().toLowerCase().replace(/^@/, ""))
+      .filter(Boolean),
+    google: authMode === "google" && googleClientId && googleClientSecret && googleRedirectUri
+      ? { clientId: googleClientId, clientSecret: googleClientSecret, redirectUri: googleRedirectUri }
+      : undefined,
+    sessionSecret,
+    postLoginRedirect: env.SAC_FLOW_AUTH_POST_LOGIN_REDIRECT?.trim() || env.VITE_APP_BASE_PATH?.trim() || "/",
     cookieName: env.SAC_FLOW_AUTH_COOKIE?.trim() || "wiwo_nodes_session",
     sessionTtlMs: z.coerce.number().int().min(3_600_000).max(1_209_600_000).parse(
       env.SAC_FLOW_AUTH_SESSION_TTL_MS || 5 * 24 * 60 * 60 * 1_000,
     ),
-    allowedUsersCollection: env.SAC_FLOW_AUTH_ALLOWED_USERS_COLLECTION?.trim() || "allowed_users",
     requiredPermission: (env.SAC_FLOW_AUTH_REQUIRED_PERMISSION?.trim() || "sac").toLowerCase(),
     adminPermission: (env.SAC_FLOW_AUTH_ADMIN_PERMISSION?.trim() || "admin").toLowerCase(),
     defaultRole: z.enum(ACTOR_ROLES).parse(env.SAC_FLOW_AUTH_DEFAULT_ROLE || "agent"),

@@ -1,0 +1,296 @@
+/*
+ * Pantalla de inicio de sesión con la anatomía de WiWO Ops: escena de primavera de fondo,
+ * velo oscuro de marca, orbe WIWO y lema a la izquierda, panel de vidrio "Entrar" a la
+ * derecha. Siempre en esquema oscuro, igual que Ops, sin importar el tema de la app.
+ */
+@import "./wiwo-orb.css";
+
+.wl-shell {
+  --wiwo-blue: #4242ff;
+  --wiwo-green: #3bff00;
+  --wiwo-beige: #f8fad7;
+  --wiwo-ink: #292929;
+  --wiwo-ease-expressive: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --wiwo-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --wiwo-motion-fast: 0.16s;
+  --wiwo-motion-medium: 0.28s;
+  --control-BorderRadius: 999px;
+  --wl-texto: #ececef;
+  --wl-texto-tenue: rgba(255, 255, 255, 0.86);
+  --wl-texto-sutil: rgba(255, 255, 255, 0.6);
+  --wl-peligro: #f2857c;
+  --wl-control: rgba(255, 255, 255, 0.1);
+  --wl-control-borde: rgba(255, 255, 255, 0.34);
+  --wl-linea-fuerte: rgba(255, 255, 255, 0.55);
+  --wl-acento: #8c8cff;
+  --wl-acento-fuerte: var(--wiwo-blue);
+  position: relative;
+  isolation: isolate;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  color: var(--wl-texto);
+  color-scheme: dark;
+  font-family: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, sans-serif;
+  background: #15101c;
+}
+
+/* Escena ilustrada (SVG de WiWO Ops). Sus clases utilitarias se definen aquí. */
+.wl-scene,
+.wl-scene .fixed { position: fixed; inset: 0; }
+.wl-scene { z-index: 0; overflow: hidden; pointer-events: none; }
+.wl-scene .inset-0 { inset: 0; }
+.wl-scene .overflow-hidden { overflow: hidden; }
+.wl-scene .pointer-events-none { pointer-events: none; }
+.wl-scene .size-full,
+.wl-scene svg { display: block; width: 100%; height: 100%; }
+
+/* Velo de marca sobre la escena (fondo-marca[data-superficie=marco] en Ops). */
+.wl-main {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  overflow-y: auto;
+  background: rgb(21 16 28 / 0.78);
+}
+
+.wl-layout {
+  display: flex;
+  width: 100%;
+  max-width: 72rem;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5rem;
+}
+
+.wl-aside { display: none; max-width: 28rem; flex-direction: column; align-items: flex-start; gap: 2rem; }
+
+.wl-logo {
+  display: inline-block;
+  aspect-ratio: 11397 / 2180;
+  background: var(--wiwo-beige);
+  -webkit-mask: var(--wl-logo-url) center / contain no-repeat;
+  mask: var(--wl-logo-url) center / contain no-repeat;
+}
+
+.wl-logo--large { height: 2rem; }
+.wl-logo--small { height: 1.25rem; }
+
+.wl-tagline {
+  margin: 0;
+  color: var(--wl-texto);
+  font-family: "Outfit Variable", Outfit, "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.375;
+}
+
+.wl-tagline span { color: var(--wl-texto-tenue); }
+
+.wl-mobile-brand { display: flex; align-items: center; gap: 0.75rem; }
+
+@media (min-width: 640px) {
+  .wl-layout { padding: 2.5rem; }
+}
+
+@media (min-width: 1024px) {
+  .wl-layout { flex-direction: row; justify-content: space-between; gap: 4rem; }
+  .wl-aside { display: flex; }
+  .wl-mobile-brand { display: none; }
+}
+
+/* Panel de vidrio (panel-vidrio en Ops). */
+.wl-panel {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 24rem;
+  padding: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 1rem;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05)), rgba(41, 41, 41, 0.66);
+  box-shadow: 0 24px 70px rgba(41, 41, 41, 0.32);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+  animation: wl-entrar-abajo var(--wiwo-motion-fast) var(--wiwo-ease-emphasized) both;
+}
+
+.wl-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.18), transparent 34%), linear-gradient(315deg, rgba(255, 255, 255, 0.08), transparent 46%);
+}
+
+.wl-panel > * { position: relative; z-index: 1; }
+
+@media (min-width: 640px) {
+  .wl-panel { padding: 2rem; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .wl-panel { background: #1f1f23; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .wl-panel::before { display: none; }
+  .wl-main { background: #15101c; }
+}
+
+@keyframes wl-entrar-abajo {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wl-title {
+  margin: 0 0 1.5rem;
+  color: var(--wl-texto);
+  font-family: "Outfit Variable", Outfit, "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+/* Botón de Google en píldora oscura, como el botón de Google Identity de Ops. */
+.wl-google {
+  display: flex;
+  width: 100%;
+  max-width: 17rem;
+  height: 2.75rem;
+  margin: 0 auto;
+  padding: 0 0.25rem 0 1.25rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  color: #fff;
+  background: #202124;
+  font: 600 0.875rem/1 "Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, sans-serif;
+  cursor: pointer;
+  transition: background-color var(--wiwo-motion-fast) ease, border-color var(--wiwo-motion-fast) ease;
+}
+
+.wl-google:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.45); background: #2a2b2f; }
+.wl-google:disabled { cursor: not-allowed; opacity: 0.6; }
+
+.wl-google__mark {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.wl-footnote {
+  margin: 1.25rem 0 0;
+  color: var(--wl-texto-sutil);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.wl-form { display: flex; margin-top: 1.25rem; flex-direction: column; gap: 1.25rem; }
+.wl-form--solo { margin-top: 0; }
+
+.wl-field { display: flex; flex-direction: column; gap: 0.375rem; }
+.wl-field label { color: var(--wl-texto); font-size: 0.875rem; font-weight: 500; }
+.wl-field label span { margin-left: 0.125rem; color: var(--wl-peligro); }
+
+.wl-shell .wl-input {
+  width: 100%;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--wl-control-borde);
+  border-radius: 0.5rem;
+  outline: none;
+  color: var(--wl-texto);
+  background: var(--wl-control);
+  font-size: 0.875rem;
+  box-shadow: none;
+  transition: border-color var(--wiwo-motion-fast) ease, box-shadow var(--wiwo-motion-fast) ease;
+}
+
+.wl-shell .wl-input:hover { border-color: var(--wl-linea-fuerte); }
+.wl-shell .wl-input:focus-visible { border-color: var(--wiwo-green); outline: none; box-shadow: 0 0 0 4px rgba(59, 255, 0, 0.22); }
+.wl-shell .wl-input:disabled { cursor: not-allowed; color: var(--wl-texto-sutil); background: rgba(255, 255, 255, 0.05); }
+.wl-shell .wl-input[aria-invalid="true"] { border-color: var(--wl-peligro); }
+
+/* El autocompletado del navegador pinta el campo claro: se repinta con el fondo del control. */
+.wl-shell .wl-input:-webkit-autofill,
+.wl-shell .wl-input:-webkit-autofill:hover,
+.wl-shell .wl-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--wl-texto);
+  caret-color: var(--wl-texto);
+  box-shadow: 0 0 0 1000px #34303b inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+.wl-shell .wl-input:-webkit-autofill:focus { box-shadow: 0 0 0 1000px #34303b inset, 0 0 0 4px rgba(59, 255, 0, 0.22); }
+
+.wl-submit {
+  display: inline-flex;
+  width: 100%;
+  height: 2.25rem;
+  margin-top: 0.25rem;
+  padding: 0 1rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 0;
+  border-radius: 999px;
+  color: var(--wiwo-ink);
+  background: var(--wl-acento);
+  font: 600 0.875rem/1 "Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, sans-serif;
+  cursor: pointer;
+  transition: background-color var(--wiwo-motion-fast) ease, transform var(--wiwo-motion-fast) ease;
+}
+
+.wl-submit:hover:not(:disabled) { color: #fff; background: var(--wl-acento-fuerte); }
+.wl-submit:active:not(:disabled) { transform: scale(0.98); }
+.wl-submit:disabled { cursor: not-allowed; color: var(--wl-texto-sutil); background: rgba(255, 255, 255, 0.14); }
+
+.wl-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(41, 41, 41, 0.3);
+  border-top-color: var(--wiwo-ink);
+  border-radius: 50%;
+  animation: wl-spin 0.7s linear infinite;
+}
+
+@keyframes wl-spin { to { transform: rotate(360deg); } }
+
+.wl-message {
+  display: flex;
+  margin: 1rem 0 0;
+  padding: 0.625rem 0.75rem;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.wl-message svg { flex: none; margin-top: 1px; }
+.wl-message--error { color: #ffb4ab; background: rgba(195, 70, 61, 0.22); }
+
+.wl-dev-badge {
+  margin: -0.75rem 0 1.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed rgba(255, 184, 77, 0.55);
+  border-radius: 0.625rem;
+  color: #ffc56e;
+  background: rgba(255, 184, 77, 0.1);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.wl-dev-badge code { font-size: 0.6875rem; }
+
+.wl-checking { display: grid; min-height: 100%; place-items: center; }
+.wl-checking .wl-spinner { width: 22px; height: 22px; border-color: rgba(255, 255, 255, 0.25); border-top-color: var(--wiwo-green); }

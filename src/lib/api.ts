@@ -306,22 +306,26 @@ export async function openApiSession(apiKey: string): Promise<void> {
   if (!response.ok) await throwApiError(response);
 }
 
-export type AuthConfig = { enabled: boolean; requiredPermission: string };
+export type AuthProvider = "google" | "dev";
+export type AuthConfig = { enabled: boolean; provider: AuthProvider | null; requiredPermission: string };
 
-/** Indica si este entorno exige inicio de sesión con Google. */
+/** Indica si este entorno exige inicio de sesión (Google o prueba local). */
 export async function loadAuthConfig(): Promise<AuthConfig> {
   const response = await fetch(`${API_BASE}/auth/config`);
-  if (!response.ok) return { enabled: false, requiredPermission: "sac" };
+  if (!response.ok) return { enabled: false, provider: null, requiredPermission: "sac" };
   const payload = await response.json() as { data: AuthConfig };
   return payload.data;
 }
 
-/** Canjea el idToken de Google por la cookie de sesión del servidor. */
-export async function openFirebaseSession(idToken: string): Promise<SessionActor & { email: string }> {
-  const response = await fetch(`${API_BASE}/auth/session`, {
+/** URL que inicia el flujo OAuth de Google en el servidor (redirección de página completa). */
+export const GOOGLE_SIGN_IN_URL = `${API_BASE}/auth/google/start`;
+
+/** Modo de prueba local: canjea correo y contraseña ficticios por la cookie de sesión. */
+export async function openDevSession(email: string, password: string): Promise<SessionActor & { email: string }> {
+  const response = await fetch(`${API_BASE}/auth/dev-session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
+    body: JSON.stringify({ email: email.trim(), password }),
   });
   if (!response.ok) await throwApiError(response);
   const payload = await response.json() as { data: SessionActor & { email: string } };
@@ -337,7 +341,7 @@ export async function loadCurrentActor(): Promise<SessionActor | null> {
   return payload.data;
 }
 
-export async function closeFirebaseSession(): Promise<void> {
+export async function closeSession(): Promise<void> {
   await fetch(`${API_BASE}/auth/session`, { method: "DELETE" }).catch(() => undefined);
 }
 

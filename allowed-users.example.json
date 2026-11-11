@@ -1,0 +1,8 @@
+{
+  "_comment": "Ejemplo FICTICIO de allowlist para SAC_FLOW_AUTH_MODE=google. Copiar a data/allowed-users.json (ignorado por git) y poner ahi los correos reales. permissions: admin = rol admin; sac = rol por defecto. nodesRole y nodesBrandIds son opcionales.",
+  "users": [
+    { "email": "admin@ejemplo.test", "name": "Admin Ejemplo", "permissions": ["admin"] },
+    { "email": "supervisora@ejemplo.test", "name": "Supervisora Ejemplo", "permissions": ["sac"], "nodesRole": "supervisor" },
+    { "email": "agente@ejemplo.test", "name": "Agente Ejemplo", "permissions": ["sac"], "nodesBrandIds": ["brand-01", "brand-02"] }
+  ]
+}

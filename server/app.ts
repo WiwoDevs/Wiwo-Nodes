@@ -33,7 +33,8 @@ import {
   accountMetricoolUpdateSchema,
   accountParamsSchema,
   apiSessionSchema,
-  firebaseSessionSchema,
+  googleCallbackQuerySchema,
+  devPasswordSessionSchema,
   metricoolBrandImportSchema,
   sacRowsQuerySchema,
   brandCreateSchema,
@@ -107,11 +108,9 @@ import { validateWorkflow } from "./workflow-validation.js";
 import { buildSecurityAudit } from "./security-audit.js";
 import { normalizeDiscoveredBrands } from "./metricool-brands.js";
 import { buildSacRows } from "./sac-rows.js";
-import {
-  createFirebaseAuth,
-  FirebaseAuthError,
-  type FirebaseAuthService,
-} from "./firebase-auth.js";
+import { IdentityError, type CreatedSession, type IdentityService } from "./identity.js";
+import { createGoogleIdentity } from "./google-auth.js";
+import { createDevAuth } from "./dev-auth.js";
 import {
   conversationKey,
   detectConversationResponses,
@@ -153,8 +152,8 @@ export interface BuildAppOptions {
   metricoolClient?: MetricoolGateway;
   logger?: FastifyServerOptions["logger"];
   serveFrontend?: boolean;
-  /** Permite inyectar una identidad simulada en pruebas sin contactar Firebase. */
-  firebaseAuth?: FirebaseAuthService;
+  /** Permite inyectar una identidad simulada en pruebas sin contactar a Google. */
+  identity?: IdentityService;
 }
 
 export interface SacFlowApp extends FastifyInstance {
@@ -366,16 +365,16 @@ function actorContextFromHeaders(config: AppConfig, headers: Record<string, unkn
 }
 
 /**
- * Actores resueltos por la sesión Firebase durante el ciclo de vida de la solicitud.
+ * Actores resueltos por la sesión de inicio de sesión durante el ciclo de vida de la solicitud.
  * Se usa un WeakMap en vez de decorar `FastifyRequest` para no ampliar el tipo público
  * del framework desde este módulo.
  */
-const firebaseActors = new WeakMap<FastifyRequest, ActorContext>();
+const sessionActors = new WeakMap<FastifyRequest, ActorContext>();
 
 function requestActor(config: AppConfig, request: FastifyRequest): ActorContext {
-  // La sesión firmada manda sobre los headers: cuando Firebase está activo, el gateway
+  // La sesión firmada manda sobre los headers: con inicio de sesión activo, el gateway
   // deja de ser la fuente de identidad.
-  const sessionActor = firebaseActors.get(request);
+  const sessionActor = sessionActors.get(request);
   if (sessionActor) return sessionActor;
   if (config.auth.enabled) {
     throw new ApiError(401, "SESSION_REQUIRED", "Inicia sesión para usar Wiwo Nodes.");
@@ -474,15 +473,18 @@ function isProtectedApiPath(url: string): boolean {
   const routePath = url.split("?", 1)[0] || "/";
   return routePath.startsWith("/api/")
     && routePath !== "/api/session"
-    // El canje de idToken por cookie es la puerta de entrada: no puede exigir sesión previa.
+    // Las puertas de entrada del inicio de sesión no pueden exigir una sesión previa.
     && routePath !== "/api/auth/session"
+    && routePath !== "/api/auth/dev-session"
+    && routePath !== "/api/auth/google/start"
+    && routePath !== "/api/auth/google/callback"
     && routePath !== "/api/auth/config"
     && !isServiceApiPath(routePath)
     && !isOperationalProbePath(routePath);
 }
 
 /**
- * Rutas de integración servidor-a-servidor. No pasan por la sesión Firebase porque el
+ * Rutas de integración servidor-a-servidor. No pasan por la sesión de usuario porque el
  * consumidor no tiene navegador; se autentican con `SAC_FLOW_SERVICE_API_KEY` y son de
  * solo lectura. Mantenerlas en un prefijo propio deja explícito qué superficie queda
  * expuesta a una clave estática.
@@ -1250,7 +1252,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     genReqId: () => randomUUID(),
   }) as unknown as SacFlowApp;
   const apiSessionSigningKey = randomBytes(32);
-  const firebaseAuth = options.firebaseAuth ?? await createFirebaseAuth(config.auth);
+  const identity: IdentityService | undefined = options.identity ?? (
+    !config.auth.enabled
+      ? undefined
+      : config.auth.provider === "dev" && config.auth.devUsersFile
+        ? createDevAuth(config.auth, config.auth.devUsersFile)
+        : createGoogleIdentity(config.auth)
+  );
   let syncInProgress = false;
   app.sacFlow = { config, repository };
   app.addHook("onClose", async () => {
@@ -1341,7 +1349,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       }
       return;
     }
-    if (firebaseAuth && protectedPath) {
+    if (identity && protectedPath) {
       const cookie = requestCookie(request.headers as Record<string, unknown>, config.auth.cookieName);
       if (!cookie) {
         return reply.code(401).send({
@@ -1350,15 +1358,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         });
       }
       try {
-        firebaseActors.set(request, await firebaseAuth.resolveActor(cookie));
+        sessionActors.set(request, await identity.resolveActor(cookie));
       } catch (error) {
-        if (error instanceof FirebaseAuthError) {
+        if (error instanceof IdentityError) {
           return reply.code(error.status).send({
             error: { code: error.code, message: error.message, requestId: request.id },
             meta: apiMeta(config),
           });
         }
-        request.log.error(error, "Falló la verificación de la sesión Firebase.");
+        request.log.error(error, "Falló la verificación de la sesión.");
         return reply.code(503).send({
           error: {
             code: "AUTH_UNAVAILABLE",
@@ -1422,33 +1430,76 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return { data: brands, meta: { ...apiMeta(config), count: brands.length } };
   });
 
-  /** Configuración pública del cliente Firebase. No contiene secretos. */
+  /** Configuración pública del inicio de sesión. No contiene secretos. */
   app.get("/api/auth/config", async () => ({
     data: {
       enabled: config.auth.enabled,
+      provider: config.auth.enabled ? config.auth.provider ?? null : null,
       requiredPermission: config.auth.requiredPermission,
     },
     meta: apiMeta(config),
   }));
 
-  app.post("/api/auth/session", async (request, reply) => {
-    if (!firebaseAuth) {
-      throw new ApiError(503, "AUTH_DISABLED", "La identidad Firebase no está configurada en este entorno.");
-    }
-    const body = firebaseSessionSchema.parse(request.body);
-    let created: Awaited<ReturnType<FirebaseAuthService["createSession"]>>;
-    try {
-      created = await firebaseAuth.createSession(body.idToken);
-    } catch (error) {
-      if (error instanceof FirebaseAuthError) throw new ApiError(error.status, error.code, error.message);
-      throw error;
-    }
+  const oauthFlowCookie = `${config.auth.cookieName}_oauth`;
+
+  function requestIsSecure(request: FastifyRequest): boolean {
     const forwardedProtocol = headerString((request.headers as Record<string, unknown>)["x-forwarded-proto"]);
-    const secure = request.protocol === "https" || forwardedProtocol === "https";
+    return request.protocol === "https" || forwardedProtocol === "https";
+  }
+
+  function sessionCookieHeader(request: FastifyRequest, created: CreatedSession): string {
+    return `${config.auth.cookieName}=${encodeURIComponent(created.cookie)}; Path=/; Max-Age=${Math.floor(config.auth.sessionTtlMs / 1_000)}; HttpOnly; SameSite=Lax${requestIsSecure(request) ? "; Secure" : ""}`;
+  }
+
+  /** Inicio de sesión con Google: redirige a la pantalla de consentimiento de Google. */
+  app.get("/api/auth/google/start", async (request, reply) => {
+    if (!identity?.google) {
+      throw new ApiError(404, "NOT_FOUND", "El inicio de sesión con Google no está habilitado en este entorno.");
+    }
+    const { url, flowCookie } = await identity.google.start();
     reply.header(
       "Set-Cookie",
-      `${config.auth.cookieName}=${encodeURIComponent(created.cookie)}; Path=/; Max-Age=${Math.floor(config.auth.sessionTtlMs / 1_000)}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`,
+      `${oauthFlowCookie}=${encodeURIComponent(flowCookie)}; Path=/api/auth/google; Max-Age=600; HttpOnly; SameSite=Lax${requestIsSecure(request) ? "; Secure" : ""}`,
     );
+    return reply.redirect(url, 302);
+  });
+
+  /** Vuelta desde Google: valida, aplica la allowlist, emite la sesión y regresa a la app. */
+  app.get("/api/auth/google/callback", async (request, reply) => {
+    if (!identity?.google) {
+      throw new ApiError(404, "NOT_FOUND", "El inicio de sesión con Google no está habilitado en este entorno.");
+    }
+    const query = googleCallbackQuerySchema.parse(request.query);
+    const flowCookie = requestCookie(request.headers as Record<string, unknown>, oauthFlowCookie);
+    const clearFlow = `${oauthFlowCookie}=; Path=/api/auth/google; Max-Age=0; HttpOnly; SameSite=Lax`;
+    const target = config.auth.postLoginRedirect;
+    try {
+      const created = await identity.google.complete(query, flowCookie);
+      reply.header("Set-Cookie", [clearFlow, sessionCookieHeader(request, created)]);
+      return reply.redirect(target, 302);
+    } catch (error) {
+      const code = error instanceof IdentityError ? error.code : "AUTH_UNAVAILABLE";
+      if (!(error instanceof IdentityError)) request.log.error(error, "Falló el inicio de sesión con Google.");
+      reply.header("Set-Cookie", clearFlow);
+      const separator = target.includes("?") ? "&" : "?";
+      return reply.redirect(`${target}${separator}login_error=${encodeURIComponent(code)}`, 302);
+    }
+  });
+
+  /** Modo de prueba local: correo y contraseña contra usuarios ficticios (nunca en producción). */
+  app.post("/api/auth/dev-session", async (request, reply) => {
+    if (!identity?.createPasswordSession) {
+      throw new ApiError(404, "NOT_FOUND", "El inicio de sesión de prueba no está habilitado en este entorno.");
+    }
+    const body = devPasswordSessionSchema.parse(request.body);
+    let created: CreatedSession;
+    try {
+      created = await identity.createPasswordSession(body.email, body.password);
+    } catch (error) {
+      if (error instanceof IdentityError) throw new ApiError(error.status, error.code, error.message);
+      throw error;
+    }
+    reply.header("Set-Cookie", sessionCookieHeader(request, created));
     return {
       data: {
         userId: created.actor.userId,
@@ -1456,6 +1507,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         email: created.user.email,
         role: created.actor.role,
         brandIds: created.actor.brandIds,
+        source: created.actor.source,
       },
       meta: apiMeta(config),
     };
@@ -1531,7 +1583,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       rateLimitEnabled: config.security.rateLimit.enabled,
       actorContextRequired: config.security.actorContext.require,
       trustedActorHeaders: config.security.actorContext.trustHeaders,
-      identity: config.auth.enabled ? "firebase" : "local",
+      identity: config.auth.enabled ? config.auth.provider ?? "local" : "local",
       defaultRole: config.security.actorContext.trustHeaders ? undefined : config.security.actorContext.defaultRole,
     },
     persistence: {
@@ -1651,6 +1703,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         tenantId: actor.tenantId,
         role: actor.role,
         brandIds: actor.brandIds,
+        source: actor.source,
+        ...(actor.email ? { email: actor.email } : {}),
       },
       meta: apiMeta(config),
     };

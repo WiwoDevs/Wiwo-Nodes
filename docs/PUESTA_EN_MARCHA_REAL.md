@@ -1,20 +1,21 @@
 # Puesta en marcha con datos reales
 
 Guía para pasar de la demo local a operar el portafolio real de marcas en Metricool, con
-inicio de sesión corporativo. Complementa `LOCAL_DEVELOPMENT.md`, que cubre el modo demo.
+inicio de sesión con Google. Complementa `LOCAL_DEVELOPMENT.md`, que cubre el modo demo.
 
 El orden importa: identidad primero, luego lectura real, y solo al final envíos.
 
 ## 1. Secretos que debe colocar el equipo
 
-Estos tres valores no se versionan y no deben pegarse en ningún documento. Van únicamente
+Estos valores no se versionan y no deben pegarse en ningún documento. Van únicamente
 en `.env` local o en el gestor de secretos del entorno.
 
 | Variable | Origen | Notas |
 | --- | --- | --- |
 | `METRICOOL_API_TOKEN` | Cuenta Metricool autorizada | Es el mismo token que usa METRIQ en `METRICOOL_USER_TOKEN`. Viaja en el header `X-Mc-Auth`. |
-| `FIREBASE_SERVICE_ACCOUNT_KEY` | Consola de Firebase del proyecto compartido | JSON de la cuenta de servicio, crudo o en base64. Es el mismo valor que METRIQ. |
-| `VITE_FIREBASE_*` | Consola de Firebase, sección Web App | No son secretos: viajan en el bundle del navegador. Equivalen a los `NEXT_PUBLIC_FIREBASE_*` de METRIQ. |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google Cloud → APIs y servicios → Credenciales | Cliente OAuth de tipo **Aplicación web**. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | El mismo cliente OAuth | Secreto: solo vive en el servidor. |
+| `SAC_FLOW_AUTH_SESSION_SECRET` | Generado por el equipo (32+ caracteres aleatorios) | Firma la cookie de sesión. Obligatorio en producción. |
 
 El resto de la configuración ya viene resuelta en `.env.example`.
 
@@ -22,47 +23,57 @@ Mientras falte `METRICOOL_API_TOKEN`, la API se niega a arrancar con un mensaje 
 Ese comportamiento es deliberado: es preferible no arrancar a arrancar en un modo distinto
 del que el operador cree tener.
 
-## 2. Identidad compartida con METRIQ
+## 2. Inicio de sesión con Google
 
-Wiwo Nodes no tiene usuarios propios. Reutiliza el proyecto Firebase y la allowlist de
-METRIQ, de modo que dar y quitar acceso se hace en un solo lugar.
+Con `SAC_FLOW_AUTH_MODE=google` cada persona entra con su cuenta de Google:
 
-El flujo es idéntico al de METRIQ:
-
-1. El navegador abre el popup de Google y obtiene un `idToken`.
-2. `POST /api/auth/session` verifica ese token con el Admin SDK.
-3. Se consulta `allowed_users/{email}` en Firestore. Sin documento no hay acceso: no existe
-   fallback por dominio de correo.
-4. Se emite una cookie httpOnly firmada por Firebase, con nombre propio
-   (`wiwo_nodes_session`) para no colisionar con la sesión de METRIQ.
+1. El navegador va a `GET /api/auth/google/start`; la API genera `state`, `nonce` y un
+   verificador PKCE, los guarda en una cookie firmada de 10 minutos y redirige a Google.
+2. Google vuelve a `GOOGLE_OAUTH_REDIRECT_URI` (`/api/auth/google/callback`). La API canjea
+   el código con el client secret, verifica el `id_token` (firma, audiencia, emisor,
+   vigencia, `nonce`) y exige un correo verificado.
+3. Se consulta la allowlist local. Sin autorización no hay acceso.
+4. Se emite la cookie httpOnly `wiwo_nodes_session`, firmada con
+   `SAC_FLOW_AUTH_SESSION_SECRET`, y el navegador vuelve a la app.
 5. Cada solicitud posterior revalida la cookie **y relee la allowlist**, de modo que quitar
-   un permiso en Firestore corta el acceso sin esperar a que expire la cookie.
+   a alguien corta su acceso sin esperar a que expire la cookie.
 
-### Permisos y roles
+### Configurar el cliente OAuth en Google Cloud
 
-| En Firestore (`permissions`) | Rol en Nodes | Alcance |
+En el cliente OAuth (Aplicación web) registre, para cada entorno:
+
+| Entorno | Orígenes de JavaScript autorizados | URI de redireccionamiento autorizados |
+| --- | --- | --- |
+| Desarrollo (`npm run dev:all`) | `http://localhost:5173` | `http://localhost:5173/api/auth/google/callback` |
+| Contenedor local (`SERVE_FRONTEND=true`, puerto 8787) | `http://localhost:8787` | `http://localhost:8787/api/auth/google/callback` |
+| Producción | `https://<dominio-de-nodes>` | `https://<dominio-de-nodes>/api/auth/google/callback` |
+
+La URI debe coincidir exactamente con `GOOGLE_OAUTH_REDIRECT_URI` (en desarrollo, si no se
+define, se usa la de la primera fila). Si la app se monta bajo una ruta, inclúyala en ambas.
+
+### Allowlist y roles
+
+La allowlist es un archivo JSON local (`SAC_FLOW_AUTH_ALLOWED_USERS_FILE`, por defecto
+`data/allowed-users.json`, fuera de git porque contiene correos reales) con la forma de
+`allowed-users.example.json`. Opcionalmente, `SAC_FLOW_AUTH_ALLOWED_DOMAINS` admite a todo
+correo verificado de esos dominios con el rol por defecto.
+
+| En la allowlist (`permissions`) | Rol en Nodes | Alcance |
 | --- | --- | --- |
 | `admin` | `admin` | Portafolio completo, siempre |
 | `sac` | `agent` (configurable) | Todas las marcas, salvo override |
 | Cualquier otro | Sin acceso | `403 PERMISSION_REQUIRED` |
 
-El permiso exigido se controla con `SAC_FLOW_AUTH_REQUIRED_PERMISSION`, que por defecto es
-`sac`. **Conviene decidir esto explícitamente**: con el valor por defecto, cualquier persona
-que hoy tenga acceso a la reportería SAC de METRIQ entra también a Nodes. Si se quiere una
-puerta separada, use un permiso propio (por ejemplo `nodes`) y agréguelo a las cuentas que
-correspondan.
-
-Dos campos opcionales del documento permiten afinar sin tocar los permisos del resto del
-portal:
+Dos campos opcionales permiten afinar:
 
 - `nodesRole`: `viewer`, `agent`, `supervisor` o `admin`.
 - `nodesBrandIds`: lista de `brandId` visibles, o `"*"` para todo. No recorta a un admin.
 
 ### Sesión y gateway
 
-Cuando la identidad Firebase está activa, los headers `X-SAC-*` dejan de tener efecto: el
-actor proviene exclusivamente de la cookie firmada. Esto elimina la dependencia de un
-gateway que reescriba cabeceras, que era la brecha `SEC-01`/`SEC-02` del checklist.
+Con inicio de sesión activo, los headers `X-SAC-*` dejan de tener efecto y la clave
+compartida `SAC_FLOW_API_KEY` no se pide al navegador: el actor proviene exclusivamente de
+la cookie firmada.
 
 Para volver al comportamiento anterior, `SAC_FLOW_AUTH_MODE=local`.
 
@@ -135,12 +146,12 @@ Cada interruptor es una decisión separada. No los levante juntos.
 ## 6. Verificación
 
 ```powershell
-Invoke-RestMethod http://localhost:8787/api/health   # identity=firebase, mode=live
+Invoke-RestMethod http://localhost:8787/api/health   # identity=google, mode=live
 Invoke-RestMethod http://localhost:8787/api/ready    # repositorio y Metricool
 Invoke-RestMethod http://localhost:8787/api/metricool/brands
 Invoke-RestMethod http://localhost:8787/api/sync -Method Post -ContentType 'application/json' -Body '{"limit":25}'
 ```
 
-Resultados esperados: `identity` en `firebase`, marcas reales listadas con sus redes, y una
+Resultados esperados: `identity` en `google`, marcas reales listadas con sus redes, y una
 sincronización que reporta interacciones creadas sin duplicados. `outboundSends` debe seguir
 en `disabled`.

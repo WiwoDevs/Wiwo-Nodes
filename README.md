@@ -41,7 +41,7 @@ Invoke-RestMethod http://localhost:8787/api/ready
 
 Abrir `http://localhost:8787`. Los datos quedan en el volumen nombrado `sac-flow-data`.
 
-Si la API exige clave, la propia web muestra **Acceso seguro requerido**. Pegar allí la clave de acceso del sitio (`SAC_FLOW_API_KEY`), no el token de Metricool. La clave se valida en `POST /api/session`, se elimina inmediatamente del estado del formulario y la API entrega una cookie de sesión de 8 horas con `HttpOnly`, `SameSite=Strict` y alcance `/api`; JavaScript no puede leerla. Cada reinicio de la API invalida las sesiones locales anteriores. En HTTPS la cookie también se marca `Secure`.
+Con `SAC_FLOW_AUTH_MODE=google` la web abre una pantalla de inicio de sesión con **Google** (OAuth 2.0 contra una allowlist local) y no pide clave del sitio; ver [docs/PUESTA_EN_MARCHA_REAL.md](docs/PUESTA_EN_MARCHA_REAL.md). Para probar el inicio de sesión sin credenciales de Google existe `SAC_FLOW_AUTH_MODE=dev` con usuarios ficticios (ver [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)). En modo `local`, si la API exige clave, la propia web muestra **Acceso seguro requerido**. Pegar allí la clave de acceso del sitio (`SAC_FLOW_API_KEY`), no el token de Metricool. La clave se valida en `POST /api/session`, se elimina inmediatamente del estado del formulario y la API entrega una cookie de sesión de 8 horas con `HttpOnly`, `SameSite=Strict` y alcance `/api`; JavaScript no puede leerla. Cada reinicio de la API invalida las sesiones locales anteriores. En HTTPS la cookie también se marca `Secure`.
 
 Para detenerlo sin borrar datos:
 

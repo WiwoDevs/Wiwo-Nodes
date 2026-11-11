@@ -960,6 +960,7 @@ describe("SAC Flow API", () => {
       tenantId: "tenant-test",
       role: "viewer",
       brandIds: ["brand-01"],
+      source: "trusted_headers",
     });
   });
 

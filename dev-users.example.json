@@ -1,0 +1,37 @@
+{
+  "_comment": "Usuarios FICTICIOS para SAC_FLOW_AUTH_MODE=dev (prueba local del inicio de sesion). Nunca pongas aqui correos ni contrasenas reales. El servidor rechaza este modo con NODE_ENV=production.",
+  "users": [
+    {
+      "email": "admin@wiwo.test",
+      "password": "Admin-prueba-2026",
+      "name": "Ana Admin",
+      "permissions": ["admin"]
+    },
+    {
+      "email": "supervisor@wiwo.test",
+      "password": "Supervisor-prueba-2026",
+      "name": "Sofía Supervisora",
+      "permissions": ["sac"],
+      "nodesRole": "supervisor"
+    },
+    {
+      "email": "agente@wiwo.test",
+      "password": "Agente-prueba-2026",
+      "name": "Andrés Agente",
+      "permissions": ["sac"]
+    },
+    {
+      "email": "lectura@wiwo.test",
+      "password": "Lectura-prueba-2026",
+      "name": "Laura Lectura",
+      "permissions": ["sac"],
+      "nodesRole": "viewer"
+    },
+    {
+      "email": "sinpermiso@wiwo.test",
+      "password": "Sinpermiso-prueba-2026",
+      "name": "Sergio Sinpermiso",
+      "permissions": ["reporting"]
+    }
+  ]
+}

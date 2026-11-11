@@ -1,5 +1,5 @@
 /**
- * Verifica el cableado de la identidad Firebase en la API sin contactar a Firebase:
+ * Verifica el cableado de la identidad con inicio de sesión en la API sin contactar a Google:
  * se inyecta un servicio de identidad simulado que representa una allowlist ya resuelta.
  */
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,7 +8,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type SacFlowApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
-import { FirebaseAuthError, type FirebaseAuthService } from "../../server/firebase-auth.js";
+import { IdentityError, type IdentityService } from "../../server/identity.js";
 import type { ActorContext } from "../../server/types.js";
 
 const apps: SacFlowApp[] = [];
@@ -25,13 +25,13 @@ function actor(overrides: Partial<ActorContext>): ActorContext {
     tenantId: "wiwo",
     role: "agent",
     brandIds: "all",
-    source: "firebase",
+    source: "google",
     ...overrides,
   };
 }
 
 /** Identidad simulada: mapea cookies conocidas a actores, y rechaza el resto. */
-function fakeAuth(): FirebaseAuthService {
+function fakeAuth(): IdentityService {
   const sessions = new Map<string, ActorContext>([
     [AGENT_COOKIE, actor({})],
     [ADMIN_COOKIE, actor({ userId: "uid-admin", displayName: "Admin", role: "admin" })],
@@ -42,18 +42,16 @@ function fakeAuth(): FirebaseAuthService {
       enabled: true,
       cookieName: "wiwo_nodes_session",
       sessionTtlMs: 1_000,
-      allowedUsersCollection: "allowed_users",
+      allowedDomains: [],
+      postLoginRedirect: "/",
       requiredPermission: "sac",
       adminPermission: "admin",
       defaultRole: "agent",
       tenantId: "wiwo",
     },
-    async createSession() {
-      throw new FirebaseAuthError(401, "INVALID_TOKEN", "No usado en esta prueba.");
-    },
     async resolveActor(cookie) {
       const resolved = sessions.get(cookie);
-      if (!resolved) throw new FirebaseAuthError(401, "SESSION_INVALID", "La sesión expiró o fue revocada.");
+      if (!resolved) throw new IdentityError(401, "SESSION_INVALID", "La sesión expiró o fue revocada.");
       return resolved;
     },
   };
@@ -66,10 +64,11 @@ async function makeApp(): Promise<SacFlowApp> {
     METRICOOL_MODE: "demo",
     SAC_FLOW_DATA_FILE: path.join(directory, "store.json"),
     SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY: "test-automation-credentials-key-32-chars",
-    SAC_FLOW_AUTH_MODE: "firebase",
-    FIREBASE_SERVICE_ACCOUNT_KEY: '{"project_id":"test"}',
+    SAC_FLOW_AUTH_MODE: "google",
+    GOOGLE_OAUTH_CLIENT_ID: "cliente-de-prueba.apps.googleusercontent.com",
+    GOOGLE_OAUTH_CLIENT_SECRET: "secreto-de-prueba",
   }, directory);
-  const app = await buildApp({ config, firebaseAuth: fakeAuth() });
+  const app = await buildApp({ config, identity: fakeAuth() });
   apps.push(app);
   return app;
 }
@@ -83,7 +82,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("Sesión Firebase en la API", () => {
+describe("Sesión de usuario en la API", () => {
   it("rechaza rutas protegidas sin cookie de sesión", async () => {
     const app = await makeApp();
     const response = await app.inject({ method: "GET", url: "/api/brands" });
@@ -177,6 +176,16 @@ describe("Sesión Firebase en la API", () => {
   it("reporta la identidad activa en /api/health", async () => {
     const app = await makeApp();
     const response = await app.inject({ method: "GET", url: "/api/health" });
-    expect(response.json().security.identity).toBe("firebase");
+    expect(response.json().security.identity).toBe("google");
+  });
+
+  it("sigue exigiendo la clave compartida en modo local", () => {
+    const config = loadConfig({
+      METRICOOL_MODE: "demo",
+      SAC_FLOW_REQUIRE_API_KEY: "true",
+      SAC_FLOW_API_KEY: "clave-compartida-del-sitio-de-prueba-123",
+      SAC_FLOW_AUTH_MODE: "local",
+    });
+    expect(config.security.requireApiKey).toBe(true);
   });
 });

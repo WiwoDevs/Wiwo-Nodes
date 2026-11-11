@@ -34,6 +34,7 @@ import { InteractionDetailPanel } from "./components/InteractionDetailPanel";
 import { InteractionsView } from "./components/InteractionsView";
 import { ManualManagementView } from "./components/ManualManagementView";
 import { SettingsView } from "./components/SettingsView";
+import { ProfileMenu } from "./components/ProfileMenu";
 import type { WorkflowEditorStatus } from "./components/WorkflowCanvas";
 import wiwoNodesLogo from "./assets/wiwo-nodes-logo.png";
 import type { AutomationSection } from "./components/AutomationPlatform";
@@ -337,7 +338,7 @@ function suggestedDraft(interaction: Interaction): string {
   return `${firstName}, gracias por escribirnos. Revisamos tu consulta y te respondemos por este mismo canal.`;
 }
 
-export function App() {
+export function App({ onSignOut }: { onSignOut?: () => Promise<void> } = {}) {
   const [view, setView] = useState<ViewId>("platform-home");
   const [editorTab, setEditorTab] = useState<EditorTab>("editor");
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1505,6 +1506,7 @@ export function App() {
                 </button>
               </>
             ) : null}
+            <ProfileMenu actor={visibleData.actor} onSignOut={onSignOut} />
           </div>
         </header>
 

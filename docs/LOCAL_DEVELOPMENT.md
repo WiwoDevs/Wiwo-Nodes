@@ -184,6 +184,20 @@ Resultados esperados:
 
 Este puente no autentica por sí mismo. En staging/producción solo debe usarse detrás de un gateway que elimine cabeceras `X-SAC-*` enviadas por el navegador y las reconstruya desde la sesión SSO validada.
 
+## Probar el inicio de sesión sin Google
+
+Para probar la pantalla de inicio de sesión, los roles, el alcance de marcas y **Cerrar sesión** sin credenciales de Google, use el modo de prueba local:
+
+```dotenv
+SAC_FLOW_AUTH_MODE=dev
+# Opcional: por defecto ./dev-users.example.json
+SAC_FLOW_DEV_AUTH_USERS_FILE=./dev-users.example.json
+```
+
+Reinicie `npm run dev:all`. La web muestra el formulario de correo y contraseña con el aviso **Modo de prueba local** y valida contra los usuarios ficticios de `dev-users.example.json` (dominio reservado `.test`): uno por rol (`admin`, `supervisor`, `agent`, `viewer`) y uno sin el permiso requerido para comprobar el rechazo. El archivo tiene el mismo formato que `allowed_users` de Firestore (`permissions`, `nodesRole`, `nodesBrandIds`) más una `password` de prueba, y se relee en cada solicitud: quitar un usuario corta su sesión.
+
+Igual que con Google, la clave compartida `SAC_FLOW_API_KEY` no se pide en este modo. Las sesiones se firman con una clave en memoria, así que reiniciar la API las cierra. El servidor se niega a arrancar con `SAC_FLOW_AUTH_MODE=dev` y `NODE_ENV=production`. Nunca agregue correos ni contraseñas reales a ese archivo.
+
 ## Probar coordinación multiagente
 
 Con la API iniciada y las cabeceras de agente del apartado anterior:

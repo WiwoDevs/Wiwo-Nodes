@@ -309,9 +309,17 @@ export const apiSessionSchema = z.object({
   apiKey: z.string().trim().min(16).max(512),
 }).strict();
 
-/** Canje del idToken de Google por la cookie de sesión de Wiwo Nodes. */
-export const firebaseSessionSchema = z.object({
-  idToken: z.string().trim().min(20).max(8192),
+/** Parámetros con los que Google vuelve al callback de OAuth. */
+export const googleCallbackQuerySchema = z.object({
+  code: z.string().max(2048).optional(),
+  state: z.string().max(512).optional(),
+  error: z.string().max(256).optional(),
+}).passthrough();
+
+/** Inicio de sesión del modo de prueba local (SAC_FLOW_AUTH_MODE=dev). */
+export const devPasswordSessionSchema = z.object({
+  email: z.string().trim().email().max(254),
+  password: z.string().min(1).max(256),
 }).strict();
 
 /** Consulta de filas SAC para METRIQ. Las fechas son días completos, no instantes. */

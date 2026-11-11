@@ -13,6 +13,10 @@ export interface SessionActor {
   tenantId: string;
   role: "viewer" | "agent" | "supervisor" | "admin";
   brandIds: string[] | "all";
+  /** Origen de la identidad: "google" o "dev" cuando hay inicio de sesión. */
+  source?: "local" | "trusted_headers" | "google" | "dev";
+  /** Correo de la sesión, solo con inicio de sesión de Google o prueba local. */
+  email?: string;
 }
 
 export type ChannelConnectionStatus =

@@ -20,7 +20,7 @@ El contrato es `v0`: Techlab debe versionarlo antes de habilitar clientes extern
 
 ### Autenticación temporal
 
-Cuando `SAC_FLOW_REQUIRE_API_KEY=true`, todos los endpoints `/api/*` salvo `/api/health`, `/api/ready` y el inicio de sesión requieren `X-API-Key: <key>`, `Authorization: Bearer <key>` o una sesión temporal válida. En live este requisito está activo por defecto. Es una protección de handoff, no un sustituto de SSO/RBAC.
+Con `SAC_FLOW_AUTH_MODE=google` (o `dev` en pruebas locales) esta clave compartida no se exige: la sesión de inicio de sesión (ver más abajo) es la única credencial del navegador y `SAC_FLOW_REQUIRE_API_KEY` se ignora. En modo `local`, cuando `SAC_FLOW_REQUIRE_API_KEY=true`, todos los endpoints `/api/*` salvo `/api/health`, `/api/ready` y el inicio de sesión requieren `X-API-Key: <key>`, `Authorization: Bearer <key>` o una sesión temporal válida. En live este requisito está activo por defecto. Es una protección de handoff, no un sustituto de SSO/RBAC.
 
 `POST /api/session` recibe `{ "apiKey": "..." }`, valida la misma clave mediante comparación de tiempo constante y responde `204` con una cookie firmada `sac_flow_session`. La cookie dura 8 horas, usa `HttpOnly`, `SameSite=Strict`, `Path=/api` y agrega `Secure` sobre HTTPS. La firma vive solo en memoria, por lo que reiniciar la API revoca todas las sesiones locales. `DELETE /api/session` responde `204` y expira la cookie. Estas rutas siguen protegidas por same-origin y rate limit; no deben recibir el token de Metricool.
 
@@ -496,6 +496,15 @@ Métricas incluidas:
 
 Techlab debe exponer esta ruta solo detrás del gateway/red de observabilidad y scrapearla con una identidad de servicio autorizada. Los umbrales iniciales y el protocolo de respuesta están en [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md).
 
+### Inicio de sesión (`SAC_FLOW_AUTH_MODE=google` o `dev`)
+
+- `GET /api/auth/config` (público): `{ data: { enabled, provider, requiredPermission } }`, con `provider` en `google`, `dev` o `null`. La UI muestra el inicio de sesión cuando `enabled` es `true`.
+- `GET /api/auth/google/start` (público, solo `google`): genera `state`, `nonce` y verificador PKCE, los guarda en la cookie firmada `HttpOnly` `wiwo_nodes_session_oauth` (10 minutos, `Path=/api/auth/google`) y responde `302` hacia Google.
+- `GET /api/auth/google/callback` (público, solo `google`): Google vuelve con `code` y `state`. La API comprueba el `state`, canjea el código con el client secret y el verificador, verifica firma, audiencia, emisor, vigencia y `nonce` del `id_token`, exige correo verificado y consulta la allowlist. Si todo es válido emite la cookie `HttpOnly` `wiwo_nodes_session` (`SAC_FLOW_AUTH_COOKIE`) y responde `302` a `SAC_FLOW_AUTH_POST_LOGIN_REDIRECT`; si no, `302` al mismo destino con `?login_error=CODIGO` (`ACCOUNT_NOT_ALLOWED`, `PERMISSION_REQUIRED`, `EMAIL_NOT_VERIFIED`, `GOOGLE_CANCELLED`, `OAUTH_STATE_INVALID`, `GOOGLE_TOKEN_INVALID`). El navegador nunca recibe tokens de Google.
+- `POST /api/auth/dev-session` (público, solo con `SAC_FLOW_AUTH_MODE=dev`, nunca en producción): recibe `{ "email", "password" }`, valida contra los usuarios ficticios de `SAC_FLOW_DEV_AUTH_USERS_FILE` , emite la misma cookie de sesión y responde con el actor (`userId`, `displayName`, `email`, `role`, `brandIds`, `source`). Errores: `401 INVALID_CREDENTIALS` (mismo mensaje exista o no el correo), `403 PERMISSION_REQUIRED`. Sin ese modo responde `404`.
+- `DELETE /api/auth/session`: responde `204` y expira la cookie. La UI lo usa en **Cerrar sesión**.
+- Toda ruta protegida sin cookie válida responde `401 SESSION_REQUIRED`. La allowlist se relee en cada solicitud: quitar a alguien corta su sesión.
+
 ### `GET /api/me`
 
 Devuelve el contexto seguro que la UI usa para ajustar acciones de solo lectura, coordinación y supervisión. Requiere identidad de nivel `viewer` o superior.
@@ -507,13 +516,15 @@ Devuelve el contexto seguro que la UI usa para ajustar acciones de solo lectura,
     "displayName": "Agente SAC",
     "tenantId": "tenant-opaque",
     "role": "agent",
-    "brandIds": ["brand-01"]
+    "brandIds": ["brand-01"],
+    "source": "google",
+    "email": "agente@example.test"
   },
   "meta": { "demoMode": false, "mode": "live" }
 }
 ```
 
-`brandIds` puede ser `"all"`. Esta respuesta informa la experiencia visual, pero la autorización sigue aplicándose en cada endpoint servidor.
+`brandIds` puede ser `"all"`. `source` indica el origen de la identidad (`local`, `trusted_headers`, `google` o `dev`); `email` solo aparece con sesión de Google o de prueba local y alimenta el menú de perfil. Esta respuesta informa la experiencia visual, pero la autorización sigue aplicándose en cada endpoint servidor.
 
 ### `GET /api/brands`
 

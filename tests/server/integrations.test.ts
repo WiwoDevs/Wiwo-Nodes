@@ -1,5 +1,5 @@
 /**
- * La superficie de integración usa una clave estática en vez de la sesión Firebase.
+ * La superficie de integración usa una clave estática en vez de la sesión de usuario.
  * Estas pruebas fijan sus límites: solo lectura, solo su prefijo, y sin efecto sobre el
  * resto de la API.
  */
@@ -9,30 +9,28 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type SacFlowApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
-import { FirebaseAuthError, type FirebaseAuthService } from "../../server/firebase-auth.js";
+import { IdentityError, type IdentityService } from "../../server/identity.js";
 
 const apps: SacFlowApp[] = [];
 const directories: string[] = [];
 const SERVICE_KEY = "clave-de-integracion-para-pruebas-1234";
 
 /** Identidad que rechaza todo: así se ve que la integración no depende de ella. */
-function denyingAuth(): FirebaseAuthService {
+function denyingAuth(): IdentityService {
   return {
     config: {
       enabled: true,
       cookieName: "wiwo_nodes_session",
       sessionTtlMs: 1_000,
-      allowedUsersCollection: "allowed_users",
+      allowedDomains: [],
+      postLoginRedirect: "/",
       requiredPermission: "sac",
       adminPermission: "admin",
       defaultRole: "agent",
       tenantId: "wiwo",
     },
-    async createSession() {
-      throw new FirebaseAuthError(401, "INVALID_TOKEN", "No usado.");
-    },
     async resolveActor() {
-      throw new FirebaseAuthError(401, "SESSION_INVALID", "Sin sesión.");
+      throw new IdentityError(401, "SESSION_INVALID", "Sin sesión.");
     },
   };
 }
@@ -44,11 +42,12 @@ async function makeApp(options: { serviceKey?: string } = {}): Promise<SacFlowAp
     METRICOOL_MODE: "demo",
     SAC_FLOW_DATA_FILE: path.join(directory, "store.json"),
     SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY: "test-automation-credentials-key-32-chars",
-    SAC_FLOW_AUTH_MODE: "firebase",
-    FIREBASE_SERVICE_ACCOUNT_KEY: '{"project_id":"test"}',
+    SAC_FLOW_AUTH_MODE: "google",
+    GOOGLE_OAUTH_CLIENT_ID: "cliente-de-prueba.apps.googleusercontent.com",
+    GOOGLE_OAUTH_CLIENT_SECRET: "secreto-de-prueba",
     ...(options.serviceKey === undefined ? {} : { SAC_FLOW_SERVICE_API_KEY: options.serviceKey }),
   }, directory);
-  const app = await buildApp({ config, firebaseAuth: denyingAuth() });
+  const app = await buildApp({ config, identity: denyingAuth() });
   apps.push(app);
   return app;
 }

@@ -6,8 +6,9 @@
  * se comprueba la cookie de sesión contra `/api/me` antes de montar nada.
  */
 import { useCallback, useEffect, useState } from "react";
-import { loadAuthConfig, loadCurrentActor } from "../lib/api";
+import { closeSession, loadAuthConfig, loadCurrentActor, type AuthProvider } from "../lib/api";
 import { LoginScreen } from "./LoginScreen";
+import { LoginShell } from "./LoginShell";
 import type { SessionActor } from "../types";
 
 type GateState =
@@ -17,16 +18,27 @@ type GateState =
   | { status: "failed"; message: string };
 
 type AuthGateProps = {
-  children: (actor: SessionActor | null) => React.ReactNode;
+  /** signOut solo existe cuando el inicio de sesión está activo. */
+  children: (actor: SessionActor | null, signOut: (() => Promise<void>) | null) => React.ReactNode;
 };
 
 export function AuthGate({ children }: AuthGateProps) {
   const [state, setState] = useState<GateState>({ status: "checking" });
   const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [provider, setProvider] = useState<AuthProvider>("google");
+
+  const signOut = useCallback(async () => {
+    await closeSession();
+    setActor(null);
+    setState({ status: "login" });
+  }, []);
 
   const check = useCallback(async () => {
     try {
       const config = await loadAuthConfig();
+      setAuthEnabled(config.enabled);
+      setProvider(config.provider ?? "google");
       if (!config.enabled) {
         setState({ status: "open" });
         return;
@@ -52,30 +64,34 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (state.status === "checking") {
     return (
-      <main className="login-screen">
-        <div className="login-card">
-          <span className="login-spinner" aria-label="Verificando sesión" />
+      <LoginShell>
+        <div className="wl-checking">
+          <span className="wl-spinner" role="status" aria-label="Verificando sesión" />
         </div>
-      </main>
+      </LoginShell>
     );
   }
 
   if (state.status === "failed") {
     return (
-      <main className="login-screen">
-        <div className="login-card">
-          <p className="login-error">{state.message}</p>
-          <button type="button" className="login-button" onClick={() => void check()}>
-            Reintentar
-          </button>
+      <LoginShell>
+        <div className="wl-checking">
+          <div className="wl-panel">
+            <h1 className="wl-title">No pudimos conectar</h1>
+            <p className="wl-message wl-message--error" role="alert">{state.message}</p>
+            <button type="button" className="wl-submit" style={{ marginTop: "1.25rem" }} onClick={() => void check()}>
+              Reintentar
+            </button>
+          </div>
         </div>
-      </main>
+      </LoginShell>
     );
   }
 
   if (state.status === "login") {
     return (
       <LoginScreen
+        provider={provider}
         onAuthenticated={(authenticated) => {
           setActor(authenticated);
           setState({ status: "open" });
@@ -84,5 +100,5 @@ export function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  return <>{children(actor)}</>;
+  return <>{children(actor, authEnabled ? signOut : null)}</>;
 }
