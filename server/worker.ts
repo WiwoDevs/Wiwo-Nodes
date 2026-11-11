@@ -148,7 +148,12 @@ async function executeJob(job: WorkflowJob): Promise<void> {
     const response = await fetch(`${apiUrl}/api/sync`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ accountIds: job.accountIds, limit: job.limit }),
+      // La sincronización programada cubre todo el portafolio activo: sin lista explícita la
+      // API toma las marcas activas al ejecutar (incluidas las recién vinculadas desde el
+      // catálogo de Metricool) y no choca con el máximo de 20 cuentas por pedido.
+      body: JSON.stringify(job.scheduleKey?.startsWith("sac:")
+        ? { limit: job.limit }
+        : { accountIds: job.accountIds, limit: job.limit }),
       signal: AbortSignal.timeout(120_000),
     });
     const payload = await response.json().catch(() => undefined) as { data?: { run?: { id?: string } }; error?: { message?: string } } | undefined;

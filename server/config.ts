@@ -51,6 +51,15 @@ export interface AppConfig {
     fallbackAccount?: MetricoolAccountReference;
     allowFallbackAccount: boolean;
     accounts: Record<string, MetricoolAccountReference>;
+    /** Proveedor de Instagram por defecto (METRICOOL_INSTAGRAM_PROVIDER). */
+    defaultInstagramProvider: MetricoolAccountReference["instagramProvider"];
+    /**
+     * Vincula automáticamente, en cada sincronización, las marcas del catálogo de Metricool
+     * con canales legibles. Activo por defecto en live (SAC_FLOW_METRICOOL_AUTO_LINK).
+     */
+    autoLink: boolean;
+    /** blogIds que nunca se vinculan automáticamente (SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS). */
+    excludedBlogIds: string[];
   };
   operations: {
     inboxSyncEnabled: boolean;
@@ -327,6 +336,9 @@ export function loadConfig(
       fallbackAccount,
       allowFallbackAccount,
       accounts: parseAccounts(env.METRICOOL_ACCOUNTS_JSON),
+      defaultInstagramProvider: fallbackInstagramProvider,
+      autoLink: parseBoolean(env.SAC_FLOW_METRICOOL_AUTO_LINK, !demoMode),
+      excludedBlogIds: [...new Set((env.SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS || "").split(",").map((id) => id.trim()).filter(Boolean))],
     },
     operations: {
       inboxSyncEnabled,

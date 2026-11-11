@@ -1285,7 +1285,7 @@ export interface MetricoolCatalogBrand {
   blogId: string;
   label: string;
   channels: string[];
-  linkedTo?: { brandId: string; brandName: string };
+  linkedTo?: { brandId: string; brandName: string; active?: boolean };
 }
 
 export interface MetricoolImportResult {

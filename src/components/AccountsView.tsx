@@ -321,7 +321,7 @@ export function AccountsView({
   const deactivateBrandAccount = async () => {
     if (!brandDialogAccount) return;
     const confirmed = window.confirm(
-      `Desactivar ${brandDialogAccount.name} en SAC Flow? No se borra historial, pero se quita de automatización y se retira la referencia Metricool guardada.`,
+      `Desactivar ${brandDialogAccount.name} en SAC Flow? No se borra historial: deja de sincronizar y se quita de automatización. Se conserva su vínculo con Metricool para que no vuelva a importarse sola.`,
     );
     if (!confirmed) return;
     try {

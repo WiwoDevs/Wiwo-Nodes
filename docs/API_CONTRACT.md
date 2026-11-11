@@ -587,7 +587,7 @@ Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, updated: true, external
 
 Desactiva la marca y su cuenta de forma recuperable. No borra historial, interacciones ni runs; tampoco contacta a Metricool. Además:
 
-- elimina la referencia Metricool guardada en JSON para esa cuenta;
+- conserva la referencia Metricool de la cuenta: la marca deja de sincronizar por estar inactiva y la vinculación automática del catálogo no la vuelve a crear;
 - retira la cuenta de `autoReplyAccountIds`;
 - apaga `autoReplyEnabled` si la allowlist queda vacía.
 
@@ -920,7 +920,9 @@ Lee y normaliza DMs/comentarios, deduplica por `(accountId, type, externalId)`, 
 }
 ```
 
-- `accountIds`: opcional, máximo 20; default todas las activas.
+- `accountIds`: opcional, máximo 20; default todas las activas. El worker programado no envía lista y cubre todo el portafolio activo.
+
+En live, cuando el actor tiene alcance a todas las marcas, antes de leer la bandeja la API consulta el catálogo de Metricool (`SAC_FLOW_METRICOOL_AUTO_LINK`, activo por defecto): vincula las marcas nuevas con canales legibles, salvo las de `SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS` o ya vinculadas aunque estén desactivadas, y desactiva las marcas de ejemplo del seed sin referencia. Lo registra en el `auditTrail` del run como "Catálogo Metricool" y "Marcas de ejemplo". Si se envió `accountIds`, se quitan las cuentas retiradas y se agregan las recién vinculadas. Un fallo del catálogo no detiene la sincronización.
 - `limit`: opcional, entero 1–5000. Si se omite, SAC Flow conserva todas las interacciones que entregue la API; cuando se envía funciona como cortafuegos explícito por superficie.
 - `since`: fecha ISO opcional.
 

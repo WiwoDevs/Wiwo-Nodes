@@ -129,7 +129,7 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
           <div>
             <p className="view-header__eyebrow">Conexión Metricool</p>
             <h2 id="metricool-import-title">Importar marcas desde Metricool</h2>
-            <p>Trae las marcas que ve el token del servidor. Solo lectura: no se modifica nada en Metricool.</p>
+            <p>Las marcas del token se vinculan solas en cada sincronización. Aquí puede ver el catálogo y adelantar la importación. Solo lectura: no se modifica nada en Metricool.</p>
           </div>
           <button className="icon-button" type="button" aria-label="Cerrar importación" onClick={onClose} disabled={importing || retiring}>
             <X size={16} weight="bold" aria-hidden="true" />
@@ -184,7 +184,11 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
                           {brand.channels.length ? ` · ${brand.channels.map((channel) => CHANNEL_LABEL[channel] ?? channel).join(", ")}` : " · sin redes conectadas"}
                         </small>
                       </span>
-                      {linked ? <span className="metricool-import__tag">Vinculada a {brand.linkedTo!.brandName}</span> : null}
+                      {linked ? (
+                        brand.linkedTo!.active === false
+                          ? <span className="metricool-import__tag metricool-import__tag--off">Desactivada · no sincroniza</span>
+                          : <span className="metricool-import__tag">Vinculada a {brand.linkedTo!.brandName}</span>
+                      ) : null}
                     </label>
                   </li>
                 );

@@ -1235,7 +1235,7 @@ export function App({ onSignOut }: { onSignOut?: () => Promise<void> } = {}) {
       setToast({
         tone: "success",
         title: `${account.name} desactivada`,
-        detail: "No se borró historial; se retiró de automatización y de referencias Metricool persistidas.",
+        detail: "No se borró historial; deja de sincronizar y no se volverá a vincular automáticamente.",
       });
     } catch (error) {
       setToast({

@@ -95,6 +95,7 @@ import {
   metricoolProviderForChannel,
   metricoolProviderForSurface,
   type MetricoolInboxSurface,
+  type MetricoolInstagramProvider,
 } from "./types.js";
 import {
   createDemoSyncInteractions,
@@ -106,7 +107,8 @@ import {
 } from "./workflow-service.js";
 import { validateWorkflow } from "./workflow-validation.js";
 import { buildSecurityAudit } from "./security-audit.js";
-import { normalizeDiscoveredBrands } from "./metricool-brands.js";
+import { normalizeDiscoveredBrands, type DiscoveredMetricoolBrand } from "./metricool-brands.js";
+import { createDemoStore } from "./seed.js";
 import { buildSacRows } from "./sac-rows.js";
 import { IdentityError, type CreatedSession, type IdentityService } from "./identity.js";
 import { createGoogleIdentity } from "./google-auth.js";
@@ -826,6 +828,161 @@ interface SyncRequestBody {
   since?: string;
 }
 
+type MetricoolLinkResult = {
+  created: Array<{ blogId: string; brandId: string; accountId: string; name: string; channels: Channel[] }>;
+  skipped: Array<{ blogId: string; reason: string }>;
+};
+
+/**
+ * Crea marcas locales para marcas del catálogo de Metricool y guarda su referencia.
+ * Idempotente por blogId: una marca ya vinculada (activa o desactivada) no se duplica, y
+ * así una marca que un admin desactivó no vuelve a aparecer sola.
+ */
+async function linkMetricoolBrands(
+  config: AppConfig,
+  repository: SacFlowRepository,
+  sources: DiscoveredMetricoolBrand[],
+  options: { instagramProvider: MetricoolInstagramProvider; color: string; active: boolean },
+): Promise<MetricoolLinkResult> {
+  const store = await repository.snapshot();
+  const alreadyLinked = new Set<string>();
+  for (const brand of store.brands) {
+    const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
+    if (reference) alreadyLinked.add(reference.blogId);
+  }
+
+  const created: MetricoolLinkResult["created"] = [];
+  const skipped: MetricoolLinkResult["skipped"] = [];
+
+  for (const source of sources) {
+    if (alreadyLinked.has(source.blogId)) {
+      skipped.push({ blogId: source.blogId, reason: "ALREADY_LINKED" });
+      continue;
+    }
+    // Solo se vinculan marcas con al menos un canal que el inbox sepa leer; el resto
+    // generaría una cuenta que nunca sincroniza.
+    const channels = source.channels.filter((channel) => metricoolInboxSurfacesForChannel(channel).length);
+    if (!channels.length) {
+      skipped.push({ blogId: source.blogId, reason: "NO_SUPPORTED_CHANNELS" });
+      continue;
+    }
+
+    const brand = await repository.mutate((current) => {
+      const usedBrandIds = new Set(current.brands.map((item) => item.id));
+      const usedAccountIds = new Set(current.brands.map((item) => item.account.id));
+      const usedHandles = new Set(current.brands.map((item) => item.account.handle.toLowerCase()));
+      const brandId = uniqueSlug(slugify(source.label), usedBrandIds);
+      const accountId = uniqueSlug(`${brandId}-account`, usedAccountIds);
+      const baseHandle = `@${(source.instagramHandle || slugify(source.label)).replace(/^@/, "")}`;
+      const handle = usedHandles.has(baseHandle.toLowerCase()) ? `${baseHandle}-${brandId}` : baseHandle;
+      const record: Brand = {
+        id: brandId,
+        name: source.label,
+        color: options.color,
+        active: options.active,
+        resources: [],
+        account: {
+          id: accountId,
+          brandId,
+          name: source.label,
+          handle,
+          channels,
+          active: options.active,
+        },
+      };
+      current.brands.push(record);
+      current.workflow.updatedAt = new Date().toISOString();
+      return record;
+    });
+
+    await repository.updateAccountMetricool(brand.account.id, {
+      userId: source.userId,
+      blogId: source.blogId,
+      instagramProvider: options.instagramProvider,
+    });
+    alreadyLinked.add(source.blogId);
+    created.push({ blogId: source.blogId, brandId: brand.id, accountId: brand.account.id, name: brand.name, channels });
+  }
+  return { created, skipped };
+}
+
+/** IDs de las marcas ficticias del seed de demostración. */
+const DEMO_SEED_BRAND_IDS = new Set(createDemoStore(new Date(0)).brands.map((brand) => brand.id));
+
+type MetricoolAutoLinkOutcome = {
+  created: MetricoolLinkResult["created"];
+  retired: Array<{ brandId: string; accountId: string; name: string }>;
+  audit: RunAuditStep[];
+};
+
+/**
+ * En live, antes de sincronizar: vincula las marcas nuevas del catálogo de Metricool y
+ * desactiva las marcas de ejemplo del seed que nunca tuvieron referencia. Solo lee
+ * Metricool. Si el catálogo no responde, la sincronización sigue con las marcas actuales.
+ */
+async function autoLinkMetricoolCatalog(
+  config: AppConfig,
+  repository: SacFlowRepository,
+  metricoolClient: MetricoolGateway | undefined,
+): Promise<MetricoolAutoLinkOutcome | null> {
+  if (config.demoMode || !config.metricool.autoLink || !metricoolClient?.listBrands) return null;
+  const userId = config.metricool.userId
+    || config.metricool.fallbackAccount?.userId
+    || Object.values(config.metricool.accounts)[0]?.userId;
+  if (!userId) return null;
+
+  let discovered: DiscoveredMetricoolBrand[];
+  try {
+    discovered = normalizeDiscoveredBrands(await metricoolClient.listBrands(userId));
+  } catch {
+    return {
+      created: [],
+      retired: [],
+      audit: [auditStep("Catálogo Metricool", "failed", "No se pudo leer el catálogo; se sincronizan las marcas ya vinculadas.")],
+    };
+  }
+
+  const excluded = new Set(config.metricool.excludedBlogIds);
+  const { created } = await linkMetricoolBrands(
+    config,
+    repository,
+    discovered.filter((brand) => !excluded.has(brand.blogId)),
+    { instagramProvider: config.metricool.defaultInstagramProvider ?? "INSTAGRAMBUSINESS", color: "#4242ff", active: true },
+  );
+
+  const retired = await repository.mutate((store) => {
+    const removed: MetricoolAutoLinkOutcome["retired"] = [];
+    for (const brand of store.brands) {
+      if (!DEMO_SEED_BRAND_IDS.has(brand.id) || !brand.active) continue;
+      if (resolveMetricoolAccount(config, brand.account.id, brand.account.metricool)) continue;
+      brand.active = false;
+      brand.account.active = false;
+      store.workflow.autoReplyAccountIds = store.workflow.autoReplyAccountIds.filter((id) => id !== brand.account.id);
+      removed.push({ brandId: brand.id, accountId: brand.account.id, name: brand.name });
+    }
+    if (removed.length) {
+      if (store.workflow.autoReplyEnabled && store.workflow.autoReplyAccountIds.length === 0) {
+        store.workflow.autoReplyEnabled = false;
+      }
+      store.workflow.updatedAt = new Date().toISOString();
+    }
+    return removed;
+  });
+
+  const audit: RunAuditStep[] = [
+    auditStep(
+      "Catálogo Metricool",
+      "success",
+      `${discovered.length} marcas en el catálogo; ${created.length} vinculadas nuevas${excluded.size ? `; ${excluded.size} excluidas por configuración` : ""}.`,
+      created.length,
+    ),
+  ];
+  if (retired.length) {
+    audit.push(auditStep("Marcas de ejemplo", "success", `${retired.length} marcas de ejemplo desactivadas en live.`, retired.length));
+  }
+  return { created, retired, audit };
+}
+
 async function executeSync(
   config: AppConfig,
   repository: SacFlowRepository,
@@ -833,12 +990,13 @@ async function executeSync(
   actor: ActorContext,
   body: SyncRequestBody,
   retryOf?: string,
+  preludeAudit: RunAuditStep[] = [],
 ): Promise<{ run: WorkflowRun; newInteractions: Interaction[] }> {
   const startedAt = new Date().toISOString();
   const store = await repository.snapshot();
   const brands = selectBrandsForActor(actor, store.brands, body.accountIds);
   const accountIds = brands.map((brand) => brand.account.id);
-  const auditTrail: RunAuditStep[] = [];
+  const auditTrail: RunAuditStep[] = [...preludeAudit];
   let incoming: Interaction[] = [];
   let errors = 0;
 
@@ -1850,10 +2008,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const discovered = normalizeDiscoveredBrands(payload);
     const store = await repository.snapshot();
     // Un blogId ya vinculado no debe volver a importarse: duplicaría el inbox de esa marca.
-    const linked = new Map<string, { brandId: string; brandName: string }>();
+    const linked = new Map<string, { brandId: string; brandName: string; active: boolean }>();
     for (const brand of store.brands) {
       const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
-      if (reference) linked.set(reference.blogId, { brandId: brand.id, brandName: brand.name });
+      if (reference) linked.set(reference.blogId, { brandId: brand.id, brandName: brand.name, active: brand.active && brand.account.active });
     }
 
     const data = discovered.map((brand) => ({
@@ -1868,6 +2026,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         linked: data.filter((brand) => brand.linkedTo).length,
         available: data.filter((brand) => !brand.linkedTo).length,
         externalWrites: false,
+        autoLink: config.metricool.autoLink,
+        excludedBlogIds: config.metricool.excludedBlogIds.length,
       },
     };
   });
@@ -1904,71 +2064,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       return brand;
     });
 
-    const store = await repository.snapshot();
-    const alreadyLinked = new Set<string>();
-    for (const brand of store.brands) {
-      const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
-      if (reference) alreadyLinked.add(reference.blogId);
-    }
-
-    const created: Array<{ blogId: string; brandId: string; accountId: string; name: string; channels: Channel[] }> = [];
-    const skipped: Array<{ blogId: string; reason: string }> = [];
-
-    for (const source of requested) {
-      if (alreadyLinked.has(source.blogId)) {
-        skipped.push({ blogId: source.blogId, reason: "ALREADY_LINKED" });
-        continue;
-      }
-      // Solo se importan marcas con al menos un canal que el inbox sepa leer; el resto
-      // generaría una cuenta que nunca sincroniza.
-      const channels = source.channels.filter((channel) => metricoolInboxSurfacesForChannel(channel).length);
-      if (!channels.length) {
-        skipped.push({ blogId: source.blogId, reason: "NO_SUPPORTED_CHANNELS" });
-        continue;
-      }
-
-      const brand = await repository.mutate((current) => {
-        const usedBrandIds = new Set(current.brands.map((item) => item.id));
-        const usedAccountIds = new Set(current.brands.map((item) => item.account.id));
-        const usedHandles = new Set(current.brands.map((item) => item.account.handle.toLowerCase()));
-        const brandId = uniqueSlug(slugify(source.label), usedBrandIds);
-        const accountId = uniqueSlug(`${brandId}-account`, usedAccountIds);
-        const baseHandle = `@${(source.instagramHandle || slugify(source.label)).replace(/^@/, "")}`;
-        const handle = usedHandles.has(baseHandle.toLowerCase()) ? `${baseHandle}-${brandId}` : baseHandle;
-        const record: Brand = {
-          id: brandId,
-          name: source.label,
-          color: body.color,
-          active: body.active,
-          resources: [],
-          account: {
-            id: accountId,
-            brandId,
-            name: source.label,
-            handle,
-            channels,
-            active: body.active,
-          },
-        };
-        current.brands.push(record);
-        current.workflow.updatedAt = new Date().toISOString();
-        return record;
-      });
-
-      await repository.updateAccountMetricool(brand.account.id, {
-        userId: source.userId,
-        blogId: source.blogId,
-        instagramProvider: body.instagramProvider,
-      });
-      alreadyLinked.add(source.blogId);
-      created.push({
-        blogId: source.blogId,
-        brandId: brand.id,
-        accountId: brand.account.id,
-        name: brand.name,
-        channels,
-      });
-    }
+    const { created, skipped } = await linkMetricoolBrands(config, repository, requested, {
+      instagramProvider: body.instagramProvider,
+      color: body.color,
+      active: body.active,
+    });
 
     return {
       data: { created, skipped },
@@ -2028,7 +2128,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       brand.active = false;
       brand.account.active = false;
-      delete brand.account.metricool;
+      // La referencia a Metricool se conserva: la marca deja de sincronizar por estar
+      // inactiva, y la vinculación automática no la vuelve a crear.
       store.workflow.autoReplyAccountIds = store.workflow.autoReplyAccountIds.filter((id) => id !== brand.account.id);
       if (store.workflow.autoReplyEnabled && store.workflow.autoReplyAccountIds.length === 0) {
         store.workflow.autoReplyEnabled = false;
@@ -2810,7 +2911,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     syncInProgress = true;
     try {
       if (await replayIdempotent(repository, "sync", key, hash, reply, sanitizeSyncResponse)) return reply;
-      const result = await executeSync(config, repository, metricoolClient, actor, body);
+      // Solo una sincronización de portafolio completo descubre marcas nuevas.
+      const autoLink = actor.brandIds === "all"
+        ? await autoLinkMetricoolCatalog(config, repository, metricoolClient)
+        : null;
+      let syncBody = body;
+      if (autoLink && body.accountIds?.length) {
+        const retiredIds = new Set(autoLink.retired.map((brand) => brand.accountId));
+        syncBody = {
+          ...body,
+          accountIds: [
+            ...body.accountIds.filter((id) => !retiredIds.has(id)),
+            ...autoLink.created.map((brand) => brand.accountId),
+          ],
+        };
+      }
+      const result = await executeSync(config, repository, metricoolClient, actor, syncBody, undefined, autoLink?.audit ?? []);
       const response = {
         data: publicSyncResult(result),
         meta: { ...apiMeta(config), externalWrites: false },

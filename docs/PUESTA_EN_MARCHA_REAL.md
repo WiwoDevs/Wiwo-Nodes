@@ -98,7 +98,27 @@ Las rutas de solo lectura `/api/integrations/*` que consume METRIQ usan otra cla
 
 ## 3. Alta de las marcas reales
 
-No transcriba `blogId` a mano. El catálogo se descubre desde Metricool.
+No hace falta importar nada a mano. En live, **cada sincronización** (cada 5 minutos o con
+**Actualizar ahora**) lee el catálogo de marcas que ve el token y:
+
+- vincula sola cada marca nueva que tenga al menos una red que la bandeja sabe leer, con su
+  `blogId` y el proveedor de Instagram de `METRICOOL_INSTAGRAM_PROVIDER`;
+- desactiva las 20 marcas de ejemplo del seed que nunca tuvieron referencia, sin borrar su
+  historial;
+- no duplica (va por `blogId`) y nunca escribe en Metricool. Si el catálogo no responde, la
+  sincronización sigue con las marcas ya vinculadas.
+
+Para que una marca del catálogo **no** se atienda en SAC: desactívela en **Cuentas** (conserva
+su vínculo, deja de sincronizar y no vuelve a crearse) o agregue su `blogId` a
+`SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS`. `SAC_FLOW_METRICOOL_AUTO_LINK=false` apaga todo el
+mecanismo. Ninguna de estas variables está en `docker-compose.production.yml`: el
+comportamiento por defecto no las necesita, y agregarlas requiere la aprobación de la
+compuerta de despliegue.
+
+La sincronización programada del worker cubre todo el portafolio activo sin enviar una
+lista de cuentas, así que no la limita el máximo de 20 cuentas por pedido manual.
+
+El catálogo también se puede revisar a mano:
 
 **Desde la web (recomendado, y la única vía con inicio de sesión de Google):** en **Cuentas → Importar desde Metricool** un administrador ve las marcas que el token del servidor puede leer, con sus redes y si ya están vinculadas. Marque las que se atienden en SAC (no hay preselección: el catálogo puede incluir marcas de otros equipos), elija cómo está conectado Instagram y pulse **Importar**. En el mismo panel, **Marcas sin conexión a Metricool** permite desactivar de una vez las marcas que nunca sincronizan, como las 20 de ejemplo; desactivar no borra historial.
 
