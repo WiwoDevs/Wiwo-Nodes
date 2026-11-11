@@ -53,10 +53,21 @@ define, se usa la de la primera fila). Si la app se monta bajo una ruta, inclúy
 
 ### Allowlist y roles
 
-La allowlist es un archivo JSON local (`SAC_FLOW_AUTH_ALLOWED_USERS_FILE`, por defecto
-`data/allowed-users.json`, fuera de git porque contiene correos reales) con la forma de
-`allowed-users.example.json`. Opcionalmente, `SAC_FLOW_AUTH_ALLOWED_DOMAINS` admite a todo
-correo verificado de esos dominios con el rol por defecto.
+El acceso se autoriza solo desde el backend; los correos nunca se versionan. Hay tres
+fuentes, consultadas en este orden:
+
+1. Archivo JSON `SAC_FLOW_AUTH_ALLOWED_USERS_FILE` (por defecto `data/allowed-users.json`,
+   fuera de git) con la forma de `allowed-users.example.json`. Permite afinar rol y marcas por
+   persona. En el contenedor de producción `data/` no está montado: úselo solo si agrega el
+   volumen.
+2. Variables del servidor, recomendadas en contenedores: `SAC_FLOW_AUTH_ADMIN_EMAILS` (rol
+   admin) y `SAC_FLOW_AUTH_ALLOWED_EMAILS` (rol `SAC_FLOW_AUTH_DEFAULT_ROLE`), separadas por
+   comas. `docker-compose.production.yml` ya las pasa al contenedor junto con el resto de
+   variables de inicio de sesión.
+3. Opcional, `SAC_FLOW_AUTH_ALLOWED_DOMAINS`: todo correo verificado de esos dominios entra
+   con el rol por defecto. Déjelo vacío para autorizar solo correos explícitos.
+
+Cambiar estas variables requiere reiniciar la API.
 
 | En la allowlist (`permissions`) | Rol en Nodes | Alcance |
 | --- | --- | --- |

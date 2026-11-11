@@ -124,6 +124,13 @@ describe("findAllowedUser", () => {
     });
   });
 
+  it("admite las listas del entorno: admins con rol admin y permitidos con el permiso mínimo", async () => {
+    const withLists = { ...config, adminEmails: ["jefa@demo.test"], allowedEmails: ["agente@demo.test"] };
+    expect((await findAllowedUser(withLists, "Jefa@Demo.test", null)).permissions).toEqual(["admin"]);
+    expect((await findAllowedUser(withLists, "agente@demo.test", null)).permissions).toEqual(["sac"]);
+    await expect(findAllowedUser(withLists, "otra@demo.test", null)).rejects.toMatchObject({ code: "ACCOUNT_NOT_ALLOWED" });
+  });
+
   it("admite por dominio permitido con el permiso mínimo", async () => {
     const user = await findAllowedUser({ ...config, allowedDomains: ["demo.test"] }, "nueva@demo.test", "Nueva");
     expect(user).toMatchObject({ email: "nueva@demo.test", permissions: ["sac"], name: "Nueva" });

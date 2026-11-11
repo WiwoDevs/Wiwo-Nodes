@@ -133,6 +133,14 @@ function parseCorsOrigins(raw: string | undefined, fallback: boolean | string[])
   return origins;
 }
 
+/** Lista de correos separada por comas, normalizada; rechaza entradas que no parecen correo. */
+function parseEmailList(raw: string | undefined): string[] {
+  const emails = (raw || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
+  const invalid = emails.filter((email) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email));
+  if (invalid.length) throw new Error(`Correo inválido en la allowlist del entorno: ${invalid.join(", ")}`);
+  return [...new Set(emails)];
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
@@ -224,6 +232,8 @@ export function loadConfig(
       ? path.resolve(cwd, env.SAC_FLOW_DEV_AUTH_USERS_FILE?.trim() || "dev-users.example.json")
       : undefined,
     allowedUsersFile: path.resolve(cwd, env.SAC_FLOW_AUTH_ALLOWED_USERS_FILE?.trim() || path.join("data", "allowed-users.json")),
+    adminEmails: parseEmailList(env.SAC_FLOW_AUTH_ADMIN_EMAILS),
+    allowedEmails: parseEmailList(env.SAC_FLOW_AUTH_ALLOWED_EMAILS),
     allowedDomains: (env.SAC_FLOW_AUTH_ALLOWED_DOMAINS || "")
       .split(",")
       .map((domain) => domain.trim().toLowerCase().replace(/^@/, ""))

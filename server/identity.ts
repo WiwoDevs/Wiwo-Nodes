@@ -30,6 +30,10 @@ export interface IdentityConfig {
   sessionSecret?: string;
   /** Allowlist local `{ "users": [...] }` (proveedor google). */
   allowedUsersFile?: string;
+  /** Correos con rol admin definidos en el entorno del servidor (SAC_FLOW_AUTH_ADMIN_EMAILS). */
+  adminEmails?: string[];
+  /** Correos con `defaultRole` definidos en el entorno del servidor (SAC_FLOW_AUTH_ALLOWED_EMAILS). */
+  allowedEmails?: string[];
   /** Dominios cuyo correo verificado entra con `defaultRole` aunque no esté en el archivo. */
   allowedDomains: string[];
   /** Usuarios ficticios con contraseña (proveedor dev). */
@@ -178,8 +182,9 @@ export async function readUsersFile(file: string | undefined): Promise<Array<Rec
 }
 
 /**
- * Busca el correo en la allowlist; si no está, lo admite por dominio permitido con el
- * permiso mínimo. Lanza 403 cuando no hay autorización.
+ * Busca el correo en la allowlist del archivo (que permite afinar rol y marcas); si no está,
+ * en las listas del entorno (admins y permitidos) y por último en los dominios permitidos.
+ * Lanza 403 cuando no hay autorización.
  */
 export async function findAllowedUser(config: IdentityConfig, email: string, name: string | null): Promise<AllowedUserRecord> {
   const normalized = normalizeEmail(email);
@@ -188,6 +193,12 @@ export async function findAllowedUser(config: IdentityConfig, email: string, nam
     .filter((record): record is AllowedUserRecord => Boolean(record));
   const listed = records.find((record) => record.email === normalized);
   if (listed) return { ...listed, name: listed.name ?? name };
+  if (config.adminEmails?.includes(normalized)) {
+    return { email: normalized, name, permissions: [config.adminPermission] };
+  }
+  if (config.allowedEmails?.includes(normalized)) {
+    return { email: normalized, name, permissions: [config.requiredPermission] };
+  }
   const domain = normalized.split("@")[1] ?? "";
   if (domain && config.allowedDomains.includes(domain)) {
     return { email: normalized, name, permissions: [config.requiredPermission] };

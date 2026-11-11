@@ -185,6 +185,14 @@ describe("Inicio de sesión con Google", () => {
 describe("Configuración del inicio de sesión con Google", () => {
   const base = { METRICOOL_MODE: "demo", SAC_FLOW_AUTH_MODE: "google" };
 
+  it("lee las listas de correos del entorno y rechaza entradas inválidas", () => {
+    const google = { ...base, GOOGLE_OAUTH_CLIENT_ID: "id", GOOGLE_OAUTH_CLIENT_SECRET: "secreto" };
+    const config = loadConfig({ ...google, SAC_FLOW_AUTH_ADMIN_EMAILS: " Jefa@Demo.test , otra@demo.test,jefa@demo.test", SAC_FLOW_AUTH_ALLOWED_EMAILS: "" });
+    expect(config.auth.adminEmails).toEqual(["jefa@demo.test", "otra@demo.test"]);
+    expect(config.auth.allowedEmails).toEqual([]);
+    expect(() => loadConfig({ ...google, SAC_FLOW_AUTH_ADMIN_EMAILS: "no-es-un-correo" })).toThrow(/Correo inválido/);
+  });
+
   it("exige client id y secret", () => {
     expect(() => loadConfig(base)).toThrow(/GOOGLE_OAUTH_CLIENT_ID/);
   });

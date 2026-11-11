@@ -154,8 +154,8 @@ export function LoginScreen({ provider, onAuthenticated }: LoginScreenProps) {
           ) : (
             <>
               <button type="button" className="wl-google" onClick={handleGoogle} disabled={loading}>
-                <span>{loading ? "Abriendo Google…" : "Continuar con Google"}</span>
                 <span className="wl-google__mark"><GoogleMark /></span>
+                <span>{loading ? "Abriendo Google…" : "Iniciar sesión con Google"}</span>
               </button>
               <p className="wl-footnote">Solo cuentas autorizadas pueden ingresar.</p>
             </>
