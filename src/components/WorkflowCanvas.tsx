@@ -398,7 +398,7 @@ const makeEdge = (
   label,
   animated: false,
   interactionWidth: 20,
-  style: { stroke: "#aeb5cc", strokeWidth: 1.65 },
+  style: { stroke: "var(--canvas-edge)", strokeWidth: 1.65 },
 });
 
 const baseEdges: Edge[] = [
@@ -902,10 +902,10 @@ export function WorkflowCanvas({
         elementsSelectable
         deleteKeyCode={isEditing && !isSaving ? ["Backspace", "Delete"] : null}
         connectionLineType={connectionLineType(newConnectorType)}
-        connectionLineStyle={{ stroke: "#4b46f5", strokeWidth: 1.8 }}
+        connectionLineStyle={{ stroke: "var(--accent)", strokeWidth: 1.8 }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#cbd3eb" gap={20} size={1.15} variant={BackgroundVariant.Dots} />
+        <Background gap={20} size={1.15} variant={BackgroundVariant.Dots} />
         <Controls showInteractive={false} position="bottom-left" />
         <MiniMap
           pannable
@@ -922,7 +922,6 @@ export function WorkflowCanvas({
               slate: "#7a8198",
             }[tone];
           }}
-          maskColor="rgba(246, 248, 255, .78)"
         />
       </ReactFlow>
 

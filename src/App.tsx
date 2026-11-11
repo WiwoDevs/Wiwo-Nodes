@@ -18,10 +18,12 @@ import {
   Lightning,
   LockSimple,
   MagnifyingGlass,
+  Moon,
   Play,
   Question,
   SidebarSimple,
   SquaresFour,
+  Sun,
   TestTube,
   UserCircle,
   WarningCircle,
@@ -74,6 +76,7 @@ import {
   type RunResult,
   type WorkflowValidation,
 } from "./lib/api";
+import { useTheme } from "./lib/theme";
 import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, ReplyDelivery } from "./types";
 
 const WorkflowCanvas = lazy(() =>
@@ -338,6 +341,7 @@ export function App() {
   const [view, setView] = useState<ViewId>("platform-home");
   const [editorTab, setEditorTab] = useState<EditorTab>("editor");
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { theme, toggleTheme } = useTheme();
   const [isRunning, setIsRunning] = useState(false);
   const [executions, setExecutions] = useState<RunResult[]>([]);
   const [isLoadingExecutions, setLoadingExecutions] = useState(false);
@@ -1476,6 +1480,7 @@ export function App() {
             </div>
           </div>
           <div className="topbar-actions">
+            <button className="icon-button theme-toggle" aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"} title={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggleTheme}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button>
             <button className="icon-button" aria-label="Buscar conversaciones" onClick={() => navigateToView("interactions")}><MagnifyingGlass size={19} /></button>
             <button className="icon-button notification-button" aria-label={`Abrir pendientes SAC: ${visibleData.interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review").length}`} onClick={() => navigateToView("interactions")}><Bell size={19} />{visibleData.interactions.some((interaction) => interaction.status === "pending" || interaction.status === "needs_review") ? <span /> : null}</button>
             {view === "workflow" ? (
@@ -1597,6 +1602,7 @@ export function App() {
               onNavigate={(destination) => setView(destination)}
               onOpenInteraction={openInteractionDetail}
               onToast={showPlatformToast}
+              userName={visibleData.actor.displayName}
             />
           </Suspense>
         ) : null}
