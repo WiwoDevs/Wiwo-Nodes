@@ -1280,6 +1280,42 @@ export async function updateBrand(brandId: string, input: BrandAdminInput): Prom
   if (!response.ok) await throwApiError(response);
 }
 
+/** Marca del portafolio de Metricool visible para el token del servidor. */
+export interface MetricoolCatalogBrand {
+  blogId: string;
+  label: string;
+  channels: string[];
+  linkedTo?: { brandId: string; brandName: string };
+}
+
+export interface MetricoolImportResult {
+  created: Array<{ blogId: string; brandId: string; accountId: string; name: string }>;
+  skipped: Array<{ blogId: string; reason: string }>;
+}
+
+/** Lista las marcas que el token de Metricool ve (solo lectura; requiere admin). */
+export async function listMetricoolBrands(): Promise<MetricoolCatalogBrand[]> {
+  const response = await fetch(`${API_BASE}/metricool/brands`);
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: MetricoolCatalogBrand[] };
+  return payload.data;
+}
+
+/** Crea marcas locales a partir del catálogo de Metricool. No escribe en Metricool. */
+export async function importMetricoolBrands(
+  blogIds: string[],
+  instagramProvider: "INSTAGRAMBUSINESS" | "INSTAGRAM",
+): Promise<MetricoolImportResult> {
+  const response = await fetch(`${API_BASE}/metricool/brands/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blogIds, instagramProvider }),
+  });
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: MetricoolImportResult };
+  return payload.data;
+}
+
 export async function deactivateBrand(brandId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/brands/${encodeURIComponent(brandId)}`, {
     method: "DELETE",

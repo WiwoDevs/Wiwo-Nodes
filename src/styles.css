@@ -5815,3 +5815,93 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
 }
 
 .profile-popover__signout:hover:not(:disabled) { background: var(--hover); }
+
+/* Importar marcas desde Metricool (Cuentas) ------------------------------------- */
+.account-credentials-panel.metricool-import {
+  width: min(640px, 94vw);
+  max-height: min(86vh, 860px);
+  overflow-y: auto;
+  background: var(--surface-overlay);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.metricool-import__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metricool-import__list {
+  display: grid;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  gap: 6px;
+  list-style: none;
+}
+
+.metricool-import__list--compact { max-height: 220px; }
+
+.metricool-import__list label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  cursor: pointer;
+}
+
+.metricool-import__list label:hover { border-color: var(--border-strong); }
+.metricool-import__list li.is-linked label { cursor: default; opacity: 0.7; }
+.metricool-import__list input[type="checkbox"] { width: 16px; height: 16px; flex: none; accent-color: var(--accent); }
+
+.metricool-import__brand { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.metricool-import__brand strong { overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.metricool-import__brand small { color: var(--muted); font-size: 11px; }
+
+.metricool-import__tag {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--green-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.metricool-import__notice {
+  display: flex;
+  margin: 0;
+  padding: 10px 12px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.metricool-import__notice svg { flex: none; }
+.metricool-import__notice .button { margin-left: auto; }
+.metricool-import__notice--error { color: var(--rose); background: var(--rose-soft); }
+.metricool-import__notice--ok { color: var(--green); background: var(--green-soft); }
+
+.metricool-import__loading { display: flex; margin: 8px 0; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+
+.metricool-import__actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+
+.metricool-import__retire {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.metricool-import__retire h3 { margin: 0; color: var(--ink); font-size: 14px; }
+.metricool-import__retire p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }

@@ -98,7 +98,11 @@ Las rutas de solo lectura `/api/integrations/*` que consume METRIQ usan otra cla
 
 ## 3. Alta de las marcas reales
 
-No transcriba `blogId` a mano. El catálogo se descubre desde Metricool:
+No transcriba `blogId` a mano. El catálogo se descubre desde Metricool.
+
+**Desde la web (recomendado, y la única vía con inicio de sesión de Google):** en **Cuentas → Importar desde Metricool** un administrador ve las marcas que el token del servidor puede leer, con sus redes y si ya están vinculadas. Marque las que se atienden en SAC (no hay preselección: el catálogo puede incluir marcas de otros equipos), elija cómo está conectado Instagram y pulse **Importar**. En el mismo panel, **Marcas sin conexión a Metricool** permite desactivar de una vez las marcas que nunca sincronizan, como las 20 de ejemplo; desactivar no borra historial.
+
+**Por API (solo con `SAC_FLOW_AUTH_MODE=local`, porque con Google las rutas exigen la cookie de una persona):**
 
 ```powershell
 # Lista las marcas visibles para el token, indicando cuáles ya están vinculadas.
@@ -120,8 +124,8 @@ creadas y las omitidas con su motivo (`ALREADY_LINKED`, `NO_SUPPORTED_CHANNELS`)
 Ambas rutas exigen rol `admin` con alcance completo de marcas, y ninguna escribe en
 Metricool.
 
-Después de importar, retire las 20 marcas ficticias del seed para que la sincronización no
-registre errores por cuentas sin referencia.
+Después de importar, retire las 20 marcas ficticias del seed (desde el mismo panel) para que la
+sincronización no registre errores por cuentas sin referencia.
 
 ### El proveedor de Instagram importa
 

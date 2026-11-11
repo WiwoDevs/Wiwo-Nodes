@@ -45,6 +45,7 @@ import {
   connectBrandWorkbook,
   createBrand,
   deactivateBrand,
+  importMetricoolBrands,
   deleteInteractionDraft,
   disconnectMetricoolAccount,
   downloadBrandWorkbook,
@@ -78,7 +79,7 @@ import {
   type WorkflowValidation,
 } from "./lib/api";
 import { useTheme } from "./lib/theme";
-import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, ReplyDelivery } from "./types";
+import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery } from "./types";
 
 const WorkflowCanvas = lazy(() =>
   import("./components/WorkflowCanvas").then((module) => ({ default: module.WorkflowCanvas })),
@@ -1197,6 +1198,34 @@ export function App({ onSignOut }: { onSignOut?: () => Promise<void> } = {}) {
     }
   }
 
+  async function importBrandsFromMetricool(blogIds: string[], instagramProvider: MetricoolInstagramProvider) {
+    const result = await importMetricoolBrands(blogIds, instagramProvider);
+    await refreshOperationalData();
+    setToast({
+      tone: "success",
+      title: `${result.created.length} marca(s) importada(s) desde Metricool`,
+      detail: result.skipped.length
+        ? `${result.skipped.length} omitida(s). Los mensajes llegan con la próxima sincronización.`
+        : "Los mensajes llegan con la próxima sincronización.",
+    });
+    return result;
+  }
+
+  async function deactivateBrandAccounts(accounts: BrandAccount[]) {
+    const failed: string[] = [];
+    for (const account of accounts) {
+      try {
+        await deactivateBrand(account.brandId ?? account.id);
+      } catch {
+        failed.push(account.name);
+      }
+    }
+    await refreshOperationalData();
+    setToast(failed.length
+      ? { tone: "warning", title: `No se pudieron desactivar ${failed.length} marca(s)`, detail: failed.join(", ") }
+      : { tone: "success", title: `${accounts.length} marca(s) desactivada(s)`, detail: "No se borró historial; dejan de sincronizar y de aparecer en la operación." });
+  }
+
   async function deactivateBrandAccount(account: BrandAccount) {
     if (isSavingBrand) return;
     setSavingBrand(true);
@@ -1736,6 +1765,8 @@ export function App({ onSignOut }: { onSignOut?: () => Promise<void> } = {}) {
               onCreateBrand={createBrandAccount}
               onUpdateBrand={updateBrandAccount}
               onDeactivateBrand={deactivateBrandAccount}
+              onImportMetricoolBrands={importBrandsFromMetricool}
+              onDeactivateBrands={deactivateBrandAccounts}
               onSyncAccount={syncSingleAccount}
               onSaveMetricoolAccount={saveAccountMetricoolCredentials}
               onDisconnectMetricoolAccount={disconnectAccountMetricool}

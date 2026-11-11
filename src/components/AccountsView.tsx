@@ -3,6 +3,7 @@ import {
   ArrowClockwise,
   Buildings,
   CheckCircle,
+  CloudArrowDown,
   FloppyDisk,
   FolderOpen,
   LinkSimple,
@@ -25,8 +26,11 @@ import type {
   ChannelConnection,
   SocialPlatform,
   BrandResourceKind,
+  MetricoolInstagramProvider,
 } from "../types";
+import type { MetricoolImportResult } from "../lib/api";
 import { BrandFilesPanel } from "./BrandFilesPanel";
+import { MetricoolImportDialog } from "./MetricoolImportDialog";
 import {
   platformLabel,
   SOCIAL_PLATFORM_OPTIONS,
@@ -72,6 +76,10 @@ export interface AccountsViewProps {
   onCreateBrand?: (input: BrandAdminInput) => void | Promise<void>;
   onUpdateBrand?: (account: BrandAccount, input: BrandAdminInput) => void | Promise<void>;
   onDeactivateBrand?: (account: BrandAccount) => void | Promise<void>;
+  /** Importa marcas del catálogo de Metricool (solo admin). */
+  onImportMetricoolBrands?: (blogIds: string[], instagramProvider: MetricoolInstagramProvider) => Promise<MetricoolImportResult>;
+  /** Desactiva varias marcas de una vez (p. ej. las de ejemplo sin referencia a Metricool). */
+  onDeactivateBrands?: (accounts: BrandAccount[]) => Promise<void>;
   onSyncAccount?: (account: BrandAccount) => void | Promise<void>;
   onSaveMetricoolAccount?: (
     account: BrandAccount,
@@ -206,6 +214,8 @@ export function AccountsView({
   onDownloadBrandQaTemplate,
   onAddBrandResource,
   onDeleteBrandResource,
+  onImportMetricoolBrands,
+  onDeactivateBrands,
   isSavingBrand = false,
   isSavingAccount = false,
   isSavingWorkbook = false,
@@ -217,6 +227,7 @@ export function AccountsView({
   const [brandForm, setBrandForm] = useState<BrandFormState>(emptyBrandForm);
   const [brandFormError, setBrandFormError] = useState<string | null>(null);
   const [credentialAccountId, setCredentialAccountId] = useState<string | null>(null);
+  const [isImportOpen, setImportOpen] = useState(false);
   const [metricoolUserId, setMetricoolUserId] = useState("");
   const [metricoolBlogId, setMetricoolBlogId] = useState("");
   const [metricoolInstagramProvider, setMetricoolInstagramProvider] = useState<"INSTAGRAMBUSINESS" | "INSTAGRAM">(
@@ -386,6 +397,18 @@ export function AccountsView({
           </p>
         </div>
         <div className="view-header__actions">
+          {onImportMetricoolBrands ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => setImportOpen(true)}
+              disabled={!canAdmin}
+              title={!canAdmin ? "Requiere rol administrador" : undefined}
+            >
+              <CloudArrowDown size={17} weight="bold" aria-hidden="true" />
+              Importar desde Metricool
+            </button>
+          ) : null}
           <button
             className="button button--secondary"
             type="button"
@@ -847,6 +870,15 @@ export function AccountsView({
             </footer>
           </form>
         </div>
+      ) : null}
+
+      {isImportOpen && onImportMetricoolBrands ? (
+        <MetricoolImportDialog
+          accounts={accounts}
+          onClose={() => setImportOpen(false)}
+          onImport={onImportMetricoolBrands}
+          onDeactivate={async (targets) => { await onDeactivateBrands?.(targets); }}
+        />
       ) : null}
 
       {credentialAccount ? (
