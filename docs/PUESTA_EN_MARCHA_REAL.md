@@ -111,9 +111,11 @@ No hace falta importar nada a mano. En live, **cada sincronización** (cada 5 mi
 Para que una marca del catálogo **no** se atienda en SAC: desactívela en **Cuentas** (conserva
 su vínculo, deja de sincronizar y no vuelve a crearse) o agregue su `blogId` a
 `SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS`. `SAC_FLOW_METRICOOL_AUTO_LINK=false` apaga todo el
-mecanismo. Ninguna de estas variables está en `docker-compose.production.yml`: el
-comportamiento por defecto no las necesita, y agregarlas requiere la aprobación de la
-compuerta de despliegue.
+mecanismo. Leer el catálogo **requiere `METRICOOL_USER_ID`** (el dueño del portafolio en Metricool). Si
+falta, la API lo advierte al arrancar y cada sincronización lo registra como paso fallido
+"Catálogo Metricool". `docker-compose.production.yml` pasa al contenedor `METRICOOL_USER_ID`,
+`METRICOOL_INSTAGRAM_PROVIDER`, `SAC_FLOW_METRICOOL_AUTO_LINK` y
+`SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS`.
 
 La sincronización programada del worker cubre todo el portafolio activo sin enviar una
 lista de cuentas, así que no la limita el máximo de 20 cuentas por pedido manual.

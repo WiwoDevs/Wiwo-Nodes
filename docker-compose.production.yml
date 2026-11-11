@@ -47,6 +47,11 @@ x-sac-flow-app: &sac-flow-app
     METRICOOL_MODE: "${METRICOOL_MODE:-live}"
     METRICOOL_BASE_URL: "${METRICOOL_BASE_URL:-https://app.metricool.com/api}"
     METRICOOL_API_TOKEN: "${METRICOOL_API_TOKEN:-}"
+    # Duenio del portafolio en Metricool: necesario para leer el catalogo de marcas y vincularlas solas.
+    METRICOOL_USER_ID: "${METRICOOL_USER_ID:-}"
+    METRICOOL_INSTAGRAM_PROVIDER: "${METRICOOL_INSTAGRAM_PROVIDER:-INSTAGRAMBUSINESS}"
+    SAC_FLOW_METRICOOL_AUTO_LINK: "${SAC_FLOW_METRICOOL_AUTO_LINK:-}"
+    SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS: "${SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS:-}"
     METRICOOL_ACCOUNTS_JSON: "${METRICOOL_ACCOUNTS_JSON:-}"
     # Inicio de sesion con Google y allowlist del servidor (ver docs/PUESTA_EN_MARCHA_REAL.md).
     SAC_FLOW_AUTH_MODE: "${SAC_FLOW_AUTH_MODE:-local}"

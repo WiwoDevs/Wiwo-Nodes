@@ -126,6 +126,14 @@ describe("Vinculación automática del catálogo de Metricool", () => {
     expect((await brands(app)).find((brand) => brand.name === "Marca Real Uno")).toBeUndefined();
   });
 
+  it("deja constancia en la auditoría cuando falta METRICOOL_USER_ID", async () => {
+    const { app, client } = await makeApp({ METRICOOL_USER_ID: "" });
+    const response = await sync(app);
+    expect(response.statusCode).toBe(200);
+    expect(client.listBrands).not.toHaveBeenCalled();
+    expect(JSON.stringify(response.json().data.run)).toContain("Falta METRICOOL_USER_ID");
+  });
+
   it("sigue sincronizando si el catálogo no responde", async () => {
     const { app } = await makeApp({}, fakeMetricool(async () => { throw new Error("Metricool caído"); }));
     const response = await sync(app);

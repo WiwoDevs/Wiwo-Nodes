@@ -38,6 +38,10 @@ try {
       "SAC Flow está en modo demo: no se harán llamadas ni envíos a Metricool.",
     );
   }
+  if (!config.demoMode && config.metricool.autoLink && !config.metricool.userId
+    && !config.metricool.fallbackAccount?.userId && !Object.keys(config.metricool.accounts).length) {
+    app.log.warn("Falta METRICOOL_USER_ID: no se puede leer el catálogo de Metricool ni vincular marcas automáticamente.");
+  }
   if (config.auth.enabled && !config.security.apiKey && config.operations.inboxSyncEnabled) {
     app.log.warn(
       "Inicio de sesión activo sin SAC_FLOW_API_KEY: el worker y el despachador no podrán llamar a /api/sync ni enviar respuestas.",

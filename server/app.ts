@@ -929,7 +929,13 @@ async function autoLinkMetricoolCatalog(
   const userId = config.metricool.userId
     || config.metricool.fallbackAccount?.userId
     || Object.values(config.metricool.accounts)[0]?.userId;
-  if (!userId) return null;
+  if (!userId) {
+    return {
+      created: [],
+      retired: [],
+      audit: [auditStep("Catálogo Metricool", "failed", "Falta METRICOOL_USER_ID en el servidor: no se puede leer el catálogo para vincular marcas.")],
+    };
+  }
 
   let discovered: DiscoveredMetricoolBrand[];
   try {
