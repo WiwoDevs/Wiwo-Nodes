@@ -139,7 +139,7 @@ export interface ActorContext {
   tenantId: string;
   role: ActorRole;
   brandIds: string[] | "all";
-  source: "local" | "trusted_headers" | "google" | "dev";
+  source: "local" | "trusted_headers" | "google" | "dev" | "service";
   /** Correo verificado de la sesión (solo inicio de sesión con Google o prueba local). */
   email?: string;
 }

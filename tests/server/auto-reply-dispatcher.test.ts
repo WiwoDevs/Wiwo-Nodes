@@ -19,7 +19,7 @@ const actor: ActorContext = {
   source: "trusted_headers",
 };
 
-async function fixture() {
+async function fixture(extraEnv: Record<string, string> = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "sac-flow-auto-reply-"));
   directories.push(directory);
   const dataFile = path.join(directory, "store.json");
@@ -34,6 +34,7 @@ async function fixture() {
     SAC_FLOW_DISABLE_OUTBOUND_SENDS: "false",
     SAC_FLOW_DISABLE_METRICOOL_MUTATIONS: "false",
     SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY: "test-credential-key-with-32-characters",
+    ...extraEnv,
   }, directory);
   const snapshot = await repository.snapshot();
   snapshot.workflow.autoReplyEnabled = true;
@@ -108,6 +109,30 @@ describe("automatic reply dispatch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await repository.findReplyDelivery(delivery.id)).toMatchObject({ status: "sent", attemptCount: 1 });
     expect(await repository.findInteraction(interaction.id)).toMatchObject({ status: "replied" });
+  });
+
+  it("keeps sending the site key as a service credential when Google sign-in is active", async () => {
+    const { repository, config, interaction } = await fixture({
+      SAC_FLOW_AUTH_MODE: "google",
+      GOOGLE_OAUTH_CLIENT_ID: "cliente-de-prueba.apps.googleusercontent.com",
+      GOOGLE_OAUTH_CLIENT_SECRET: "secreto-de-prueba",
+    });
+    expect(config.auth.enabled).toBe(true);
+    await queueEligibleAutoReplies(repository, [interaction], actor, "protocol-google", 1);
+    const delivery = (await repository.listReplyDeliveries({ status: "pending" }))[0];
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(String(url)).toMatch(/\/api\/interactions\/[^/]+\/reply$/);
+      expect(init?.method).toBe("POST");
+      expect(headers["x-api-key"]).toBe("test-api-key");
+      expect(headers.cookie).toBeUndefined();
+      await repository.claimReplyDelivery(delivery.id, 60_000);
+      await repository.settleReplyDelivery(delivery.id, { status: "sent", at: new Date().toISOString() });
+      return new Response(JSON.stringify({ meta: { delivery: "sent" } }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const result = await dispatchNextQueuedAutoReply({ repository, config, actor, apiUrl: "http://127.0.0.1:8787", fetchImpl: fetchMock as typeof fetch });
+    expect(result).toMatchObject({ handled: true, outcome: "sent" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("does not dispatch while the environment remains in shadow mode", async () => {

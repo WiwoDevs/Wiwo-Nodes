@@ -59,6 +59,8 @@ x-sac-flow-app: &sac-flow-app
     SAC_FLOW_AUTH_ALLOWED_DOMAINS: "${SAC_FLOW_AUTH_ALLOWED_DOMAINS:-}"
     SAC_FLOW_AUTH_DEFAULT_ROLE: "${SAC_FLOW_AUTH_DEFAULT_ROLE:-agent}"
     SAC_FLOW_AUTH_SESSION_TTL_MS: "${SAC_FLOW_AUTH_SESSION_TTL_MS:-432000000}"
+    # Clave de solo lectura para /api/integrations/* (METRIQ). Vacia = rutas deshabilitadas.
+    SAC_FLOW_SERVICE_API_KEY: "${SAC_FLOW_SERVICE_API_KEY:-}"
 
 services:
   postgres:

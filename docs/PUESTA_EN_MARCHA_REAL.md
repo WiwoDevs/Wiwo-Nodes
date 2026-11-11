@@ -88,6 +88,14 @@ la cookie firmada.
 
 Para volver al comportamiento anterior, `SAC_FLOW_AUTH_MODE=local`.
 
+### Worker y despachador en modo Google
+
+El worker de sincronización y el despachador de respuestas automáticas no tienen navegador ni cookie. Con inicio de sesión activo, `SAC_FLOW_API_KEY` deja de ser una credencial de navegador y pasa a ser solo interna: con `X-API-Key` o `Authorization: Bearer` abre únicamente `POST /api/sync` (worker) y `POST /api/interactions/:id/reply` (despachador de respuestas automáticas), con un actor de servicio `service:worker`, rol `agent` y todas las marcas. Una clave incorrecta en esas rutas responde `401 UNAUTHORIZED`; en cualquier otra ruta o método la clave no tiene efecto y se exige la cookie de una persona (`401 SESSION_REQUIRED`). Cada uso queda registrado como evento `service_actor`, sin la clave.
+
+Por eso `SAC_FLOW_API_KEY` debe seguir definido en el servidor (el compose de producción ya lo exige) y nunca se entrega al navegador. Si falta con el inicio de sesión activo y la sincronización encendida, la API lo advierte al arrancar.
+
+Las rutas de solo lectura `/api/integrations/*` que consume METRIQ usan otra clave, `SAC_FLOW_SERVICE_API_KEY` (32+ caracteres), que el compose de producción ahora pasa al contenedor.
+
 ## 3. Alta de las marcas reales
 
 No transcriba `blogId` a mano. El catálogo se descubre desde Metricool:

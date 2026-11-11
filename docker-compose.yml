@@ -51,6 +51,7 @@ services:
       SAC_FLOW_AUTH_ADMIN_EMAILS: "${SAC_FLOW_AUTH_ADMIN_EMAILS:-}"
       SAC_FLOW_AUTH_ALLOWED_EMAILS: "${SAC_FLOW_AUTH_ALLOWED_EMAILS:-}"
       SAC_FLOW_AUTH_ALLOWED_DOMAINS: "${SAC_FLOW_AUTH_ALLOWED_DOMAINS:-}"
+      SAC_FLOW_SERVICE_API_KEY: "${SAC_FLOW_SERVICE_API_KEY:-}"
     volumes:
       - sac-flow-data:/app/data
     read_only: true

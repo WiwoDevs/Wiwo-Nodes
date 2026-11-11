@@ -38,6 +38,11 @@ try {
       "SAC Flow está en modo demo: no se harán llamadas ni envíos a Metricool.",
     );
   }
+  if (config.auth.enabled && !config.security.apiKey && config.operations.inboxSyncEnabled) {
+    app.log.warn(
+      "Inicio de sesión activo sin SAC_FLOW_API_KEY: el worker y el despachador no podrán llamar a /api/sync ni enviar respuestas.",
+    );
+  }
 } catch (error) {
   app.log.error(error);
   process.exit(1);

@@ -28,10 +28,14 @@ export function buildSecurityAudit(config: AppConfig, store: DataStore): Securit
   add({
     id: "api-key",
     category: "access",
-    status: config.security.requireApiKey && Boolean(config.security.apiKey) ? "pass" : "fail",
+    status: (config.security.requireApiKey && Boolean(config.security.apiKey)) || config.auth.enabled ? "pass" : "fail",
     title: "Autenticación del API",
-    detail: config.security.requireApiKey ? "La clave del sitio es obligatoria." : "El API acepta solicitudes sin clave.",
-    remediation: "Active SAC_FLOW_REQUIRE_API_KEY y configure SAC_FLOW_API_KEY.",
+    detail: config.auth.enabled
+      ? "Cada persona inicia sesión; la clave del sitio solo autoriza al worker y al despachador en sus dos rutas internas."
+      : config.security.requireApiKey
+        ? "La clave del sitio es obligatoria."
+        : "El API acepta solicitudes sin clave.",
+    remediation: "Active el inicio de sesión (SAC_FLOW_AUTH_MODE=google) o SAC_FLOW_REQUIRE_API_KEY con SAC_FLOW_API_KEY.",
   });
   add({
     id: "actor-context",

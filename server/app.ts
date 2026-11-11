@@ -290,6 +290,20 @@ function validApiSession(headers: Record<string, unknown>, signingKey: Buffer, n
   }
 }
 
+/**
+ * Únicas rutas que un proceso interno puede invocar con la clave del sitio cuando el inicio
+ * de sesión está activo: la sincronización del worker y el envío del despachador.
+ */
+const SERVICE_ACTOR_ROUTES: Array<{ method: string; path: RegExp }> = [
+  { method: "POST", path: /^\/api\/sync$/ },
+  { method: "POST", path: /^\/api\/interactions\/[^/]+\/reply$/ },
+];
+
+function isServiceActorRoute(method: string, url: string): boolean {
+  const routePath = url.split("?", 1)[0] || "/";
+  return SERVICE_ACTOR_ROUTES.some((route) => route.method === method.toUpperCase() && route.path.test(routePath));
+}
+
 function isMutationMethod(method: string): boolean {
   return ["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase());
 }
@@ -1348,6 +1362,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         });
       }
       return;
+    }
+    // Procesos internos (worker y despachador de respuestas) llaman a la API sin navegador:
+    // con inicio de sesión activo, la clave del sitio abre SOLO estas dos rutas y crea un
+    // actor de servicio. Cualquier otra ruta sigue exigiendo la cookie de una persona.
+    if (identity && protectedPath && isServiceActorRoute(request.method, request.url)) {
+      const received = extractApiKey(request.headers as Record<string, unknown>);
+      if (received) {
+        if (!config.security.apiKey || !safeTokenEqual(received, config.security.apiKey)) {
+          return reply.code(401).send({
+            error: { code: "UNAUTHORIZED", message: "Clave de servicio inválida.", requestId: request.id },
+            meta: apiMeta(config),
+          });
+        }
+        sessionActors.set(request, {
+          userId: "service:worker",
+          displayName: "SAC Flow Worker",
+          tenantId: config.persistence.postgresOrganizationSlug,
+          role: "agent",
+          brandIds: "all",
+          source: "service",
+        });
+        request.log.info({ event: "service_actor", method: request.method, route: request.url.split("?", 1)[0] }, "Solicitud interna con actor de servicio.");
+        return;
+      }
     }
     if (identity && protectedPath) {
       const cookie = requestCookie(request.headers as Record<string, unknown>, config.auth.cookieName);
