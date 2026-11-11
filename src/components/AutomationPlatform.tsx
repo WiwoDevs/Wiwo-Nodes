@@ -80,6 +80,7 @@ import type { ApiWorkflow } from "../lib/api";
 import type { BrandAccount, Interaction } from "../types";
 import { interactionKindLabel, SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
+import { greetingNameOf, salutationFor } from "../lib/greeting";
 
 export type AutomationSection = "home" | "workflows" | "executions" | "templates" | "credentials";
 export type AutomationHomeDestination = "platform-home" | "automations" | "automation-executions" | "workflow" | "dashboard" | "interactions" | "accounts";
@@ -97,6 +98,8 @@ type AutomationPlatformProps = {
   onNavigate: (destination: AutomationHomeDestination) => void;
   onOpenInteraction: (interaction: Interaction) => void;
   onToast: (payload: ToastPayload) => void;
+  /** Display name of the signed-in user, used for the Home greeting. */
+  userName?: string;
 };
 type PlatformNodeData = {
   automationNode: AutomationNode;
@@ -481,7 +484,7 @@ function WorkflowStudio({
         </aside>
         <div className="platform-canvas" aria-label="Editor visual de automatizaciones">
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={platformNodeTypes} defaultViewport={{ x: 28, y: 16, zoom: 0.62 }} minZoom={0.25} maxZoom={1.8} deleteKeyCode={canAdmin ? ["Backspace", "Delete"] : null}>
-            <Background variant={BackgroundVariant.Dots} color="#c6d3eb" gap={22} size={1.3} />
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1.3} />
             <Controls showInteractive={false} />
           </ReactFlow>
           <div className="canvas-safety-note"><ShieldCheck weight="fill" /> Externos bloqueados · Metricool en solo lectura</div>
@@ -526,6 +529,7 @@ export function AutomationPlatform({
   onNavigate,
   onOpenInteraction,
   onToast,
+  userName,
 }: AutomationPlatformProps) {
   const [state, setState] = useState<AutomationPlatformState | null>(null);
   const [meta, setMeta] = useState<PlatformMeta | null>(null);
@@ -687,6 +691,7 @@ export function AutomationPlatform({
   }
 
   if (section === "home") {
+    const greetingName = greetingNameOf(userName);
     const attention = interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review");
     const review = attention.filter((interaction) => interaction.status === "needs_review");
     const unassigned = attention.filter((interaction) => !interaction.assignee && !interaction.assignedTo);
@@ -703,7 +708,11 @@ export function AutomationPlatform({
       <section className="sac-home-intro" aria-labelledby="sac-home-title">
         <div className="sac-home-intro__copy">
           <span className="eyebrow"><ChatCircleDots weight="fill" /> SAC multicuenta</span>
-          <h2 id="sac-home-title">Lo que necesita atención, primero.</h2>
+          <h2 id="sac-home-title" className="sac-home-greeting">
+            <span className="wiwo-orb" aria-hidden="true" />
+            {salutationFor()}{greetingName ? <>, <span className="gradient-text">{greetingName}</span></> : null}
+          </h2>
+          <p className="sac-home-lead">Lo que necesita atención, primero.</p>
           <p>Prioriza DMs y comentarios, revisa las cuentas con alertas y mantén el flujo SAC bajo control desde un solo lugar.</p>
           <div className="sac-home-actions">
             <button className="button primary" onClick={() => onNavigate("interactions")}><ChatCircleDots weight="fill" /> Abrir bandeja SAC</button>

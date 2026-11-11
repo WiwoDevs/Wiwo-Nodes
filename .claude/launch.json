@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev-all",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set PORT=8787&& npm run dev:all"],
+      "port": 5173
+    }
+  ]
+}
