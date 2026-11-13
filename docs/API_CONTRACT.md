@@ -422,7 +422,7 @@ No recibe parámetros.
 
 ### `GET /api/ready`
 
-No recibe parámetros. Devuelve 200 si el proceso puede leer su repositorio configurado y construir un snapshot mínimo; devuelve 503 si la dependencia de persistencia no está lista.
+No recibe parámetros. Devuelve 200 si el proceso puede leer su repositorio configurado (catálogo de marcas/workflow, últimas ejecuciones y conteos); devuelve 503 si la dependencia de persistencia no está lista. `brands`, `interactions` y `deliveries` son conteos (`count(*)` en PostgreSQL): el probe no materializa las interacciones, de modo que su costo no crece con el volumen de la bandeja, y `deliveries` informa el total real en vez de las primeras 500 filas.
 
 ```json
 {
@@ -434,7 +434,8 @@ No recibe parámetros. Devuelve 200 si el proceso puede leer su repositorio conf
       "status": "ok",
       "driver": "json",
       "brands": 20,
-      "interactions": 60
+      "interactions": 60,
+      "deliveries": 0
     },
     "metricool": {
       "status": "ok",

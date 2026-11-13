@@ -22,7 +22,10 @@ export interface SecurityAuditReport {
   checks: SecurityAuditCheck[];
 }
 
-export function buildSecurityAudit(config: AppConfig, store: DataStore): SecurityAuditReport {
+export function buildSecurityAudit(
+  config: AppConfig,
+  store: Pick<DataStore, "brands" | "workflow" | "automation">,
+): SecurityAuditReport {
   const checks: SecurityAuditCheck[] = [];
   const add = (check: SecurityAuditCheck) => checks.push(check);
   add({

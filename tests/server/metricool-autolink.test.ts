@@ -104,13 +104,21 @@ describe("Vinculación automática del catálogo de Metricool", () => {
     // El repositorio JSON usa mutate() internamente para todo; se cuentan solo las llamadas
     // que hace la vinculación automática.
     const repository = app.sacFlow.repository;
-    const original = repository.mutate.bind(repository);
     let fromAutoLink = 0;
-    vi.spyOn(repository, "mutate").mockImplementation(((operation: Parameters<typeof original>[0]) => {
+    const countFromAutoLink = () => {
       const stack = new Error().stack ?? "";
       if (stack.includes("autoLinkMetricoolCatalog") || stack.includes("linkMetricoolBrands")) fromAutoLink += 1;
-      return original(operation);
+    };
+    const originalMutate = repository.mutate.bind(repository);
+    vi.spyOn(repository, "mutate").mockImplementation(((operation: Parameters<typeof originalMutate>[0]) => {
+      countFromAutoLink();
+      return originalMutate(operation);
     }) as typeof repository.mutate);
+    const originalCatalog = repository.mutateCatalog.bind(repository);
+    vi.spyOn(repository, "mutateCatalog").mockImplementation(((operation: Parameters<typeof originalCatalog>[0]) => {
+      countFromAutoLink();
+      return originalCatalog(operation);
+    }) as typeof repository.mutateCatalog);
     const response = await sync(app);
     expect(response.statusCode).toBe(200);
     expect(fromAutoLink).toBe(0);

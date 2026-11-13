@@ -76,6 +76,7 @@ import type {
   ActorContext,
   ActorRole,
   Brand,
+  CatalogStore,
   Channel,
   ConversationMessage,
   DataStore,
@@ -843,9 +844,10 @@ async function linkMetricoolBrands(
   repository: SacFlowRepository,
   sources: DiscoveredMetricoolBrand[],
   options: { instagramProvider: MetricoolInstagramProvider; color: string; active: boolean },
-  snapshot?: DataStore,
+  snapshot?: CatalogStore,
 ): Promise<MetricoolLinkResult> {
-  const store = snapshot ?? await repository.snapshot();
+  // Solo marcas y workflow: no se leen las interacciones.
+  const store = snapshot ?? await repository.snapshotCatalog();
   const alreadyLinked = new Set<string>();
   for (const brand of store.brands) {
     const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
@@ -868,7 +870,7 @@ async function linkMetricoolBrands(
       continue;
     }
 
-    const brand = await repository.mutate((current) => {
+    const brand = await repository.mutateCatalog((current) => {
       const usedBrandIds = new Set(current.brands.map((item) => item.id));
       const usedAccountIds = new Set(current.brands.map((item) => item.account.id));
       const usedHandles = new Set(current.brands.map((item) => item.account.handle.toLowerCase()));
@@ -950,9 +952,9 @@ async function autoLinkMetricoolCatalog(
   }
 
   const excluded = new Set(config.metricool.excludedBlogIds);
-  // Una sola lectura del store por ciclo. En PostgreSQL cada mutate() reescribe el store
-  // completo (todas las interacciones), así que solo se escribe cuando hay un cambio real.
-  const current = await repository.snapshot();
+  // Una sola lectura del catálogo (marcas y workflow, sin interacciones) por ciclo, y
+  // escritura solo cuando hay un cambio real.
+  const current = await repository.snapshotCatalog();
   const linkedBlogIds = new Set(current.brands
     .map((brand) => resolveMetricoolAccount(config, brand.account.id, brand.account.metricool)?.blogId)
     .filter((blogId): blogId is string => Boolean(blogId)));
@@ -970,7 +972,7 @@ async function autoLinkMetricoolCatalog(
   const hasDemoToRetire = current.brands.some((brand) => DEMO_SEED_BRAND_IDS.has(brand.id)
     && brand.active
     && !resolveMetricoolAccount(config, brand.account.id, brand.account.metricool));
-  const retired = !hasDemoToRetire ? [] : await repository.mutate((store) => {
+  const retired = !hasDemoToRetire ? [] : await repository.mutateCatalog((store) => {
     const removed: MetricoolAutoLinkOutcome["retired"] = [];
     for (const brand of store.brands) {
       if (!DEMO_SEED_BRAND_IDS.has(brand.id) || !brand.active) continue;
@@ -1013,7 +1015,7 @@ async function executeSync(
   preludeAudit: RunAuditStep[] = [],
 ): Promise<{ run: WorkflowRun; newInteractions: Interaction[] }> {
   const startedAt = new Date().toISOString();
-  const store = await repository.snapshot();
+  const store = await repository.snapshotCatalog();
   const brands = selectBrandsForActor(actor, store.brands, body.accountIds);
   const accountIds = brands.map((brand) => brand.account.id);
   const auditTrail: RunAuditStep[] = [...preludeAudit];
@@ -1811,8 +1813,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
   app.get("/api/ready", async (request, reply) => {
     try {
-      const snapshot = await repository.snapshot();
-      const latestSyncRun = snapshot.runs
+      const [catalog, runs, counts] = await Promise.all([
+        repository.snapshotCatalog(),
+        repository.listRuns(),
+        repository.countRecords(),
+      ]);
+      const latestSyncRun = runs
         .filter((run) => run.kind === "sync")
         .sort((left, right) => {
           const leftAt = Date.parse(left.finishedAt || left.startedAt);
@@ -1833,9 +1839,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           repository: {
             status: "ok",
             driver: config.persistence.driver,
-            brands: snapshot.brands.length,
-            interactions: snapshot.interactions.length,
-            deliveries: snapshot.deliveries.length,
+            brands: counts.brands,
+            interactions: counts.interactions,
+            deliveries: counts.deliveries,
           },
           metricool: {
             status: config.demoMode || config.metricool.token ? "ok" : "warning",
@@ -1844,7 +1850,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           },
           inboxSync: {
             enabled: config.operations.inboxSyncEnabled,
-            intervalMinutes: Math.max(5, snapshot.workflow.pollIntervalMinutes),
+            intervalMinutes: Math.max(5, catalog.workflow.pollIntervalMinutes),
             lastRunAt: latestSyncRun?.finishedAt || latestSyncRun?.startedAt,
             lastRunStatus: latestSyncRun?.status ?? "never",
           },
@@ -1906,8 +1912,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
   app.get("/api/security/audit", async (request) => {
     requireRole(config, request, "admin");
-    const store = await repository.snapshot();
-    return { data: buildSecurityAudit(config, store), meta: apiMeta(config) };
+    const [catalog, automation] = await Promise.all([repository.snapshotCatalog(), repository.snapshotAutomation()]);
+    return { data: buildSecurityAudit(config, { ...catalog, automation }), meta: apiMeta(config) };
   });
 
   app.get("/api/me", async (request) => {
@@ -1946,7 +1952,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "admin");
     assertPortfolioAdmin(actor);
     const body = brandCreateSchema.parse(request.body);
-    const created = await repository.mutate((store) => {
+    const created = await repository.mutateCatalog((store) => {
       const usedBrandIds = new Set(store.brands.map((brand) => brand.id));
       const usedAccountIds = new Set(store.brands.map((brand) => brand.account.id));
       const usedHandles = new Set(store.brands.map((brand) => brand.account.handle.toLowerCase()));
@@ -2026,7 +2032,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     }
 
     const discovered = normalizeDiscoveredBrands(payload);
-    const store = await repository.snapshot();
+    const store = await repository.snapshotCatalog();
     // Un blogId ya vinculado no debe volver a importarse: duplicaría el inbox de esa marca.
     const linked = new Map<string, { brandId: string; brandName: string; active: boolean }>();
     for (const brand of store.brands) {
@@ -2107,7 +2113,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const body = brandUpdateSchema.parse(request.body);
-    const updated = await repository.mutate((store) => {
+    const updated = await repository.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       if (body.accountHandle) {
@@ -2143,7 +2149,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "admin");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
-    const updated = await repository.mutate((store) => {
+    const updated = await repository.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       brand.active = false;
@@ -2167,7 +2173,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "viewer");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
-    const store = await repository.snapshot();
+    const store = await repository.snapshotCatalog();
     const brand = store.brands.find((item) => item.id === brandId);
     if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
     return { data: brand.workbook ?? null, meta: { ...apiMeta(config), externalWrites: false } };
@@ -2185,7 +2191,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         error instanceof Error ? error.message : "No se pudo validar el libro.",
       );
     });
-    const updated = await repository.mutate((store) => {
+    const updated = await repository.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       brand.workbook = inspected;
@@ -2256,7 +2262,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "viewer");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
-    const store = await repository.snapshot();
+    const store = await repository.snapshotCatalog();
     const brand = store.brands.find((item) => item.id === brandId);
     if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
     return { data: brand.qaWorkbook ?? null, meta: { ...apiMeta(config), externalWrites: false } };
@@ -2274,7 +2280,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         error instanceof Error ? error.message : "No se pudo validar el Excel QA.",
       );
     });
-    const updated = await repository.mutate((store) => {
+    const updated = await repository.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       brand.qaWorkbook = inspected.config;
@@ -2319,7 +2325,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "viewer");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
-    const store = await repository.snapshot();
+    const store = await repository.snapshotCatalog();
     const brand = store.brands.find((item) => item.id === brandId);
     if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
     const bytes = await buildBrandQaTemplate(brand.name);
@@ -2333,7 +2339,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "viewer");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
-    const store = await repository.snapshot();
+    const store = await repository.snapshotCatalog();
     const brand = store.brands.find((item) => item.id === brandId);
     if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
     return { data: brand.resources ?? [], meta: { ...apiMeta(config), count: brand.resources?.length ?? 0 } };
@@ -2344,7 +2350,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const body = brandResourceCreateSchema.parse(request.body);
-    const created = await repository.mutate((store) => {
+    const created = await repository.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       brand.resources = brand.resources ?? [];
@@ -2368,7 +2374,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "admin");
     const { brandId, resourceId } = brandResourceParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
-    const removed = await repository.mutate((store) => {
+    const removed = await repository.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       const resource = (brand.resources ?? []).find((item) => item.id === resourceId);
@@ -2449,7 +2455,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const query = inboxContactListQuerySchema.parse(request.query);
     const { page, pageSize, ...filters } = query;
     assertDateRange(filters.from, filters.to);
-    const snapshot = await repository.snapshot();
+    const snapshot = await repository.snapshotCatalog();
     const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, filters);
     const contacts = groupInboxContacts(await repository.listInteractions(scopedFilters));
     const total = contacts.length;
@@ -2466,7 +2472,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "viewer");
     const query = inboxPostListQuerySchema.parse(request.query);
     const { page, pageSize, pendingOnly, ...filters } = query;
-    const snapshot = await repository.snapshot();
+    const snapshot = await repository.snapshotCatalog();
     const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, {
       ...filters,
       type: "comment",
@@ -2494,7 +2500,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "viewer");
     const { postKey } = inboxPostParamsSchema.parse(request.params);
     const { page, pageSize, pendingOnly } = inboxPostCommentsQuerySchema.parse(request.query);
-    const snapshot = await repository.snapshot();
+    const snapshot = await repository.snapshotCatalog();
     const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, { type: "comment" });
     const allComments = await repository.listInteractions(scopedFilters);
     const post = groupInboxPosts(allComments).find((item) => item.postKey === postKey);
@@ -2523,7 +2529,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const query = interactionListQuerySchema.parse(request.query);
     const { page, pageSize, ...filters } = query;
     assertDateRange(filters.from, filters.to);
-    const snapshot = await repository.snapshot();
+    const snapshot = await repository.snapshotCatalog();
     const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, filters);
     const interactions = await repository.listInteractions(scopedFilters);
     const total = interactions.length;
@@ -2547,7 +2553,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const interaction = await repository.findInteraction(id);
     if (!interaction) throw new ApiError(404, "INTERACTION_NOT_FOUND", "La interacción no existe.");
     assertBrandAccess(actor, interaction.brandId);
-    const store = await repository.snapshot();
+    const store = await repository.snapshotCatalog();
     const brand = store.brands.find((item) => item.id === interaction.brandId);
     const publicInteraction = publicInboxInteraction(interaction);
     return {
@@ -2629,7 +2635,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requireRole(config, request, "viewer");
     const filters = interactionFiltersSchema.parse(request.query);
     assertDateRange(filters.from, filters.to);
-    const snapshot = await repository.snapshot();
+    const snapshot = await repository.snapshotCatalog();
     const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, filters);
     return { data: await repository.stats(scopedFilters), meta: apiMeta(config) };
   });
@@ -2644,7 +2650,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
   app.get("/api/workflow/versions", async (request) => {
     requireRole(config, request, "viewer");
-    const store = await repository.snapshot();
+    const store = await repository.snapshotCatalog();
     return {
       data: [...store.workflowVersions].sort((left, right) => right.version - left.version),
       meta: { ...apiMeta(config), count: store.workflowVersions.length },
@@ -2664,7 +2670,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (patch.requireHumanFor) {
       patch.requireHumanFor = ensureMandatoryHumanReviewCategories(patch.requireHumanFor);
     }
-    const snapshot = await repository.snapshot();
+    const snapshot = await repository.snapshotCatalog();
     if (patch.autoReplyAccountIds) {
       const validIds = new Set(snapshot.brands.map((brand) => brand.account.id));
       const unknown = patch.autoReplyAccountIds.filter((id) => !validIds.has(id));
@@ -2683,7 +2689,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         );
       }
     }
-    const workflow = await repository.mutate((store) => {
+    const workflow = await repository.mutateCatalog((store) => {
       const now = new Date().toISOString();
       const nextVersion = store.workflow.version + 1;
       const next = {
@@ -2736,7 +2742,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (!config.demoMode && current.autoReplyEnabled && !body.confirmAutoReply) {
       throw new ApiError(409, "AUTO_REPLY_CONFIRMATION_REQUIRED", "Confirme expresamente el autoenvío antes de publicar.");
     }
-    const workflow = await repository.mutate((store) => {
+    const workflow = await repository.mutateCatalog((store) => {
       const now = new Date().toISOString();
       store.workflow.publishedVersion = store.workflow.version;
       store.workflow.publishedAt = now;
@@ -2758,7 +2764,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   app.post("/api/workflow/rollback", async (request) => {
     const actor = requireRole(config, request, "admin");
     const body = workflowRollbackSchema.parse(request.body);
-    const workflow = await repository.mutate((store) => {
+    const workflow = await repository.mutateCatalog((store) => {
       const source = store.workflowVersions.find((item) => item.version === body.version);
       if (!source) throw new ApiError(404, "WORKFLOW_VERSION_NOT_FOUND", "La versión solicitada no existe.");
       const now = new Date().toISOString();
@@ -2961,11 +2967,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   app.get("/api/executions", async (request) => {
     const actor = requireRole(config, request, "viewer");
     const query = executionListQuerySchema.parse(request.query);
-    const store = await repository.snapshot();
+    const [store, runs] = await Promise.all([repository.snapshotCatalog(), repository.listRuns()]);
     const allowedAccounts = actor.brandIds === "all"
       ? undefined
       : new Set(store.brands.filter((brand) => actor.brandIds.includes(brand.id)).map((brand) => brand.account.id));
-    const filtered = store.runs
+    const filtered = runs
       .filter((run) => !query.kind || run.kind === query.kind)
       .filter((run) => !query.status || run.status === query.status)
       .filter((run) => !allowedAccounts || run.accountIds.every((accountId) => allowedAccounts.has(accountId)));
@@ -2979,8 +2985,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   app.get("/api/executions/:id", async (request) => {
     const actor = requireRole(config, request, "viewer");
     const { id } = executionParamsSchema.parse(request.params);
-    const store = await repository.snapshot();
-    const run = store.runs.find((item) => item.id === id);
+    const [store, runs] = await Promise.all([repository.snapshotCatalog(), repository.listRuns()]);
+    const run = runs.find((item) => item.id === id);
     if (!run) throw new ApiError(404, "EXECUTION_NOT_FOUND", "La ejecución no existe.");
     const visibleAccounts = new Set(selectBrandsForActor(actor, store.brands).map((brand) => brand.account.id));
     if (!run.accountIds.every((accountId) => visibleAccounts.has(accountId))) {
@@ -3004,14 +3010,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       reply,
       sanitizeSyncResponse,
     )) return reply;
-    const store = await repository.snapshot();
-    const previous = store.runs.find((item) => item.id === id);
+    const [catalog, runs] = await Promise.all([repository.snapshotCatalog(), repository.listRuns()]);
+    const previous = runs.find((item) => item.id === id);
     if (!previous) throw new ApiError(404, "EXECUTION_NOT_FOUND", "La ejecución no existe.");
-    const brands = selectBrandsForActor(actor, store.brands, previous.accountIds);
+    const brands = selectBrandsForActor(actor, catalog.brands, previous.accountIds);
     let data: WorkflowRun | { run: WorkflowRun; newInteractions: number };
     if (previous.kind === "simulation") {
+      // Solo la simulación necesita las interacciones; reintentar una sync no las lee aquí.
       const run = simulateWorkflow(
-        store,
+        await repository.snapshot(),
         brands.map((brand) => brand.account.id),
         Math.max(1, previous.totals.fetched || 25),
         config.demoMode,
@@ -3653,7 +3660,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
   app.get("/api/export/xlsx", async (request, reply) => {
     const actor = requireRole(config, request, "supervisor");
-    const snapshot = await repository.snapshot();
+    const snapshot = await repository.snapshotCatalog();
     // El export honra los mismos filtros que la bandeja: sin esto, pedir "agosto de una
     // marca" devolvía el histórico completo de todas y había que recortarlo a mano.
     const requested = interactionFiltersSchema.parse(request.query);

@@ -32,7 +32,8 @@ Los umbrales son una base de staging. Techlab debe ajustarlos con el volumen rea
 6. Para `401/403`, revisar configuración o autorización del proveedor. No aumentar intentos.
 7. Para `429`, conservar `Retry-After` y el cooldown por cuenta. No reencolar en lote.
 8. Para `uncertain`, usar conciliación explícita. Nunca asumir que el envío falló.
-9. Si falla solo una superficie, identificar plataforma y capacidad antes de reintentar: conversaciones (Instagram/Facebook/X), comentarios (Instagram/Facebook/TikTok/YouTube/LinkedIn) o reseñas (Google Business). El aislamiento por superficie permite que las demás continúen.
+9. Si cambiar una marca, el workflow o una cuenta de Metricool devuelve 500/502 o tarda, revisar primero la conexión PostgreSQL y locks (`pg_stat_activity`): estas rutas ya no reescriben el store y en condiciones normales emiten solo uno o dos `UPDATE`. Una espera larga indica otra transacción reteniendo el lock de escritura de la organización (p. ej. un `postgres:import-json` o una sincronización), no volumen de interacciones.
+10. Si falla solo una superficie, identificar plataforma y capacidad antes de reintentar: conversaciones (Instagram/Facebook/X), comentarios (Instagram/Facebook/TikTok/YouTube/LinkedIn) o reseñas (Google Business). El aislamiento por superficie permite que las demás continúen.
 
 ## Frescura de la bandeja
 
