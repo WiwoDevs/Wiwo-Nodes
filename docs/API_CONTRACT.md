@@ -1048,7 +1048,7 @@ La nota admite 1–2000 caracteres, registra autor/fecha, aumenta `version` y ag
 
 ### `GET /api/export/xlsx`
 
-Genera el libro desde el snapshot local completo.
+Genera el libro desde las interacciones guardadas por Nodes. Acepta los mismos filtros que `/api/interactions` (`from`, `to`, `brandId`, `accountId`, `channel`, `type`, `status`…) y aplica el alcance de marcas del actor; sin filtros exporta todo el historial. El nombre del archivo refleja la marca y el rango (`sac-flow-<brandId>-<desde>_<hasta>.xlsx`). En la web, **Exportar** (Bandeja SAC y Resumen SAC) abre un diálogo con período (mes pasado por defecto, este mes, últimos 30 días, rango personalizado o todo el historial; límites de mes en la zona horaria del navegador) y marca. Los períodos anteriores a la primera sincronización pueden estar incompletos: Metricool solo entrega lo que aún tiene en su bandeja y no permite consultar rangos pasados.
 
 Headers:
 

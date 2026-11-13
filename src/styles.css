@@ -6015,3 +6015,33 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
   /* "Borrador sincronizado" solo ocupa espacio cuando hay cambios sin guardar. */
   .manual-inbox-draft-state:not(.is-dirty) { display: none; }
 }
+
+/* Diálogo de exportación por período y marca ----------------------------------- */
+.account-credentials-panel.export-dialog {
+  width: min(560px, 94vw);
+  max-height: min(88vh, 760px);
+  overflow-y: auto;
+  background: var(--surface-overlay);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+.export-dialog__periods { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.export-dialog__periods legend { margin-bottom: 8px; color: var(--ink); font-size: 12px; font-weight: 700; }
+.export-dialog__periods label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: var(--surface-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.export-dialog__periods label.is-selected { border-color: var(--accent-line); color: var(--ink); background: var(--accent-soft); }
+.export-dialog__periods input { accent-color: var(--accent); }
+.export-dialog__dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.export-dialog__summary { margin: 0; color: var(--ink); font-size: 13px; font-weight: 600; }
+.export-dialog__note { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }

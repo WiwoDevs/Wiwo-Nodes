@@ -1481,14 +1481,22 @@ export async function setAccountAutomation(
   });
 }
 
-export async function downloadExport() {
-  const response = await fetch(`${API_BASE}/export/xlsx`);
-  if (!response.ok) throw new Error("No se pudo generar el Excel");
+/** Descarga el Excel de interacciones; acepta período (ISO) y marca. */
+export async function downloadExport(filters: { from?: string; to?: string; brandId?: string } = {}) {
+  const query = new URLSearchParams();
+  if (filters.from) query.set("from", filters.from);
+  if (filters.to) query.set("to", filters.to);
+  if (filters.brandId) query.set("brandId", filters.brandId);
+  const response = await fetch(`${API_BASE}/export/xlsx${query.size ? `?${query}` : ""}`);
+  if (!response.ok) await throwApiError(response);
   const blob = await response.blob();
+  // El servidor nombra el archivo con la marca y el rango; se usa ese nombre si viene.
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const serverName = disposition.match(/filename="([^"]+)"/)?.[1];
   const href = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = href;
-  anchor.download = `sac-flow-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  anchor.download = serverName ?? `sac-flow-${new Date().toISOString().slice(0, 10)}.xlsx`;
   anchor.click();
   URL.revokeObjectURL(href);
 }

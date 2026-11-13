@@ -2114,6 +2114,31 @@ describe("SAC Flow API", () => {
     expect(workbook.getWorksheet("Interacciones")?.rowCount).toBe(61);
   });
 
+  it("exports only the requested period and brand, naming the file after them", async () => {
+    const { app } = await makeApp();
+    const all = (await app.sacFlow.repository.listInteractions()).filter((interaction) => interaction.brandId === "brand-01");
+    expect(all.length).toBeGreaterThan(1);
+    const times = all.map((interaction) => Date.parse(interaction.createdAt)).sort((left, right) => left - right);
+    // Un rango que deja fuera al menos la interacción más antigua de la marca.
+    const from = new Date(times[1]).toISOString();
+    const to = new Date(times[times.length - 1]).toISOString();
+    const expected = all.filter((interaction) => {
+      const at = Date.parse(interaction.createdAt);
+      return at >= Date.parse(from) && at <= Date.parse(to);
+    }).length;
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/export/xlsx?brandId=brand-01&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(String(response.headers["content-disposition"])).toContain(`-brand-01-${from.slice(0, 10)}_${to.slice(0, 10)}.xlsx`);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(response.rawPayload);
+    expect(workbook.getWorksheet("Interacciones")?.rowCount).toBe(expected + 1);
+    expect(expected).toBeLessThan(all.length);
+  });
+
   it("neutralizes formula-like text in Excel exports", async () => {
     const { app } = await makeApp();
     const listed = await app.inject({ method: "GET", url: "/api/interactions?pageSize=1" });

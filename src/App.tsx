@@ -35,6 +35,7 @@ import { InteractionsView } from "./components/InteractionsView";
 import { ManualManagementView } from "./components/ManualManagementView";
 import { SettingsView } from "./components/SettingsView";
 import { ProfileMenu } from "./components/ProfileMenu";
+import { ExportDialog, type ExportFilters } from "./components/ExportDialog";
 import type { WorkflowEditorStatus } from "./components/WorkflowCanvas";
 import wiwoNodesLogo from "./assets/wiwo-nodes-logo.png";
 import type { AutomationSection } from "./components/AutomationPlatform";
@@ -347,6 +348,7 @@ export function App({ onSignOut, sessionActor }: {
   const [view, setView] = useState<ViewId>("platform-home");
   const [editorTab, setEditorTab] = useState<EditorTab>("editor");
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isExportOpen, setExportOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const [isRunning, setIsRunning] = useState(false);
   const [executions, setExecutions] = useState<RunResult[]>([]);
@@ -739,17 +741,14 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
-  async function exportExcel() {
-    try {
-      await downloadExport();
-      setToast({ tone: "success", title: "Excel generado", detail: "La descarga incluye detalle y resumen por marca." });
-    } catch {
-      setToast({
-        tone: "warning",
-        title: "Inicia la API para exportar",
-        detail: "El Excel se genera desde la API real cuando la integración está conectada.",
-      });
-    }
+  /** Abre el diálogo de exportación (período y marca). */
+  function exportExcel() {
+    setExportOpen(true);
+  }
+
+  async function runExport(filters: ExportFilters) {
+    await downloadExport(filters);
+    setToast({ tone: "success", title: "Excel generado", detail: "La descarga incluye detalle y resumen por marca." });
   }
 
   async function openInteractionDetail(
@@ -1814,6 +1813,9 @@ export function App({ onSignOut, sessionActor }: {
           </div>
         ) : null}
       </main>
+      {isExportOpen ? (
+        <ExportDialog accounts={visibleData.accounts} onClose={() => setExportOpen(false)} onExport={runExport} />
+      ) : null}
 
       {detailPresentation === "panel" ? (
         <InteractionDetailPanel
