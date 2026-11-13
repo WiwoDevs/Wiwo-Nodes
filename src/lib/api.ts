@@ -312,7 +312,10 @@ export type AuthConfig = { enabled: boolean; provider: AuthProvider | null; requ
 /** Indica si este entorno exige inicio de sesión (Google o prueba local). */
 export async function loadAuthConfig(): Promise<AuthConfig> {
   const response = await fetch(`${API_BASE}/auth/config`);
-  if (!response.ok) return { enabled: false, provider: null, requiredPermission: "sac" };
+  // Solo un servidor sin esta ruta (404) significa "sin inicio de sesión". Cualquier otro
+  // error (502 del proxy, 500, red) NO debe abrir la app en modo local: se informa y se reintenta.
+  if (response.status === 404) return { enabled: false, provider: null, requiredPermission: "sac" };
+  if (!response.ok) await throwApiError(response);
   const payload = await response.json() as { data: AuthConfig };
   return payload.data;
 }

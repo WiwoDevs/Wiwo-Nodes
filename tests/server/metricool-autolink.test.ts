@@ -97,6 +97,25 @@ describe("Vinculación automática del catálogo de Metricool", () => {
     expect((await brands(app)).length).toBe(before);
   });
 
+  it("no reescribe el store en una sincronización sin marcas nuevas ni de ejemplo pendientes", async () => {
+    const { app } = await makeApp();
+    await sync(app);
+    // En PostgreSQL cada mutate() reescribe todas las interacciones: un ciclo sin cambios no debe llamarlo.
+    // El repositorio JSON usa mutate() internamente para todo; se cuentan solo las llamadas
+    // que hace la vinculación automática.
+    const repository = app.sacFlow.repository;
+    const original = repository.mutate.bind(repository);
+    let fromAutoLink = 0;
+    vi.spyOn(repository, "mutate").mockImplementation(((operation: Parameters<typeof original>[0]) => {
+      const stack = new Error().stack ?? "";
+      if (stack.includes("autoLinkMetricoolCatalog") || stack.includes("linkMetricoolBrands")) fromAutoLink += 1;
+      return original(operation);
+    }) as typeof repository.mutate);
+    const response = await sync(app);
+    expect(response.statusCode).toBe(200);
+    expect(fromAutoLink).toBe(0);
+  });
+
   it("respeta SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS", async () => {
     const { app } = await makeApp({ SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS: "1003" });
     await sync(app);

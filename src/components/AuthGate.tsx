@@ -34,29 +34,45 @@ export function AuthGate({ children }: AuthGateProps) {
     setState({ status: "login" });
   }, []);
 
-  const check = useCallback(async () => {
-    try {
-      const config = await loadAuthConfig();
-      setAuthEnabled(config.enabled);
-      setProvider(config.provider ?? "google");
-      if (!config.enabled) {
-        setState({ status: "open" });
-        return;
-      }
-      const current = await loadCurrentActor();
-      if (!current) {
-        setState({ status: "login" });
-        return;
-      }
-      setActor(current);
+  /** Lee la configuración de inicio de sesión y la sesión vigente. Lanza ante errores de la API. */
+  const resolveSession = useCallback(async () => {
+    const config = await loadAuthConfig();
+    setAuthEnabled(config.enabled);
+    setProvider(config.provider ?? "google");
+    if (!config.enabled) {
       setState({ status: "open" });
-    } catch (cause) {
-      setState({
-        status: "failed",
-        message: cause instanceof Error ? cause.message : "No fue posible contactar la API.",
-      });
+      return;
     }
+    const current = await loadCurrentActor();
+    if (!current) {
+      setState({ status: "login" });
+      return;
+    }
+    setActor(current);
+    setState({ status: "open" });
   }, []);
+
+  const check = useCallback(async () => {
+    setState({ status: "checking" });
+    // Errores transitorios del proxy (502/503) son habituales mientras la API sincroniza:
+    // se reintenta unas veces antes de mostrar el error.
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1_500 * attempt));
+      try {
+        await resolveSession();
+        return;
+      } catch (cause) {
+        lastError = cause;
+      }
+    }
+    setState({
+      status: "failed",
+      message: lastError instanceof Error ? lastError.message : "No fue posible contactar la API.",
+    });
+  }, [resolveSession]);
+
+
 
   useEffect(() => {
     void check();

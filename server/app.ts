@@ -843,8 +843,9 @@ async function linkMetricoolBrands(
   repository: SacFlowRepository,
   sources: DiscoveredMetricoolBrand[],
   options: { instagramProvider: MetricoolInstagramProvider; color: string; active: boolean },
+  snapshot?: DataStore,
 ): Promise<MetricoolLinkResult> {
-  const store = await repository.snapshot();
+  const store = snapshot ?? await repository.snapshot();
   const alreadyLinked = new Set<string>();
   for (const brand of store.brands) {
     const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
@@ -949,14 +950,27 @@ async function autoLinkMetricoolCatalog(
   }
 
   const excluded = new Set(config.metricool.excludedBlogIds);
-  const { created } = await linkMetricoolBrands(
-    config,
-    repository,
-    discovered.filter((brand) => !excluded.has(brand.blogId)),
-    { instagramProvider: config.metricool.defaultInstagramProvider ?? "INSTAGRAMBUSINESS", color: "#4242ff", active: true },
-  );
+  // Una sola lectura del store por ciclo. En PostgreSQL cada mutate() reescribe el store
+  // completo (todas las interacciones), así que solo se escribe cuando hay un cambio real.
+  const current = await repository.snapshot();
+  const linkedBlogIds = new Set(current.brands
+    .map((brand) => resolveMetricoolAccount(config, brand.account.id, brand.account.metricool)?.blogId)
+    .filter((blogId): blogId is string => Boolean(blogId)));
+  const pending = discovered.filter((brand) => !excluded.has(brand.blogId) && !linkedBlogIds.has(brand.blogId));
+  const { created } = pending.length
+    ? await linkMetricoolBrands(
+      config,
+      repository,
+      pending,
+      { instagramProvider: config.metricool.defaultInstagramProvider ?? "INSTAGRAMBUSINESS", color: "#4242ff", active: true },
+      current,
+    )
+    : { created: [] as MetricoolLinkResult["created"] };
 
-  const retired = await repository.mutate((store) => {
+  const hasDemoToRetire = current.brands.some((brand) => DEMO_SEED_BRAND_IDS.has(brand.id)
+    && brand.active
+    && !resolveMetricoolAccount(config, brand.account.id, brand.account.metricool));
+  const retired = !hasDemoToRetire ? [] : await repository.mutate((store) => {
     const removed: MetricoolAutoLinkOutcome["retired"] = [];
     for (const brand of store.brands) {
       if (!DEMO_SEED_BRAND_IDS.has(brand.id) || !brand.active) continue;
