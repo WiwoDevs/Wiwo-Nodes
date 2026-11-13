@@ -49,7 +49,8 @@ Roles mínimos del MVP:
 | Exportar XLSX, leer métricas Prometheus y editar reglas del workflow | `supervisor` |
 | Alta/edición/desactivación de marcas, activar auto-respuesta o administrar referencias Metricool por cuenta | `admin` |
 | Conectar/revalidar el libro maestro de una marca | `admin` |
-| Leer catálogo, proyectos, workflows, ejecuciones, credenciales públicas y variables públicas | `viewer` |
+| Leer catálogo, proyectos, workflows y ejecuciones | `viewer` |
+| Ver la lista de credenciales públicas y variables (la vista Credenciales del menú) | `admin` |
 | Ejecutar/reintentar workflows generales y llamar webhooks autenticados | `agent` |
 | Crear/editar/publicar/activar workflows, credenciales, variables, proyectos, carpetas y tags | `admin` |
 
@@ -63,7 +64,7 @@ Las respuestas del módulo general usan `{ data, meta }`. `meta` incluye `extern
 
 | Método | Ruta | Contenido |
 | --- | --- | --- |
-| GET | `/api/platform` | Estado público de proyectos, carpetas, tags, workflows, credenciales, variables, versiones y ejecuciones |
+| GET | `/api/platform` | Estado público de proyectos, carpetas, tags, workflows, credenciales, variables, versiones y ejecuciones. Para roles distintos de `admin`, `credentials` y `variables` vuelven como `[]` |
 | GET | `/api/platform/catalog` | Definiciones de nodos y tipos de credencial |
 | GET | `/api/platform/templates` | Plantillas instaladas |
 | GET | `/api/platform/workflows` | Lista filtrable por proyecto, archivo y búsqueda |

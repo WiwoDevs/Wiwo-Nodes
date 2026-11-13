@@ -20,12 +20,10 @@ import {
   MagnifyingGlass,
   Moon,
   Play,
-  Question,
   SidebarSimple,
   SquaresFour,
   Sun,
   TestTube,
-  UserCircle,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { AccountsView } from "./components/AccountsView";
@@ -111,7 +109,7 @@ const navigation = [
   { id: "automations" as const, label: "Automatización", icon: Lightning, group: "Automatización" },
   { id: "automation-executions" as const, label: "Ejecuciones", icon: ClockCounterClockwise, group: "Automatización" },
   { id: "templates" as const, label: "Plantillas", icon: SquaresFour, group: "Automatización" },
-  { id: "credentials" as const, label: "Credenciales", icon: Key, group: "Automatización" },
+  { id: "credentials" as const, label: "Credenciales", icon: Key, group: "Automatización", adminOnly: true },
   { id: "settings" as const, label: "Configuración", icon: GearSix, group: "Sistema" },
 ];
 
@@ -392,9 +390,11 @@ export function App({ onSignOut, sessionActor }: {
   const showPlatformToast = useCallback((payload: { tone: "success" | "warning"; title: string; detail: string }) => setToast(payload), []);
 
   const page = pageTitles[view];
+  // Credenciales y variables solo para admin; el servidor tampoco las entrega a otros roles.
+  const navIsAdmin = (operationalData?.actor ?? sessionActor)?.role === "admin";
   const navItems = useMemo(
     () =>
-      navigation.map((item) => {
+      navigation.filter((item) => !("adminOnly" in item) || navIsAdmin).map((item) => {
         if (item.id === "interactions") {
           const pending = operationalData?.interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review").length;
           return { ...item, badge: operationalData ? String(pending) : "…" };
@@ -405,7 +405,7 @@ export function App({ onSignOut, sessionActor }: {
         }
         return item;
       }),
-    [operationalData],
+    [navIsAdmin, operationalData],
   );
   const activeNav = useMemo(() => navItems.find((item) => item.id === view), [navItems, view]);
   // Mientras la operación carga (o si falla), el perfil sale de la sesión ya validada y no
@@ -1497,10 +1497,6 @@ export function App({ onSignOut, sessionActor }: {
           </button>
         </div>
 
-        <div className="sidebar-footer">
-          <button title="Ayuda"><Question size={19} /><span>Ayuda y documentación</span></button>
-          <button title={`Perfil · ${visibleData.actor.role}`}><UserCircle size={20} /><span>{visibleData.actor.displayName}</span><i className="online-dot" /></button>
-        </div>
       </aside>
 
       <main className="app-main" id="main-content">

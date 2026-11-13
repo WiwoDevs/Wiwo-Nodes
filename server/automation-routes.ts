@@ -128,9 +128,13 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   const meta = () => ({ demoMode: config.demoMode, externalNodesDisabled: !policy.allowExternalRequests, metricoolMutationsDisabled: !policy.allowMetricoolOperations });
 
   app.get("/api/platform", async (request) => {
-    dependencies.requireRole(request, "viewer");
+    const actor = dependencies.requireRole(request, "viewer");
     const state = await repository.snapshotAutomation();
-    return { data: publicAutomationState(state), meta: { ...meta(), templates: AUTOMATION_TEMPLATES.length, nodeTypes: AUTOMATION_NODE_CATALOG.length } };
+    const publicState = publicAutomationState(state);
+    // Credenciales y variables son configuración de administración: el resto de los roles
+    // no necesita ver ni sus nombres ni los valores visibles de las variables.
+    const data = actor.role === "admin" ? publicState : { ...publicState, credentials: [], variables: [] };
+    return { data, meta: { ...meta(), templates: AUTOMATION_TEMPLATES.length, nodeTypes: AUTOMATION_NODE_CATALOG.length } };
   });
 
   app.get("/api/platform/catalog", async (request) => {

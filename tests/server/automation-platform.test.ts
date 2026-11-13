@@ -14,7 +14,7 @@ import { validateAutomationWorkflow } from "../../server/automation-validation.j
 const apps: SacFlowApp[] = [];
 const directories: string[] = [];
 
-async function makeApp(): Promise<SacFlowApp> {
+async function makeApp(env: Record<string, string> = {}): Promise<SacFlowApp> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "sac-flow-automation-"));
   directories.push(directory);
   const config = loadConfig({
@@ -23,6 +23,7 @@ async function makeApp(): Promise<SacFlowApp> {
     SAC_FLOW_DISABLE_EXTERNAL_NODES: "true",
     SAC_FLOW_DISABLE_METRICOOL_MUTATIONS: "true",
     SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY: "automation-tests-encryption-key",
+    ...env,
   }, directory);
   const app = await buildApp({ config });
   apps.push(app);
@@ -48,6 +49,22 @@ describe("general automation platform", () => {
     expect(platform.json().data.workflows[0]).toMatchObject({ id: "automation-sac-primary", active: true });
     expect(JSON.stringify(platform.json())).not.toContain("encryptedData");
     expect(platform.json().meta).toMatchObject({ externalNodesDisabled: true, metricoolMutationsDisabled: true });
+  });
+
+  it("only admins receive credentials and variables", async () => {
+    const admin = await makeApp();
+    const adminPlatform = (await admin.inject({ method: "GET", url: "/api/platform" })).json().data;
+    expect(adminPlatform.credentials.length).toBeGreaterThan(0);
+    expect(adminPlatform.variables.length).toBeGreaterThan(0);
+
+    for (const role of ["viewer", "agent", "supervisor"]) {
+      const app = await makeApp({ SAC_FLOW_DEFAULT_ROLE: role });
+      const response = await app.inject({ method: "GET", url: "/api/platform" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.credentials).toEqual([]);
+      expect(response.json().data.variables).toEqual([]);
+      expect(response.json().data.workflows.length).toBe(adminPlatform.workflows.length);
+    }
   });
 
   it("runs a deterministic data workflow and records its node audit", async () => {
