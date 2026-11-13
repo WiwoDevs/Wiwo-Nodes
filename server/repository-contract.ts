@@ -1,5 +1,6 @@
 import type {
   Brand,
+  CatalogStore,
   DataStore,
   DeferReplyDeliveryInput,
   Interaction,
@@ -13,6 +14,7 @@ import type {
   ReplyDelivery,
   ReplyDeliveryFilters,
   SettleReplyDeliveryInput,
+  StoreRecordCounts,
   StoredIdempotencyRecord,
   Workflow,
   WorkflowRun,
@@ -22,9 +24,26 @@ import type { AutomationState } from "./automation-types.js";
 
 export interface SacFlowRepository {
   initialize(): Promise<void>;
+  /**
+   * Store completo, incluidas todas las interacciones. Úsese solo cuando la ruta necesita
+   * de verdad las interacciones; para marcas/workflow existe `snapshotCatalog()`.
+   */
   snapshot(): Promise<DataStore>;
+  /** Marcas/cuentas, workflow y versiones del workflow, sin leer interacciones. */
+  snapshotCatalog(): Promise<CatalogStore>;
   snapshotAutomation(): Promise<AutomationState>;
+  /**
+   * Mutación genérica del store completo. En PostgreSQL solo persiste las filas que la
+   * operación cambió, pero aun así lee todo el store: prefiera `mutateCatalog()` o los
+   * métodos específicos de interacciones, entregas, jobs e idempotencia.
+   */
   mutate<T>(operation: (store: DataStore) => T | Promise<T>): Promise<T>;
+  /**
+   * Modifica marcas/cuentas, workflow y versiones sin leer ni reescribir interacciones.
+   * Las marcas no se eliminan por esta vía (desactivar = `active: false`); quitar una
+   * marca del arreglo es un error, porque en PostgreSQL arrastraría sus interacciones.
+   */
+  mutateCatalog<T>(operation: (catalog: CatalogStore) => T | Promise<T>): Promise<T>;
   mutateAutomation<T>(operation: (state: AutomationState) => T | Promise<T>): Promise<T>;
   listBrands(
     metricoolState: (
@@ -38,9 +57,10 @@ export interface SacFlowRepository {
   clearAccountMetricool(accountId: string): Promise<Brand | undefined>;
   listInteractions(filters?: InteractionFilters): Promise<Interaction[]>;
   findInteraction(id: string): Promise<Interaction | undefined>;
+  /** Actualiza una sola interacción; el callback recibe la configuración, no el store completo. */
   updateInteraction(
     id: string,
-    update: (interaction: Interaction, store: DataStore) => void,
+    update: (interaction: Interaction, catalog: CatalogStore) => void,
   ): Promise<Interaction | undefined>;
   mutateInteractions<T>(
     ids: string[],
@@ -73,6 +93,10 @@ export interface SacFlowRepository {
   getSchedulerState(): Promise<{ workflowId: string; enabled: boolean; pollIntervalMinutes: number; accountIds: string[] }>;
   updateWorkflow(patch: Partial<Workflow>): Promise<Workflow>;
   recordRun(run: WorkflowRun): Promise<WorkflowRun>;
+  /** Últimas ejecuciones (máximo 100), de la más reciente a la más antigua. */
+  listRuns(): Promise<WorkflowRun[]>;
+  /** Conteos de marcas, interacciones y entregas sin materializar las filas. */
+  countRecords(): Promise<StoreRecordCounts>;
   enqueueJob(job: WorkflowJob): Promise<boolean>;
   claimNextJob(workerId: string, staleLeaseMs: number): Promise<WorkflowJob | undefined>;
   completeJob(jobId: string, workerId: string, runId?: string): Promise<boolean>;

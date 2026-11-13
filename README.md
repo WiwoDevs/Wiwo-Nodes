@@ -123,7 +123,7 @@ La matriz exacta frente al repositorio local de n8n y las brechas restantes est�
 - Métricas alertables para jobs agotados, antigüedad en `dead`/`retry` y próximos intentos vencidos; respuesta recomendada en [OPERATIONS_RUNBOOK.md](./docs/OPERATIONS_RUNBOOK.md).
 - Endpoint `/api/security/audit` con gates y remediaciones sin exponer secretos.
 - Identificador `X-Request-Id` UUID por solicitud para correlación segura entre gateway, API y soporte.
-- Adaptador `PostgresRepository` conectado al selector runtime; requiere migraciones aplicadas, `SAC_FLOW_POSTGRES_URL` y `SAC_FLOW_POSTGRES_ENCRYPTION_KEY`.
+- Adaptador `PostgresRepository` conectado al selector runtime; requiere migraciones aplicadas, `SAC_FLOW_POSTGRES_URL` y `SAC_FLOW_POSTGRES_ENCRYPTION_KEY`. Escribe de forma incremental: las rutas de marcas/cuentas y workflow (`mutateCatalog`) nunca leen ni reescriben interacciones, `mutate()` persiste solo las filas cambiadas y `/api/ready` usa conteos en vez de leer el store.
 - Auditoría/importación de JSON local a PostgreSQL con hash, recuentos, detección de duplicados/orfandad/riesgos de fórmula y sin exponer `userId`/`blogId`.
 - Respuestas como borrador o envío según configuración y elegibilidad.
 - Exportación XLSX general de detalle/resumen y copia por marca basada en su formato maestro, incluyendo riesgo, ruta, estado de conocimiento y motivos del protocolo.

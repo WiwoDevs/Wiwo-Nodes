@@ -4,7 +4,9 @@
 
 `JsonRepository` se conserva para desarrollo local. `docker-compose.production.yml` selecciona obligatoriamente PostgreSQL y separa migrador, API y worker. La frontera vive en `server/repository-contract.ts`; el runtime falla cerrado si alguien intenta `json` en `NODE_ENV=production` + `METRICOOL_MODE=live` sin una excepción explícita. Las migraciones PostgreSQL son el contrato productivo: multi-tenant, auditable, con idempotencia, versiones, cola durable, allowlist por cuenta y RLS.
 
-`SAC_FLOW_REPOSITORY=postgres` crea `PostgresRepository`. Exige URL y clave de cifrado; el adapter usa `pg`, pool, transacciones, contexto tenant, lock transaccional y `pgcrypto`. `npm run migrate` aplica solo archivos nuevos y rechaza cambios de checksum en migraciones aplicadas. Sigue pendiente validar backup/restore y carga con el ambiente administrado definitivo.
+`SAC_FLOW_REPOSITORY=postgres` crea `PostgresRepository`. Exige URL y clave de cifrado; el adapter usa `pg`, pool, transacciones, contexto tenant, lock transaccional y `pgcrypto`.
+
+Escrituras incrementales: ninguna ruta de la aplicación reescribe el store. Las mutaciones de marcas/cuentas, recursos, Excel de marca y workflow usan `mutateCatalog`, que solo lee marcas, workflow y versiones y emite `UPDATE`/`INSERT` de las filas que cambiaron (desactivar una marca son dos `UPDATE`: `brands` y `social_accounts`). Una mutación de catálogo no puede eliminar marcas —borrar la fila arrastraría sus interacciones en cascada—, solo desactivarlas. `mutate()` genérico persiste por diferencia (upsert por `interaction_key`, `id` de entrega, `run_key`, `job_key` y `scope`/`key` de idempotencia) sin `DELETE` masivos; una interacción cambiada es una sola sentencia. `updateInteraction` y `findInteraction` leen únicamente la fila pedida. El reemplazo total queda reservado a la siembra demo y a `postgres:import-json`, e inserta interacciones y entregas en lotes de hasta 500 filas por sentencia. `npm run migrate` aplica solo archivos nuevos y rechaza cambios de checksum en migraciones aplicadas. Sigue pendiente validar backup/restore y carga con el ambiente administrado definitivo.
 
 Validación local:
 

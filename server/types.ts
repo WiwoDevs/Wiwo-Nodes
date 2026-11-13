@@ -653,6 +653,20 @@ export interface DataStore {
   automation: AutomationState;
 }
 
+/**
+ * Configuración operativa del store: marcas/cuentas y workflow SAC con sus versiones.
+ * Es lo único que necesitan las rutas de Cuentas y del editor de workflow, de modo que
+ * leerla o modificarla nunca toca las interacciones (decenas de miles en producción).
+ */
+export type CatalogStore = Pick<DataStore, "brands" | "workflow" | "workflowVersions">;
+
+/** Conteos baratos para readiness: no requieren materializar las interacciones. */
+export interface StoreRecordCounts {
+  brands: number;
+  interactions: number;
+  deliveries: number;
+}
+
 export interface InteractionFilters {
   brandId?: string;
   brandIds?: string[];

@@ -7,6 +7,7 @@ import { createDemoAutomationState } from "./automation-seed.js";
 import type { SacFlowRepository } from "./repository-contract.js";
 import type {
   Brand,
+  CatalogStore,
   DataStore,
   DeferReplyDeliveryInput,
   Interaction,
@@ -20,6 +21,7 @@ import type {
   ReplyDeliveryFilters,
   MetricoolAccountReference,
   SettleReplyDeliveryInput,
+  StoreRecordCounts,
   StoredIdempotencyRecord,
   Workflow,
   WorkflowRun,
@@ -34,6 +36,7 @@ import {
   shouldReplaceMetricoolContent,
 } from "./metricool-content.js";
 import { summarizeResponseTimes } from "./response-time.js";
+import { assertCatalogBrandsPreserved } from "./catalog-store.js";
 
 const persistedStoreSchema = z.object({
   version: z.literal(1),
@@ -226,8 +229,20 @@ export class JsonRepository implements SacFlowRepository {
     });
   }
 
+  async snapshotCatalog(): Promise<CatalogStore> {
+    return this.exclusive(async () => {
+      const store = await this.readUnlocked();
+      // Solo se clona la configuración: las interacciones no salen de esta lectura.
+      return clone({
+        brands: store.brands,
+        workflow: store.workflow,
+        workflowVersions: store.workflowVersions,
+      });
+    });
+  }
+
   async snapshotAutomation(): Promise<DataStore["automation"]> {
-    return (await this.snapshot()).automation;
+    return this.exclusive(async () => clone((await this.readUnlocked()).automation));
   }
 
   async mutate<T>(operation: (store: DataStore) => T | Promise<T>): Promise<T> {
@@ -237,6 +252,24 @@ export class JsonRepository implements SacFlowRepository {
       store.updatedAt = new Date().toISOString();
       await this.writeUnlocked(store);
       return clone(result);
+    });
+  }
+
+  async mutateCatalog<T>(operation: (catalog: CatalogStore) => T | Promise<T>): Promise<T> {
+    return this.mutate(async (store) => {
+      const before = [...store.brands];
+      const catalog: CatalogStore = {
+        brands: store.brands,
+        workflow: store.workflow,
+        workflowVersions: store.workflowVersions,
+      };
+      const result = await operation(catalog);
+      assertCatalogBrandsPreserved(before, catalog.brands);
+      // La operación puede reasignar propiedades (p. ej. un workflow nuevo): se copian de vuelta.
+      store.brands = catalog.brands;
+      store.workflow = catalog.workflow;
+      store.workflowVersions = catalog.workflowVersions;
+      return result;
     });
   }
 
@@ -251,7 +284,7 @@ export class JsonRepository implements SacFlowRepository {
       stored?: MetricoolAccountReference,
     ) => PublicMetricoolAccountState,
   ): Promise<PublicBrand[]> {
-    const store = await this.snapshot();
+    const store = await this.snapshotCatalog();
     return store.brands.map((brand) => {
       const { metricool, ...account } = brand.account;
       const state = metricoolState(
@@ -271,7 +304,7 @@ export class JsonRepository implements SacFlowRepository {
   }
 
   async findBrandByAccountId(accountId: string): Promise<Brand | undefined> {
-    const store = await this.snapshot();
+    const store = await this.snapshotCatalog();
     return store.brands.find((brand) => brand.account.id === accountId);
   }
 
@@ -279,7 +312,7 @@ export class JsonRepository implements SacFlowRepository {
     accountId: string,
     metricool: MetricoolAccountReference,
   ): Promise<Brand | undefined> {
-    return this.mutate((store) => {
+    return this.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.account.id === accountId);
       if (!brand) return undefined;
       brand.account.metricool = metricool;
@@ -290,7 +323,7 @@ export class JsonRepository implements SacFlowRepository {
   }
 
   async clearAccountMetricool(accountId: string): Promise<Brand | undefined> {
-    return this.mutate((store) => {
+    return this.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.account.id === accountId);
       if (!brand) return undefined;
       delete brand.account.metricool;
@@ -319,7 +352,7 @@ export class JsonRepository implements SacFlowRepository {
 
   async updateInteraction(
     id: string,
-    update: (interaction: Interaction, store: DataStore) => void,
+    update: (interaction: Interaction, catalog: CatalogStore) => void,
   ): Promise<Interaction | undefined> {
     const interaction = await this.mutate((store) => {
       const interaction = store.interactions.find((item) => item.id === id);
@@ -604,11 +637,11 @@ export class JsonRepository implements SacFlowRepository {
   }
 
   async getWorkflow(): Promise<Workflow> {
-    return (await this.snapshot()).workflow;
+    return (await this.snapshotCatalog()).workflow;
   }
 
   async getSchedulerState(): Promise<{ workflowId: string; enabled: boolean; pollIntervalMinutes: number; accountIds: string[] }> {
-    const store = await this.snapshot();
+    const store = await this.snapshotCatalog();
     return {
       workflowId: store.workflow.id,
       enabled: store.workflow.enabled,
@@ -620,7 +653,7 @@ export class JsonRepository implements SacFlowRepository {
   }
 
   async updateWorkflow(patch: Partial<Workflow>): Promise<Workflow> {
-    return this.mutate((store) => {
+    return this.mutateCatalog((store) => {
       store.workflow = {
         ...store.workflow,
         ...patch,
@@ -639,6 +672,21 @@ export class JsonRepository implements SacFlowRepository {
       store.workflow.lastRunStatus = run.status;
       store.workflow.updatedAt = run.finishedAt;
       return run;
+    });
+  }
+
+  async listRuns(): Promise<WorkflowRun[]> {
+    return this.exclusive(async () => clone((await this.readUnlocked()).runs.slice(0, 100)));
+  }
+
+  async countRecords(): Promise<StoreRecordCounts> {
+    return this.exclusive(async () => {
+      const store = await this.readUnlocked();
+      return {
+        brands: store.brands.length,
+        interactions: store.interactions.length,
+        deliveries: store.deliveries.length,
+      };
     });
   }
 

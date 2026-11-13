@@ -24,7 +24,7 @@ export async function buildInteractionsWorkbook(
   filters: InteractionFilters = {},
 ): Promise<Buffer> {
   const [store, stats, interactions] = await Promise.all([
-    repository.snapshot(),
+    repository.snapshotCatalog(),
     repository.stats(filters),
     repository.listInteractions(filters),
   ]);

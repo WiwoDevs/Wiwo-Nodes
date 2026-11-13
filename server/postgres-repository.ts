@@ -5,6 +5,7 @@ import { createDemoAutomationState } from "./automation-seed.js";
 import type { SacFlowRepository } from "./repository-contract.js";
 import type {
   Brand,
+  CatalogStore,
   Channel,
   DataStore,
   DeferReplyDeliveryInput,
@@ -22,6 +23,7 @@ import type {
   ReplyDeliveryFilters,
   RunAuditStep,
   SettleReplyDeliveryInput,
+  StoreRecordCounts,
   StoredIdempotencyRecord,
   Workflow,
   WorkflowNode,
@@ -38,6 +40,7 @@ import {
   shouldReplaceMetricoolContent,
 } from "./metricool-content.js";
 import { summarizeResponseTimes } from "./response-time.js";
+import { assertCatalogBrandsPreserved } from "./catalog-store.js";
 
 const { Pool } = pg;
 
@@ -275,13 +278,13 @@ function asJson<T>(value: unknown, fallback: T): T {
  * haría que "desactivar" no significara nada para quien mira la pantalla. El registro se
  * conserva y sigue visible en la vista de Cuentas, de modo que reactivar la devuelve entera.
  */
-function activeBrandIds(store: DataStore): Set<string> {
+function activeBrandIds(store: Pick<DataStore, "brands">): Set<string> {
   return new Set(store.brands
     .filter((brand) => brand.active && brand.account.active)
     .map((brand) => brand.id));
 }
 
-function fromActiveBrands(interactions: Interaction[], store: DataStore): Interaction[] {
+function fromActiveBrands(interactions: Interaction[], store: Pick<DataStore, "brands">): Interaction[] {
   const active = activeBrandIds(store);
   return interactions.filter((interaction) => active.has(interaction.brandId));
 }
@@ -395,6 +398,288 @@ function mapReplyDeliveryRow(row: ReplyDeliveryRow): ReplyDelivery {
   };
 }
 
+/** Límite de parámetros por sentencia de PostgreSQL (65.535) con margen. */
+const MAX_BIND_PARAMETERS = 60_000;
+
+/**
+ * Inserta filas con sentencias `INSERT ... VALUES (...), (...)` por lotes en vez de una
+ * sentencia por fila. `casts` agrega un cast por columna (p. ej. `jsonb`) y `suffix`
+ * permite `ON CONFLICT ...` o `RETURNING ...`; se devuelven las filas retornadas.
+ */
+async function insertRowsBatched<T extends QueryResultRow = QueryResultRow>(
+  client: PgQueryable,
+  insertPrefix: string,
+  rows: readonly (readonly unknown[])[],
+  options: { casts?: readonly (string | undefined)[]; suffix?: string; maxRows?: number } = {},
+): Promise<T[]> {
+  if (!rows.length) return [];
+  const width = rows[0]!.length;
+  const perChunk = Math.max(1, Math.min(options.maxRows ?? 500, Math.floor(MAX_BIND_PARAMETERS / width)));
+  const returned: T[] = [];
+  for (let start = 0; start < rows.length; start += perChunk) {
+    const params: unknown[] = [];
+    const tuples = rows.slice(start, start + perChunk).map((row) => {
+      if (row.length !== width) throw new Error("Lote de inserción con columnas inconsistentes.");
+      const placeholders = row.map((value, index) => {
+        params.push(value);
+        const cast = options.casts?.[index];
+        return `$${params.length}${cast ? `::${cast}` : ""}`;
+      });
+      return `(${placeholders.join(", ")})`;
+    });
+    const result = await client.query<T>(
+      `${insertPrefix} VALUES ${tuples.join(", ")}${options.suffix ? ` ${options.suffix}` : ""}`,
+      params,
+    );
+    returned.push(...result.rows);
+  }
+  return returned;
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Elementos nuevos o modificados de `next` respecto de `previous`, y claves eliminadas. */
+function diffByKey<T>(
+  previous: readonly T[],
+  next: readonly T[],
+  keyOf: (item: T) => string,
+): { upserts: T[]; removedKeys: string[] } {
+  const before = new Map(previous.map((item) => [keyOf(item), item]));
+  // Si una clave se repite gana la última aparición: un lote nunca toca dos veces la misma fila.
+  const after = new Map(next.map((item) => [keyOf(item), item]));
+  const upserts: T[] = [];
+  for (const [key, item] of after) {
+    const existing = before.get(key);
+    if (!existing || !sameValue(existing, item)) upserts.push(item);
+  }
+  const removedKeys = [...before.keys()].filter((key) => !after.has(key));
+  return { upserts, removedKeys };
+}
+
+const INTERACTION_INSERT_PREFIX = `INSERT INTO interactions
+  (organization_id, brand_id, social_account_id, interaction_key, external_id, provider, kind,
+   direction, customer_name, customer_handle, body_text, category, sentiment, confidence,
+   status, source, version, received_at, responded_at, metricool_ref, response_text, audit_trail,
+   assigned_to_user_id, assigned_to_display_name, internal_notes, updated_at, status_reason,
+   automation_assessment)`;
+
+const INTERACTION_CASTS = [
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  undefined, undefined, undefined, undefined, undefined, "jsonb", undefined, "jsonb",
+  undefined, undefined, "jsonb", undefined, "jsonb",
+  "jsonb",
+] as const;
+
+function interactionRowValues(
+  organizationId: string,
+  brandUuid: string,
+  accountUuid: string,
+  interaction: Interaction,
+): unknown[] {
+  return [
+    organizationId,
+    brandUuid,
+    accountUuid,
+    interaction.id,
+    interaction.externalId,
+    interaction.channel,
+    interaction.type,
+    interaction.direction,
+    interaction.customerName,
+    interaction.customerHandle,
+    interaction.text,
+    interaction.category,
+    interaction.sentiment,
+    interaction.confidence,
+    interaction.status,
+    interaction.source,
+    interaction.version || 1,
+    interaction.createdAt,
+    interaction.respondedAt ?? null,
+    JSON.stringify(interaction.metricoolRef ?? {}),
+    interaction.responseText ?? null,
+    JSON.stringify(interaction.audit),
+    interaction.assignedTo?.userId ?? null,
+    interaction.assignedTo?.displayName ?? null,
+    JSON.stringify(interaction.internalNotes ?? []),
+    interaction.updatedAt,
+    interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
+    interaction.automation ? JSON.stringify(interaction.automation) : null,
+  ];
+}
+
+const REPLY_INSERT_PREFIX = `INSERT INTO replies
+  (id, organization_id, interaction_id, mode, body_text, delivery_status, idempotency_key,
+   provider_response_ref, error_code, created_at, sent_at, approved_by_human, requested_by,
+   request_id, version, attempt_count, updated_at, last_attempt_at, lease_expires_at,
+   next_attempt_at, reconciled_at, reconciled_by, reconciliation_note)`;
+
+const REPLY_CASTS = [
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  undefined, undefined, undefined, undefined, undefined, "jsonb",
+  undefined, undefined, undefined, undefined, undefined, undefined,
+  undefined, undefined, "jsonb", undefined,
+] as const;
+
+function replyRowValues(organizationId: string, interactionUuid: string, delivery: ReplyDelivery): unknown[] {
+  return [
+    delivery.id,
+    organizationId,
+    interactionUuid,
+    "send",
+    delivery.bodyText,
+    delivery.status,
+    delivery.idempotencyKey,
+    delivery.providerResponseRef ?? null,
+    delivery.errorCode ?? null,
+    delivery.createdAt,
+    delivery.sentAt ?? null,
+    delivery.approvedByHuman,
+    JSON.stringify(delivery.requestedBy),
+    delivery.requestId,
+    delivery.version,
+    delivery.attemptCount,
+    delivery.updatedAt,
+    delivery.lastAttemptAt ?? null,
+    delivery.leaseExpiresAt ?? null,
+    delivery.nextAttemptAt ?? null,
+    delivery.reconciledAt ?? null,
+    delivery.reconciledBy ? JSON.stringify(delivery.reconciledBy) : null,
+    delivery.reconciliationNote ?? null,
+  ];
+}
+
+const RUN_INSERT_PREFIX = `INSERT INTO sync_runs
+  (organization_id, run_key, kind, status, workflow_version, requested_by, retry_of,
+   started_at, finished_at, demo_mode, account_keys, totals, audit_trail)`;
+
+const RUN_CASTS = [
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  undefined, undefined, undefined, "text[]", "jsonb", "jsonb",
+] as const;
+
+function runRowValues(organizationId: string, run: WorkflowRun): unknown[] {
+  return [
+    organizationId,
+    run.id,
+    run.kind,
+    run.status,
+    run.workflowVersion,
+    run.requestedBy ?? null,
+    run.retryOf ?? null,
+    run.startedAt,
+    run.finishedAt,
+    run.demoMode,
+    run.accountIds,
+    JSON.stringify(run.totals),
+    JSON.stringify(run.auditTrail),
+  ];
+}
+
+const JOB_INSERT_PREFIX = `INSERT INTO workflow_jobs
+  (organization_id, job_key, schedule_key, kind, status, account_keys, item_limit,
+   attempts, max_attempts, next_attempt_at, created_at, updated_at, locked_at,
+   locked_by, run_key, last_error, workflow_key, trigger_mode, input_payload)`;
+
+const JOB_CASTS = [
+  undefined, undefined, undefined, undefined, undefined, "text[]", undefined,
+  undefined, undefined, undefined, undefined, undefined, undefined,
+  undefined, undefined, undefined, undefined, undefined, "jsonb",
+] as const;
+
+function jobRowValues(organizationId: string, job: WorkflowJob): unknown[] {
+  return [
+    organizationId,
+    job.id,
+    job.scheduleKey,
+    job.kind,
+    job.status,
+    job.accountIds,
+    job.limit,
+    job.attempts,
+    job.maxAttempts,
+    job.nextAttemptAt,
+    job.createdAt,
+    job.updatedAt,
+    job.lockedAt ?? null,
+    job.lockedBy ?? null,
+    job.runId ?? null,
+    job.lastError?.slice(0, 1_000) ?? null,
+    job.workflowId ?? null,
+    job.triggerMode ?? null,
+    JSON.stringify(job.input ?? []),
+  ];
+}
+
+const IDEMPOTENCY_INSERT_PREFIX = `INSERT INTO idempotency_keys
+  (organization_id, scope, key, request_hash, status_code, response_json, created_at, expires_at)`;
+
+const IDEMPOTENCY_CASTS = [undefined, undefined, undefined, undefined, undefined, "jsonb", undefined, undefined] as const;
+
+function idempotencyRowValues(organizationId: string, record: StoredIdempotencyRecord): unknown[] {
+  return [
+    organizationId,
+    record.scope,
+    record.key,
+    record.requestHash,
+    record.statusCode,
+    JSON.stringify(record.response),
+    record.createdAt,
+    expiresAt(record),
+  ];
+}
+
+/** Columnas actualizables con `EXCLUDED` en un upsert, excluyendo las claves del conflicto. */
+function excludedAssignments(columns: readonly string[]): string {
+  return columns.map((column) => `${column} = EXCLUDED.${column}`).join(", ");
+}
+
+function brandRowPart(brand: Brand) {
+  return {
+    name: brand.name,
+    color: brand.color,
+    active: brand.active,
+    sacPolicy: brand.sacPolicy ?? null,
+    workbook: brand.workbook ?? null,
+    qaWorkbook: brand.qaWorkbook ?? null,
+    resources: brand.resources ?? [],
+  };
+}
+
+function accountRowPart(brand: Brand) {
+  return {
+    id: brand.account.id,
+    name: brand.account.name,
+    handle: brand.account.handle,
+    channels: brand.account.channels,
+    active: brand.account.active,
+  };
+}
+
+function metricoolRefPart(brand: Brand) {
+  const reference = brand.account.metricool;
+  return reference?.userId && reference.blogId
+    ? {
+        userId: reference.userId,
+        blogId: reference.blogId,
+        instagramProvider: reference.instagramProvider || "INSTAGRAMBUSINESS",
+      }
+    : null;
+}
+
+function workflowConfigPart(workflow: Workflow) {
+  const { nodes: _nodes, edges: _edges, autoReplyAccountIds: _allowlist, ...config } = workflow;
+  return config;
+}
+
+type CatalogReferences = {
+  brands: Map<string, { brandUuid: string; accountUuid: string }>;
+  accounts: Map<string, string>;
+};
+
 export class PostgresRepository implements SacFlowRepository {
   private readonly pool: PgPoolLike;
   private readonly encryptionKey: string;
@@ -494,16 +779,35 @@ export class PostgresRepository implements SacFlowRepository {
     return this.withTenantClient((client, organizationId) => this.readStoreUnlocked(client, organizationId));
   }
 
+  async snapshotCatalog(): Promise<CatalogStore> {
+    return this.withTenantClient((client, organizationId) => this.readCatalogUnlocked(client, organizationId));
+  }
+
   async snapshotAutomation(): Promise<AutomationState> {
     return this.withTenantClient((client, organizationId) => this.readAutomationStateUnlocked(client, organizationId));
   }
 
+  /**
+   * Mutación genérica. Ya no reescribe el store: compara el resultado de la operación
+   * con lo leído y persiste solo las filas nuevas, modificadas o eliminadas de cada
+   * colección. Sigue leyendo el store completo, por eso las rutas usan métodos acotados.
+   */
   async mutate<T>(operation: (store: DataStore) => T | Promise<T>): Promise<T> {
     return this.withTenantClient(async (client, organizationId) => {
-      const store = await this.readStoreUnlocked(client, organizationId);
+      const original = await this.readStoreUnlocked(client, organizationId);
+      const store = clone(original);
       const result = await operation(store);
-      store.updatedAt = new Date().toISOString();
-      await this.replaceStoreUnlocked(client, organizationId, store);
+      await this.persistStoreChangesUnlocked(client, organizationId, original, store);
+      return clone(result);
+    }, { write: true });
+  }
+
+  async mutateCatalog<T>(operation: (catalog: CatalogStore) => T | Promise<T>): Promise<T> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const original = await this.readCatalogUnlocked(client, organizationId);
+      const catalog = clone(original);
+      const result = await operation(catalog);
+      await this.persistCatalogChangesUnlocked(client, organizationId, original, catalog);
       return clone(result);
     }, { write: true });
   }
@@ -535,8 +839,9 @@ export class PostgresRepository implements SacFlowRepository {
       stored?: MetricoolAccountReference,
     ) => PublicMetricoolAccountState,
   ): Promise<PublicBrand[]> {
-    const store = await this.snapshot();
-    return store.brands.map((brand) => {
+    const brands = await this.withTenantClient((client, organizationId) =>
+      this.readBrandsUnlocked(client, organizationId));
+    return brands.map((brand) => {
       const { metricool, ...account } = brand.account;
       const state = metricoolState(
         account.id,
@@ -555,15 +860,16 @@ export class PostgresRepository implements SacFlowRepository {
   }
 
   async findBrandByAccountId(accountId: string): Promise<Brand | undefined> {
-    const store = await this.snapshot();
-    return store.brands.find((brand) => brand.account.id === accountId);
+    const brands = await this.withTenantClient((client, organizationId) =>
+      this.readBrandsUnlocked(client, organizationId));
+    return brands.find((brand) => brand.account.id === accountId);
   }
 
   async updateAccountMetricool(
     accountId: string,
     metricool: MetricoolAccountReference,
   ): Promise<Brand | undefined> {
-    return this.mutate((store) => {
+    return this.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.account.id === accountId);
       if (!brand) return undefined;
       brand.account.metricool = metricool;
@@ -574,7 +880,7 @@ export class PostgresRepository implements SacFlowRepository {
   }
 
   async clearAccountMetricool(accountId: string): Promise<Brand | undefined> {
-    return this.mutate((store) => {
+    return this.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.account.id === accountId);
       if (!brand) return undefined;
       delete brand.account.metricool;
@@ -588,8 +894,8 @@ export class PostgresRepository implements SacFlowRepository {
   }
 
   async listInteractions(filters: InteractionFilters = {}): Promise<Interaction[]> {
-    const store = await this.snapshot();
-    return fromActiveBrands(store.interactions, store)
+    const { brands, interactions } = await this.readBrandsAndInteractions();
+    return fromActiveBrands(interactions, { brands })
       .filter((interaction) => matchesInteraction(interaction, filters))
       .sort((left, right) =>
         Date.parse(right.createdAt) - Date.parse(left.createdAt)
@@ -597,26 +903,29 @@ export class PostgresRepository implements SacFlowRepository {
   }
 
   async findInteraction(id: string): Promise<Interaction | undefined> {
-    const store = await this.snapshot();
-    return store.interactions.find((interaction) => interaction.id === id);
+    return this.withTenantClient(async (client, organizationId) =>
+      (await this.readInteractionsUnlocked(client, organizationId, { ids: [id] }))[0]);
   }
 
+  /** Lee y escribe solo la interacción indicada (más la configuración que recibe el callback). */
   async updateInteraction(
     id: string,
-    update: (interaction: Interaction, store: DataStore) => void,
+    update: (interaction: Interaction, catalog: CatalogStore) => void,
   ): Promise<Interaction | undefined> {
-    return this.mutateInteractions([id], (store) => {
-      const interaction = store.interactions.find((item) => item.id === id);
+    return this.withTenantClient(async (client, organizationId) => {
+      const [interaction] = await this.readInteractionsUnlocked(client, organizationId, { ids: [id] });
       if (!interaction) return undefined;
+      const catalog = await this.readCatalogUnlocked(client, organizationId);
       interaction.version = Number.isInteger(interaction.version) && interaction.version > 0
         ? interaction.version
         : 1;
       interaction.internalNotes = Array.isArray(interaction.internalNotes) ? interaction.internalNotes : [];
-      update(interaction, store);
+      update(interaction, catalog);
       interaction.updatedAt = new Date().toISOString();
       interaction.version += 1;
-      return interaction;
-    });
+      await this.updateInteractionStateUnlocked(client, organizationId, interaction);
+      return clone(interaction);
+    }, { write: true });
   }
 
   async mutateInteractions<T>(
@@ -631,45 +940,62 @@ export class PostgresRepository implements SacFlowRepository {
       for (const id of uniqueIds) {
         const interaction = byId.get(id);
         if (!interaction) continue;
-        await client.query(
-          `UPDATE interactions
-           SET category = $3,
-               sentiment = $4,
-               confidence = $5,
-               status = $6,
-               version = $7,
-               responded_at = $8,
-               response_text = $9,
-               audit_trail = $10::jsonb,
-               assigned_to_user_id = $11,
-               assigned_to_display_name = $12,
-               internal_notes = $13::jsonb,
-               updated_at = $14,
-               status_reason = $15::jsonb,
-               automation_assessment = $16::jsonb
-           WHERE organization_id = $1 AND interaction_key = $2`,
-          [
-            organizationId,
-            interaction.id,
-            interaction.category,
-            interaction.sentiment,
-            interaction.confidence,
-            interaction.status,
-            interaction.version,
-            interaction.respondedAt ?? null,
-            interaction.responseText ?? null,
-            JSON.stringify(interaction.audit),
-            interaction.assignedTo?.userId ?? null,
-            interaction.assignedTo?.displayName ?? null,
-            JSON.stringify(interaction.internalNotes ?? []),
-            interaction.updatedAt,
-            interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
-            interaction.automation ? JSON.stringify(interaction.automation) : null,
-          ],
-        );
+        await this.updateInteractionStateUnlocked(client, organizationId, interaction);
       }
       return clone(result);
     }, { write: true });
+  }
+
+  /** Persiste el estado operativo de una interacción (no su contenido ni su identidad). */
+  private async updateInteractionStateUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    interaction: Interaction,
+  ): Promise<void> {
+    await client.query(
+      `UPDATE interactions
+       SET category = $3,
+           sentiment = $4,
+           confidence = $5,
+           status = $6,
+           version = $7,
+           responded_at = $8,
+           response_text = $9,
+           audit_trail = $10::jsonb,
+           assigned_to_user_id = $11,
+           assigned_to_display_name = $12,
+           internal_notes = $13::jsonb,
+           updated_at = $14,
+           status_reason = $15::jsonb,
+           automation_assessment = $16::jsonb
+       WHERE organization_id = $1 AND interaction_key = $2`,
+      [
+        organizationId,
+        interaction.id,
+        interaction.category,
+        interaction.sentiment,
+        interaction.confidence,
+        interaction.status,
+        interaction.version,
+        interaction.respondedAt ?? null,
+        interaction.responseText ?? null,
+        JSON.stringify(interaction.audit),
+        interaction.assignedTo?.userId ?? null,
+        interaction.assignedTo?.displayName ?? null,
+        JSON.stringify(interaction.internalNotes ?? []),
+        interaction.updatedAt,
+        interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
+        interaction.automation ? JSON.stringify(interaction.automation) : null,
+      ],
+    );
+  }
+
+  /** Marcas e interacciones en una sola transacción de lectura, sin el resto del store. */
+  private async readBrandsAndInteractions(): Promise<{ brands: Brand[]; interactions: Interaction[] }> {
+    return this.withTenantClient(async (client, organizationId) => ({
+      brands: await this.readBrandsUnlocked(client, organizationId),
+      interactions: await this.readInteractionsUnlocked(client, organizationId),
+    }));
   }
 
   async insertInteractions(incoming: Interaction[]): Promise<{ created: Interaction[]; duplicates: number }> {
@@ -993,8 +1319,7 @@ export class PostgresRepository implements SacFlowRepository {
            WHERE organization_id = $1 AND interaction_key = $2`,
           [organizationId, current.interactionId, current.bodyText, input.at, JSON.stringify([audit])],
         );
-        interaction = (await this.readInteractionsUnlocked(client, organizationId))
-          .find((item) => item.id === current.interactionId);
+        interaction = (await this.readInteractionsUnlocked(client, organizationId, { ids: [current.interactionId] }))[0];
       } else if (input.status === "failed" || input.status === "uncertain") {
         const audit = {
           id: randomUUID(),
@@ -1019,8 +1344,7 @@ export class PostgresRepository implements SacFlowRepository {
              AND status NOT IN ('replied', 'resolved')`,
           [organizationId, current.interactionId, current.bodyText, input.at, JSON.stringify([audit])],
         );
-        interaction = (await this.readInteractionsUnlocked(client, organizationId))
-          .find((item) => item.id === current.interactionId);
+        interaction = (await this.readInteractionsUnlocked(client, organizationId, { ids: [current.interactionId] }))[0];
       }
       const delivery = await this.readReplyDeliveryUnlocked(client, organizationId, { id });
       if (!delivery) return undefined;
@@ -1090,8 +1414,7 @@ export class PostgresRepository implements SacFlowRepository {
       );
       const delivery = await this.readReplyDeliveryUnlocked(client, organizationId, { id });
       if (!delivery) return undefined;
-      const interaction = (await this.readInteractionsUnlocked(client, organizationId))
-        .find((item) => item.id === current.interactionId);
+      const interaction = (await this.readInteractionsUnlocked(client, organizationId, { ids: [current.interactionId] }))[0];
       return { delivery, interaction };
     }, { write: true });
   }
@@ -1158,7 +1481,7 @@ export class PostgresRepository implements SacFlowRepository {
   }
 
   async updateWorkflow(patch: Partial<Workflow>): Promise<Workflow> {
-    return this.mutate((store) => {
+    return this.mutateCatalog((store) => {
       store.workflow = {
         ...store.workflow,
         ...patch,
@@ -1211,6 +1534,28 @@ export class PostgresRepository implements SacFlowRepository {
       );
       return clone(run);
     }, { write: true });
+  }
+
+  async listRuns(): Promise<WorkflowRun[]> {
+    return this.withTenantClient((client, organizationId) => this.readRunsUnlocked(client, organizationId));
+  }
+
+  async countRecords(): Promise<StoreRecordCounts> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<{ brands: string; interactions: string; deliveries: string }>(
+        `SELECT
+           (SELECT count(*) FROM brands WHERE organization_id = $1)::text AS brands,
+           (SELECT count(*) FROM interactions WHERE organization_id = $1)::text AS interactions,
+           (SELECT count(*) FROM replies WHERE organization_id = $1)::text AS deliveries`,
+        [organizationId],
+      );
+      const row = result.rows[0];
+      return {
+        brands: Number(row?.brands ?? 0),
+        interactions: Number(row?.interactions ?? 0),
+        deliveries: Number(row?.deliveries ?? 0),
+      };
+    });
   }
 
   async enqueueJob(job: WorkflowJob): Promise<boolean> {
@@ -1438,7 +1783,7 @@ export class PostgresRepository implements SacFlowRepository {
   }
 
   async stats(filters: InteractionFilters = {}): Promise<InteractionStats> {
-    const store = await this.snapshot();
+    const store = await this.readBrandsAndInteractions();
     const items = fromActiveBrands(store.interactions, store)
       .filter((interaction) => matchesInteraction(interaction, filters));
     const inboundItems = items.filter((item) => item.direction === "inbound");
@@ -1523,7 +1868,7 @@ export class PostgresRepository implements SacFlowRepository {
 
     const store = createDemoStore();
     const workflowId = await this.insertWorkflowUnlocked(client, organizationId, store.workflow, new Map());
-    await this.insertWorkflowVersionsUnlocked(client, organizationId, workflowId, store.workflowVersions);
+    await this.upsertWorkflowVersionsUnlocked(client, organizationId, workflowId, store.workflowVersions.slice(0, 50));
   }
 
   private async readReplyDeliveryUnlocked(
@@ -1623,14 +1968,20 @@ export class PostgresRepository implements SacFlowRepository {
        ON sa.organization_id = i.organization_id AND sa.id = i.social_account_id`;
   }
 
+  private async readCatalogUnlocked(client: PgQueryable, organizationId: string): Promise<CatalogStore> {
+    return {
+      brands: await this.readBrandsUnlocked(client, organizationId),
+      workflow: await this.readWorkflowUnlocked(client, organizationId),
+      workflowVersions: await this.readWorkflowVersionsUnlocked(client, organizationId),
+    };
+  }
+
   private async readStoreUnlocked(client: PgQueryable, organizationId: string): Promise<DataStore> {
-    const brands = await this.readBrandsUnlocked(client, organizationId);
-    const workflow = await this.readWorkflowUnlocked(client, organizationId);
+    const { brands, workflow, workflowVersions } = await this.readCatalogUnlocked(client, organizationId);
     const interactions = await this.readInteractionsUnlocked(client, organizationId);
     const deliveries = await this.readReplyDeliveriesUnlocked(client, organizationId);
     const runs = await this.readRunsUnlocked(client, organizationId);
     const idempotency = await this.readIdempotencyUnlocked(client, organizationId);
-    const workflowVersions = await this.readWorkflowVersionsUnlocked(client, organizationId);
     const jobs = await this.readJobsUnlocked(client, organizationId);
     const automation = await this.readAutomationStateUnlocked(client, organizationId);
     const timestamps = [
@@ -1810,7 +2161,18 @@ export class PostgresRepository implements SacFlowRepository {
     });
   }
 
-  private async readInteractionsUnlocked(client: PgQueryable, organizationId: string): Promise<Interaction[]> {
+  private async readInteractionsUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    lookup: { ids?: readonly string[] } = {},
+  ): Promise<Interaction[]> {
+    if (lookup.ids && lookup.ids.length === 0) return [];
+    const params: unknown[] = [organizationId];
+    let idClause = "";
+    if (lookup.ids) {
+      params.push([...lookup.ids]);
+      idClause = "AND i.interaction_key = ANY($2::text[])";
+    }
     const result = await client.query<InteractionRow>(
       `SELECT
          i.interaction_key,
@@ -1847,9 +2209,9 @@ export class PostgresRepository implements SacFlowRepository {
        JOIN social_accounts sa
          ON sa.organization_id = i.organization_id
         AND sa.id = i.social_account_id
-       WHERE i.organization_id = $1
+       WHERE i.organization_id = $1 ${idClause}
        ORDER BY i.received_at DESC, i.interaction_key DESC`,
-      [organizationId],
+      params,
     );
 
     return result.rows.map((row) => ({
@@ -1987,92 +2349,31 @@ export class PostgresRepository implements SacFlowRepository {
     }));
   }
 
+  /**
+   * Reemplazo total del store de la organización. Solo se usa para sembrar una base vacía
+   * (`initialize` con demo) y para la importación explícita desde JSON (`replace`); las
+   * mutaciones de la aplicación usan los persistidores incrementales de más abajo. Las
+   * colecciones grandes (interacciones y entregas) se insertan por lotes.
+   */
   private async replaceStoreUnlocked(client: PgQueryable, organizationId: string, store: DataStore): Promise<void> {
     await client.query("UPDATE organizations SET name = $2 WHERE id = $1", [organizationId, this.organizationName]);
     await this.clearStoreUnlocked(client, organizationId);
 
-    const brandIds = new Map<string, string>();
-    const accountIds = new Map<string, string>();
+    const references: CatalogReferences = { brands: new Map(), accounts: new Map() };
     for (const brand of store.brands) {
-      const insertedBrand = await client.query<{ id: string }>(
-        `INSERT INTO brands
-           (organization_id, slug, name, color, active, sac_policy, workbook_config, qa_workbook_config, resources)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)
-         RETURNING id::text AS id`,
-        [
-          organizationId,
-          brand.id,
-          brand.name,
-          brand.color,
-          brand.active,
-          brand.sacPolicy ? JSON.stringify(brand.sacPolicy) : null,
-          brand.workbook ? JSON.stringify(brand.workbook) : null,
-          brand.qaWorkbook ? JSON.stringify(brand.qaWorkbook) : null,
-          JSON.stringify(brand.resources ?? []),
-        ],
-      );
-      const brandUuid = insertedBrand.rows[0]?.id;
-      if (!brandUuid) throw new Error(`No se pudo persistir la marca ${brand.id}.`);
-      brandIds.set(brand.id, brandUuid);
-
-      const accountFingerprint = brand.account.metricool
-        ? fingerprint(brand.account.metricool, this.encryptionKey)
-        : null;
-      const insertedAccount = await client.query<{ id: string }>(
-        `INSERT INTO social_accounts
-           (organization_id, brand_id, provider, handle, display_name, active, metricool_source,
-            metricool_reference_fingerprint, account_key, channels)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         RETURNING id::text AS id`,
-        [
-          organizationId,
-          brandUuid,
-          primaryProvider(brand.account.channels),
-          brand.account.handle,
-          brand.account.name,
-          brand.account.active,
-          brand.account.metricool ? "stored" : "none",
-          accountFingerprint,
-          brand.account.id,
-          brand.account.channels,
-        ],
-      );
-      const accountUuid = insertedAccount.rows[0]?.id;
-      if (!accountUuid) throw new Error(`No se pudo persistir la cuenta ${brand.account.id}.`);
-      accountIds.set(brand.account.id, accountUuid);
-
-      if (brand.account.metricool && accountFingerprint) {
-        await client.query(
-          `INSERT INTO metricool_account_refs
-             (social_account_id, organization_id, encrypted_user_id, encrypted_blog_id, key_version, fingerprint, instagram_provider)
-           VALUES ($1, $2, pgp_sym_encrypt($3, $6), pgp_sym_encrypt($4, $6), $7, $5, $8)`,
-          [
-            accountUuid,
-            organizationId,
-            brand.account.metricool.userId,
-            brand.account.metricool.blogId,
-            accountFingerprint,
-            this.encryptionKey,
-            "v1",
-            brand.account.metricool.instagramProvider || "INSTAGRAMBUSINESS",
-          ],
-        );
-      }
+      const inserted = await this.insertBrandUnlocked(client, organizationId, brand);
+      references.brands.set(brand.id, inserted);
+      references.accounts.set(brand.account.id, inserted.accountUuid);
     }
 
-    const workflowId = await this.insertWorkflowUnlocked(client, organizationId, store.workflow, accountIds);
-    await this.insertWorkflowVersionsUnlocked(client, organizationId, workflowId, store.workflowVersions);
-    const interactionIds = await this.insertInteractionsUnlocked(client, organizationId, store.interactions, brandIds, accountIds);
-    await this.insertReplyDeliveriesUnlocked(client, organizationId, store.deliveries ?? [], interactionIds);
-    await this.insertRunsUnlocked(client, organizationId, store.runs);
-    await this.insertJobsUnlocked(client, organizationId, store.jobs);
-    await this.insertIdempotencyUnlocked(client, organizationId, store.idempotency);
-    await client.query(
-      `INSERT INTO automation_platform_states (organization_id, state, updated_at)
-       VALUES ($1, $2::jsonb, now())
-       ON CONFLICT (organization_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-      [organizationId, JSON.stringify(store.automation)],
-    );
+    const workflowId = await this.insertWorkflowUnlocked(client, organizationId, store.workflow, references.accounts);
+    await this.upsertWorkflowVersionsUnlocked(client, organizationId, workflowId, store.workflowVersions.slice(0, 50));
+    const interactionIds = await this.upsertInteractionsUnlocked(client, organizationId, store.interactions, references, "insert");
+    await this.upsertReplyDeliveriesUnlocked(client, organizationId, (store.deliveries ?? []).slice(0, 2_000), interactionIds, "insert");
+    await this.upsertRunsUnlocked(client, organizationId, store.runs.slice(0, 100), "insert");
+    await this.upsertJobsUnlocked(client, organizationId, store.jobs.slice(0, 250), "insert");
+    await this.upsertIdempotencyUnlocked(client, organizationId, store.idempotency.slice(0, 250), "insert");
+    await this.saveAutomationStateUnlocked(client, organizationId, store.automation);
   }
 
   private async clearStoreUnlocked(client: PgQueryable, organizationId: string): Promise<void> {
@@ -2100,6 +2401,349 @@ export class PostgresRepository implements SacFlowRepository {
     }
   }
 
+  private async saveAutomationStateUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    state: AutomationState,
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO automation_platform_states (organization_id, state, updated_at)
+       VALUES ($1, $2::jsonb, now())
+       ON CONFLICT (organization_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
+      [organizationId, JSON.stringify(state)],
+    );
+  }
+
+  /**
+   * Persiste la diferencia entre el store leído y el resultado de `mutate()`. Cada
+   * colección se compara por su clave estable y solo se escriben las filas nuevas,
+   * modificadas o eliminadas; las interacciones sin cambios no se tocan.
+   */
+  private async persistStoreChangesUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    original: DataStore,
+    next: DataStore,
+  ): Promise<void> {
+    const references = await this.persistCatalogChangesUnlocked(client, organizationId, original, next);
+
+    const interactions = diffByKey(original.interactions, next.interactions, (item) => item.id);
+    if (interactions.removedKeys.length) {
+      await client.query(
+        "DELETE FROM interactions WHERE organization_id = $1 AND interaction_key = ANY($2::text[])",
+        [organizationId, interactions.removedKeys],
+      );
+    }
+    const touchedInteractionIds = interactions.upserts.length
+      ? await this.upsertInteractionsUnlocked(
+          client,
+          organizationId,
+          interactions.upserts,
+          references ?? await this.readCatalogReferencesUnlocked(client, organizationId),
+          "upsert",
+        )
+      : new Map<string, string>();
+
+    const deliveries = diffByKey(original.deliveries ?? [], next.deliveries ?? [], (item) => item.id);
+    if (deliveries.removedKeys.length) {
+      await client.query(
+        "DELETE FROM replies WHERE organization_id = $1 AND id::text = ANY($2::text[])",
+        [organizationId, deliveries.removedKeys],
+      );
+    }
+    if (deliveries.upserts.length) {
+      const missing = [...new Set(deliveries.upserts.map((item) => item.interactionId))]
+        .filter((key) => !touchedInteractionIds.has(key));
+      const interactionIds = new Map(touchedInteractionIds);
+      if (missing.length) {
+        const found = await client.query<{ interaction_key: string; id: string }>(
+          `SELECT interaction_key, id::text AS id
+           FROM interactions
+           WHERE organization_id = $1 AND interaction_key = ANY($2::text[])`,
+          [organizationId, missing],
+        );
+        for (const row of found.rows) interactionIds.set(row.interaction_key, row.id);
+      }
+      await this.upsertReplyDeliveriesUnlocked(client, organizationId, deliveries.upserts, interactionIds, "upsert");
+    }
+
+    const runs = diffByKey(original.runs, next.runs, (item) => item.id);
+    if (runs.removedKeys.length) {
+      await client.query(
+        "DELETE FROM sync_runs WHERE organization_id = $1 AND run_key = ANY($2::text[])",
+        [organizationId, runs.removedKeys],
+      );
+    }
+    await this.upsertRunsUnlocked(client, organizationId, runs.upserts, "upsert");
+
+    const jobs = diffByKey(original.jobs, next.jobs, (item) => item.id);
+    if (jobs.removedKeys.length) {
+      await client.query(
+        "DELETE FROM workflow_jobs WHERE organization_id = $1 AND job_key = ANY($2::text[])",
+        [organizationId, jobs.removedKeys],
+      );
+    }
+    await this.upsertJobsUnlocked(client, organizationId, jobs.upserts, "upsert");
+
+    const idempotencyKey = (record: StoredIdempotencyRecord) => JSON.stringify([record.scope, record.key]);
+    const idempotency = diffByKey(original.idempotency, next.idempotency, idempotencyKey);
+    for (const removed of idempotency.removedKeys) {
+      const [scope, key] = JSON.parse(removed) as [string, string];
+      await client.query(
+        "DELETE FROM idempotency_keys WHERE organization_id = $1 AND scope = $2 AND key = $3",
+        [organizationId, scope, key],
+      );
+    }
+    await this.upsertIdempotencyUnlocked(client, organizationId, idempotency.upserts, "upsert");
+
+    if (!sameValue(original.automation, next.automation)) {
+      await this.saveAutomationStateUnlocked(client, organizationId, next.automation);
+    }
+  }
+
+  /**
+   * Persiste solo los cambios de marcas/cuentas, workflow y versiones. Nunca lee ni
+   * escribe interacciones. Devuelve las referencias de marcas/cuentas si las consultó.
+   */
+  private async persistCatalogChangesUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    original: CatalogStore,
+    next: CatalogStore,
+  ): Promise<CatalogReferences | undefined> {
+    assertCatalogBrandsPreserved(original.brands, next.brands);
+    const previousBrands = new Map(original.brands.map((brand) => [brand.id, brand]));
+    const changedBrands = next.brands.filter((brand) => {
+      const previous = previousBrands.get(brand.id);
+      return !previous || !sameValue(previous, brand);
+    });
+    const allowlistChanged = !sameValue(original.workflow.autoReplyAccountIds, next.workflow.autoReplyAccountIds);
+    const workflowChanged = !sameValue(original.workflow, next.workflow);
+    const versionChanges = diffByKey(original.workflowVersions, next.workflowVersions, (item) => String(item.version));
+    const versionsChanged = versionChanges.upserts.length > 0 || versionChanges.removedKeys.length > 0;
+    if (!changedBrands.length && !workflowChanged && !versionsChanged) return undefined;
+
+    const references = changedBrands.length || allowlistChanged
+      ? await this.readCatalogReferencesUnlocked(client, organizationId)
+      : undefined;
+
+    for (const brand of changedBrands) {
+      const previous = previousBrands.get(brand.id);
+      const known = references?.brands.get(brand.id);
+      if (!previous || !known) {
+        const inserted = await this.insertBrandUnlocked(client, organizationId, brand);
+        references?.brands.set(brand.id, inserted);
+        references?.accounts.set(brand.account.id, inserted.accountUuid);
+        continue;
+      }
+      await this.updateBrandUnlocked(client, organizationId, previous, brand, known);
+      if (previous.account.id !== brand.account.id) {
+        references?.accounts.delete(previous.account.id);
+        references?.accounts.set(brand.account.id, known.accountUuid);
+      }
+    }
+
+    if (workflowChanged || versionsChanged) {
+      const existing = await client.query<{ id: string }>(
+        `SELECT id::text AS id
+         FROM workflow_configs
+         WHERE organization_id = $1
+         ORDER BY created_at
+         LIMIT 1`,
+        [organizationId],
+      );
+      let workflowUuid = existing.rows[0]?.id;
+      if (!workflowUuid) {
+        const accounts = references?.accounts ?? (await this.readCatalogReferencesUnlocked(client, organizationId)).accounts;
+        workflowUuid = await this.insertWorkflowUnlocked(client, organizationId, next.workflow, accounts);
+      } else if (workflowChanged) {
+        await this.updateWorkflowUnlocked(client, organizationId, workflowUuid, original.workflow, next.workflow, references);
+      }
+      if (versionChanges.removedKeys.length) {
+        await client.query(
+          `DELETE FROM workflow_versions
+           WHERE organization_id = $1 AND workflow_id = $2 AND version = ANY($3::int[])`,
+          [organizationId, workflowUuid, versionChanges.removedKeys.map(Number)],
+        );
+      }
+      await this.upsertWorkflowVersionsUnlocked(client, organizationId, workflowUuid, versionChanges.upserts);
+    }
+    return references;
+  }
+
+  /** Mapa slug de marca → UUIDs y clave de cuenta → UUID, solo para la organización actual. */
+  private async readCatalogReferencesUnlocked(client: PgQueryable, organizationId: string): Promise<CatalogReferences> {
+    const result = await client.query<{
+      brand_key: string;
+      brand_id: string;
+      account_key: string;
+      account_id: string;
+    }>(
+      `SELECT b.slug AS brand_key, b.id::text AS brand_id,
+              sa.account_key, sa.id::text AS account_id
+       FROM brands b
+       JOIN social_accounts sa ON sa.organization_id = b.organization_id AND sa.brand_id = b.id
+       WHERE b.organization_id = $1`,
+      [organizationId],
+    );
+    return {
+      brands: new Map(result.rows.map((row) => [row.brand_key, { brandUuid: row.brand_id, accountUuid: row.account_id }])),
+      accounts: new Map(result.rows.map((row) => [row.account_key, row.account_id])),
+    };
+  }
+
+  private async insertBrandUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    brand: Brand,
+  ): Promise<{ brandUuid: string; accountUuid: string }> {
+    const insertedBrand = await client.query<{ id: string }>(
+      `INSERT INTO brands
+         (organization_id, slug, name, color, active, sac_policy, workbook_config, qa_workbook_config, resources)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)
+       RETURNING id::text AS id`,
+      [
+        organizationId,
+        brand.id,
+        brand.name,
+        brand.color,
+        brand.active,
+        brand.sacPolicy ? JSON.stringify(brand.sacPolicy) : null,
+        brand.workbook ? JSON.stringify(brand.workbook) : null,
+        brand.qaWorkbook ? JSON.stringify(brand.qaWorkbook) : null,
+        JSON.stringify(brand.resources ?? []),
+      ],
+    );
+    const brandUuid = insertedBrand.rows[0]?.id;
+    if (!brandUuid) throw new Error(`No se pudo persistir la marca ${brand.id}.`);
+
+    const reference = metricoolRefPart(brand);
+    const accountFingerprint = reference ? fingerprint(reference, this.encryptionKey) : null;
+    const insertedAccount = await client.query<{ id: string }>(
+      `INSERT INTO social_accounts
+         (organization_id, brand_id, provider, handle, display_name, active, metricool_source,
+          metricool_reference_fingerprint, account_key, channels)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id::text AS id`,
+      [
+        organizationId,
+        brandUuid,
+        primaryProvider(brand.account.channels),
+        brand.account.handle,
+        brand.account.name,
+        brand.account.active,
+        reference ? "stored" : "none",
+        accountFingerprint,
+        brand.account.id,
+        brand.account.channels,
+      ],
+    );
+    const accountUuid = insertedAccount.rows[0]?.id;
+    if (!accountUuid) throw new Error(`No se pudo persistir la cuenta ${brand.account.id}.`);
+    if (reference && accountFingerprint) {
+      await this.saveMetricoolReferenceUnlocked(client, organizationId, accountUuid, reference, accountFingerprint);
+    }
+    return { brandUuid, accountUuid };
+  }
+
+  /** Actualiza solo las partes de la marca que cambiaron: fila de marca, cuenta y/o referencia. */
+  private async updateBrandUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    previous: Brand,
+    next: Brand,
+    known: { brandUuid: string; accountUuid: string },
+  ): Promise<void> {
+    if (!sameValue(brandRowPart(previous), brandRowPart(next))) {
+      await client.query(
+        `UPDATE brands
+         SET name = $3, color = $4, active = $5, sac_policy = $6::jsonb, workbook_config = $7::jsonb,
+             qa_workbook_config = $8::jsonb, resources = $9::jsonb, updated_at = now()
+         WHERE organization_id = $1 AND id = $2`,
+        [
+          organizationId,
+          known.brandUuid,
+          next.name,
+          next.color,
+          next.active,
+          next.sacPolicy ? JSON.stringify(next.sacPolicy) : null,
+          next.workbook ? JSON.stringify(next.workbook) : null,
+          next.qaWorkbook ? JSON.stringify(next.qaWorkbook) : null,
+          JSON.stringify(next.resources ?? []),
+        ],
+      );
+    }
+
+    const previousReference = metricoolRefPart(previous);
+    const nextReference = metricoolRefPart(next);
+    const referenceChanged = !sameValue(previousReference, nextReference);
+    if (!sameValue(accountRowPart(previous), accountRowPart(next)) || referenceChanged) {
+      const accountFingerprint = nextReference ? fingerprint(nextReference, this.encryptionKey) : null;
+      await client.query(
+        `UPDATE social_accounts
+         SET provider = $3, handle = $4, display_name = $5, active = $6, account_key = $7, channels = $8,
+             metricool_source = $9, metricool_reference_fingerprint = $10,
+             metricool_reference_updated_at = CASE WHEN $11::boolean THEN now() ELSE metricool_reference_updated_at END,
+             updated_at = now()
+         WHERE organization_id = $1 AND id = $2`,
+        [
+          organizationId,
+          known.accountUuid,
+          primaryProvider(next.account.channels),
+          next.account.handle,
+          next.account.name,
+          next.account.active,
+          next.account.id,
+          next.account.channels,
+          nextReference ? "stored" : "none",
+          accountFingerprint,
+          referenceChanged,
+        ],
+      );
+      if (referenceChanged) {
+        if (nextReference && accountFingerprint) {
+          await this.saveMetricoolReferenceUnlocked(client, organizationId, known.accountUuid, nextReference, accountFingerprint);
+        } else {
+          await client.query(
+            "DELETE FROM metricool_account_refs WHERE organization_id = $1 AND social_account_id = $2",
+            [organizationId, known.accountUuid],
+          );
+        }
+      }
+    }
+  }
+
+  private async saveMetricoolReferenceUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    accountUuid: string,
+    reference: NonNullable<ReturnType<typeof metricoolRefPart>>,
+    accountFingerprint: string,
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO metricool_account_refs
+         (social_account_id, organization_id, encrypted_user_id, encrypted_blog_id, key_version, fingerprint, instagram_provider)
+       VALUES ($1, $2, pgp_sym_encrypt($3, $6), pgp_sym_encrypt($4, $6), $7, $5, $8)
+       ON CONFLICT (social_account_id) DO UPDATE SET
+         encrypted_user_id = EXCLUDED.encrypted_user_id,
+         encrypted_blog_id = EXCLUDED.encrypted_blog_id,
+         key_version = EXCLUDED.key_version,
+         fingerprint = EXCLUDED.fingerprint,
+         instagram_provider = EXCLUDED.instagram_provider,
+         updated_at = now()`,
+      [
+        accountUuid,
+        organizationId,
+        reference.userId,
+        reference.blogId,
+        accountFingerprint,
+        this.encryptionKey,
+        "v1",
+        reference.instagramProvider,
+      ],
+    );
+  }
+
   private async insertWorkflowUnlocked(
     client: PgQueryable,
     organizationId: string,
@@ -2113,288 +2757,281 @@ export class PostgresRepository implements SacFlowRepository {
           published_at, published_by, updated_at, last_run_at, last_run_status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING id::text AS id`,
-      [
-        organizationId,
-        workflow.id,
-        workflow.name,
-        workflow.enabled,
-        workflow.pollIntervalMinutes,
-        workflow.autoReplyEnabled,
-        workflow.minimumConfidence,
-        workflow.requireHumanFor,
-        workflow.businessHoursOnly,
-        workflow.version,
-        workflow.publishedVersion,
-        workflow.publishedAt ?? null,
-        workflow.publishedBy ?? null,
-        workflow.updatedAt,
-        workflow.lastRunAt ?? null,
-        workflow.lastRunStatus ?? null,
-      ],
+      [organizationId, ...this.workflowConfigValues(workflow)],
     );
     const workflowUuid = inserted.rows[0]?.id;
     if (!workflowUuid) throw new Error(`No se pudo persistir el workflow ${workflow.id}.`);
-
-    for (const accountId of workflow.autoReplyAccountIds) {
-      const accountUuid = accountIds.get(accountId);
-      if (!accountUuid) continue;
-      await client.query(
-        `INSERT INTO workflow_account_allowlist (organization_id, workflow_id, social_account_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT DO NOTHING`,
-        [organizationId, workflowUuid, accountUuid],
-      );
-    }
-
-    for (const node of workflow.nodes) {
-      await client.query(
-        `INSERT INTO workflow_nodes
-           (organization_id, workflow_id, node_key, type, label, enabled, position_x, position_y, config)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
-        [
-          organizationId,
-          workflowUuid,
-          node.id,
-          node.type,
-          node.label,
-          node.enabled,
-          node.position.x,
-          node.position.y,
-          JSON.stringify(node.config),
-        ],
-      );
-    }
-
-    for (const edge of workflow.edges) {
-      await client.query(
-        `INSERT INTO workflow_edges
-           (organization_id, workflow_id, edge_key, source_node_key, target_node_key, label, connector_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [organizationId, workflowUuid, edge.id, edge.source, edge.target, edge.label ?? null, edge.connectorType ?? "smoothstep"],
-      );
-    }
-
+    await this.replaceWorkflowAllowlistUnlocked(client, organizationId, workflowUuid, workflow.autoReplyAccountIds, accountIds);
+    await this.replaceWorkflowGraphUnlocked(client, organizationId, workflowUuid, workflow);
     return workflowUuid;
   }
 
-  private async insertWorkflowVersionsUnlocked(
+  private workflowConfigValues(workflow: Workflow): unknown[] {
+    return [
+      workflow.id,
+      workflow.name,
+      workflow.enabled,
+      workflow.pollIntervalMinutes,
+      workflow.autoReplyEnabled,
+      workflow.minimumConfidence,
+      workflow.requireHumanFor,
+      workflow.businessHoursOnly,
+      workflow.version,
+      workflow.publishedVersion,
+      workflow.publishedAt ?? null,
+      workflow.publishedBy ?? null,
+      workflow.updatedAt,
+      workflow.lastRunAt ?? null,
+      workflow.lastRunStatus ?? null,
+    ];
+  }
+
+  /** Actualiza la configuración del workflow y, solo si cambiaron, su allowlist y su grafo. */
+  private async updateWorkflowUnlocked(
     client: PgQueryable,
     organizationId: string,
-    workflowId: string,
-    versions: WorkflowVersion[],
+    workflowUuid: string,
+    previous: Workflow,
+    next: Workflow,
+    references: CatalogReferences | undefined,
   ): Promise<void> {
-    for (const version of versions.slice(0, 50)) {
+    if (!sameValue(workflowConfigPart(previous), workflowConfigPart(next))) {
       await client.query(
-        `INSERT INTO workflow_versions
-           (organization_id, workflow_id, version, status, snapshot, created_at, created_by, change_note)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
-        [
-          organizationId,
-          workflowId,
-          version.version,
-          version.status,
-          JSON.stringify(version.snapshot),
-          version.createdAt,
-          version.createdBy,
-          version.changeNote ?? null,
-        ],
+        `UPDATE workflow_configs
+         SET workflow_key = $3, name = $4, enabled = $5, poll_interval_minutes = $6, auto_reply_enabled = $7,
+             minimum_confidence = $8, require_human_for = $9, business_hours_only = $10, version = $11,
+             published_version = $12, published_at = $13, published_by = $14, updated_at = $15,
+             last_run_at = $16, last_run_status = $17
+         WHERE organization_id = $1 AND id = $2`,
+        [organizationId, workflowUuid, ...this.workflowConfigValues(next)],
       );
+    }
+    if (!sameValue(previous.autoReplyAccountIds, next.autoReplyAccountIds)) {
+      const accounts = references?.accounts ?? (await this.readCatalogReferencesUnlocked(client, organizationId)).accounts;
+      await client.query(
+        "DELETE FROM workflow_account_allowlist WHERE organization_id = $1 AND workflow_id = $2",
+        [organizationId, workflowUuid],
+      );
+      await this.replaceWorkflowAllowlistUnlocked(client, organizationId, workflowUuid, next.autoReplyAccountIds, accounts);
+    }
+    if (!sameValue(previous.nodes, next.nodes) || !sameValue(previous.edges, next.edges)) {
+      // Las aristas referencian nodos: se borran primero y el grafo se reinserta por lotes.
+      await client.query("DELETE FROM workflow_edges WHERE organization_id = $1 AND workflow_id = $2", [organizationId, workflowUuid]);
+      await client.query("DELETE FROM workflow_nodes WHERE organization_id = $1 AND workflow_id = $2", [organizationId, workflowUuid]);
+      await this.replaceWorkflowGraphUnlocked(client, organizationId, workflowUuid, next);
     }
   }
 
-  private async insertInteractionsUnlocked(
+  private async replaceWorkflowAllowlistUnlocked(
     client: PgQueryable,
     organizationId: string,
-    interactions: Interaction[],
-    brandIds: Map<string, string>,
+    workflowUuid: string,
+    accountKeys: readonly string[],
     accountIds: Map<string, string>,
+  ): Promise<void> {
+    const rows = [...new Set(accountKeys)]
+      .map((accountKey) => accountIds.get(accountKey))
+      .filter((accountUuid): accountUuid is string => Boolean(accountUuid))
+      .map((accountUuid) => [organizationId, workflowUuid, accountUuid]);
+    await insertRowsBatched(
+      client,
+      "INSERT INTO workflow_account_allowlist (organization_id, workflow_id, social_account_id)",
+      rows,
+      { suffix: "ON CONFLICT DO NOTHING" },
+    );
+  }
+
+  private async replaceWorkflowGraphUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    workflowUuid: string,
+    workflow: Workflow,
+  ): Promise<void> {
+    await insertRowsBatched(
+      client,
+      `INSERT INTO workflow_nodes
+         (organization_id, workflow_id, node_key, type, label, enabled, position_x, position_y, config)`,
+      workflow.nodes.map((node) => [
+        organizationId,
+        workflowUuid,
+        node.id,
+        node.type,
+        node.label,
+        node.enabled,
+        node.position.x,
+        node.position.y,
+        JSON.stringify(node.config),
+      ]),
+      { casts: [undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "jsonb"] },
+    );
+    await insertRowsBatched(
+      client,
+      `INSERT INTO workflow_edges
+         (organization_id, workflow_id, edge_key, source_node_key, target_node_key, label, connector_type)`,
+      workflow.edges.map((edge) => [
+        organizationId,
+        workflowUuid,
+        edge.id,
+        edge.source,
+        edge.target,
+        edge.label ?? null,
+        edge.connectorType ?? "smoothstep",
+      ]),
+    );
+  }
+
+  private async upsertWorkflowVersionsUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    workflowId: string,
+    versions: readonly WorkflowVersion[],
+  ): Promise<void> {
+    await insertRowsBatched(
+      client,
+      `INSERT INTO workflow_versions
+         (organization_id, workflow_id, version, status, snapshot, created_at, created_by, change_note)`,
+      versions.map((version) => [
+        organizationId,
+        workflowId,
+        version.version,
+        version.status,
+        JSON.stringify(version.snapshot),
+        version.createdAt,
+        version.createdBy,
+        version.changeNote ?? null,
+      ]),
+      {
+        casts: [undefined, undefined, undefined, undefined, "jsonb", undefined, undefined, undefined],
+        suffix: `ON CONFLICT (organization_id, workflow_id, version) DO UPDATE SET
+          ${excludedAssignments(["status", "snapshot", "created_at", "created_by", "change_note"])}`,
+      },
+    );
+  }
+
+  /**
+   * Inserta (`insert`) o inserta/actualiza (`upsert`) interacciones por lotes y devuelve
+   * el mapa clave de interacción → UUID de las filas escritas.
+   */
+  private async upsertInteractionsUnlocked(
+    client: PgQueryable,
+    organizationId: string,
+    interactions: readonly Interaction[],
+    references: CatalogReferences,
+    mode: "insert" | "upsert",
   ): Promise<Map<string, string>> {
-    const interactionIds = new Map<string, string>();
+    const brandUuids = new Map([...references.brands].map(([key, value]) => [key, value.brandUuid]));
+    const rows = interactions.map((interaction) => interactionRowValues(
+      organizationId,
+      requireMapValue(brandUuids, interaction.brandId, "interacción"),
+      requireMapValue(references.accounts, interaction.accountId, "interacción"),
+      interaction,
+    ));
+    const updatable = [
+      "brand_id", "social_account_id", "external_id", "provider", "kind", "direction", "customer_name",
+      "customer_handle", "body_text", "category", "sentiment", "confidence", "status", "source", "version",
+      "received_at", "responded_at", "metricool_ref", "response_text", "audit_trail", "assigned_to_user_id",
+      "assigned_to_display_name", "internal_notes", "updated_at", "status_reason", "automation_assessment",
+    ];
+    const returned = await insertRowsBatched<{ id: string; interaction_key: string }>(
+      client,
+      INTERACTION_INSERT_PREFIX,
+      rows,
+      {
+        casts: INTERACTION_CASTS,
+        suffix: `${mode === "upsert"
+          ? `ON CONFLICT (organization_id, interaction_key) DO UPDATE SET ${excludedAssignments(updatable)}`
+          : ""} RETURNING id::text AS id, interaction_key`,
+      },
+    );
+    const interactionIds = new Map(returned.map((row) => [row.interaction_key, row.id]));
     for (const interaction of interactions) {
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO interactions
-           (organization_id, brand_id, social_account_id, interaction_key, external_id, provider, kind,
-            direction, customer_name, customer_handle, body_text, category, sentiment, confidence,
-            status, source, version, received_at, responded_at, metricool_ref, response_text, audit_trail,
-            assigned_to_user_id, assigned_to_display_name, internal_notes, updated_at, status_reason,
-            automation_assessment)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                 $17, $18, $19, $20::jsonb, $21, $22::jsonb, $23, $24, $25::jsonb, $26, $27::jsonb,
-                 $28::jsonb)
-         RETURNING id::text AS id`,
-        [
-          organizationId,
-          requireMapValue(brandIds, interaction.brandId, "interacción"),
-          requireMapValue(accountIds, interaction.accountId, "interacción"),
-          interaction.id,
-          interaction.externalId,
-          interaction.channel,
-          interaction.type,
-          interaction.direction,
-          interaction.customerName,
-          interaction.customerHandle,
-          interaction.text,
-          interaction.category,
-          interaction.sentiment,
-          interaction.confidence,
-          interaction.status,
-          interaction.source,
-          interaction.version || 1,
-          interaction.createdAt,
-          interaction.respondedAt ?? null,
-          JSON.stringify(interaction.metricoolRef ?? {}),
-          interaction.responseText ?? null,
-          JSON.stringify(interaction.audit),
-          interaction.assignedTo?.userId ?? null,
-          interaction.assignedTo?.displayName ?? null,
-          JSON.stringify(interaction.internalNotes ?? []),
-          interaction.updatedAt,
-          interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
-          interaction.automation ? JSON.stringify(interaction.automation) : null,
-        ],
-      );
-      const interactionUuid = inserted.rows[0]?.id;
-      if (!interactionUuid) throw new Error(`No se pudo persistir la interacción ${interaction.id}.`);
-      interactionIds.set(interaction.id, interactionUuid);
+      if (!interactionIds.has(interaction.id)) throw new Error(`No se pudo persistir la interacción ${interaction.id}.`);
     }
     return interactionIds;
   }
 
-  private async insertReplyDeliveriesUnlocked(
+  private async upsertReplyDeliveriesUnlocked(
     client: PgQueryable,
     organizationId: string,
-    deliveries: ReplyDelivery[],
+    deliveries: readonly ReplyDelivery[],
     interactionIds: Map<string, string>,
+    mode: "insert" | "upsert",
   ): Promise<void> {
-    for (const delivery of deliveries.slice(0, 2_000)) {
-      const interactionId = interactionIds.get(delivery.interactionId);
-      if (!interactionId) continue;
-      await client.query(
-        `INSERT INTO replies
-           (id, organization_id, interaction_id, mode, body_text, delivery_status, idempotency_key,
-            provider_response_ref, error_code, created_at, sent_at, approved_by_human, requested_by,
-            request_id, version, attempt_count, updated_at, last_attempt_at, lease_expires_at,
-            next_attempt_at, reconciled_at, reconciled_by, reconciliation_note)
-         VALUES ($1, $2, $3, 'send', $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13,
-                 $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22)
-         ON CONFLICT DO NOTHING`,
-        [
-          delivery.id,
-          organizationId,
-          interactionId,
-          delivery.bodyText,
-          delivery.status,
-          delivery.idempotencyKey,
-          delivery.providerResponseRef ?? null,
-          delivery.errorCode ?? null,
-          delivery.createdAt,
-          delivery.sentAt ?? null,
-          delivery.approvedByHuman,
-          JSON.stringify(delivery.requestedBy),
-          delivery.requestId,
-          delivery.version,
-          delivery.attemptCount,
-          delivery.updatedAt,
-          delivery.lastAttemptAt ?? null,
-          delivery.leaseExpiresAt ?? null,
-          delivery.nextAttemptAt ?? null,
-          delivery.reconciledAt ?? null,
-          delivery.reconciledBy ? JSON.stringify(delivery.reconciledBy) : null,
-          delivery.reconciliationNote ?? null,
-        ],
-      );
-    }
+    const rows = deliveries.flatMap((delivery) => {
+      const interactionUuid = interactionIds.get(delivery.interactionId);
+      return interactionUuid ? [replyRowValues(organizationId, interactionUuid, delivery)] : [];
+    });
+    const updatable = [
+      "interaction_id", "body_text", "delivery_status", "idempotency_key", "provider_response_ref", "error_code",
+      "created_at", "sent_at", "approved_by_human", "requested_by", "request_id", "version", "attempt_count",
+      "updated_at", "last_attempt_at", "lease_expires_at", "next_attempt_at", "reconciled_at", "reconciled_by",
+      "reconciliation_note",
+    ];
+    await insertRowsBatched(client, REPLY_INSERT_PREFIX, rows, {
+      casts: REPLY_CASTS,
+      suffix: mode === "upsert"
+        ? `ON CONFLICT (id) DO UPDATE SET ${excludedAssignments(updatable)}`
+        : "ON CONFLICT DO NOTHING",
+    });
   }
 
-  private async insertRunsUnlocked(
+  private async upsertRunsUnlocked(
     client: PgQueryable,
     organizationId: string,
-    runs: WorkflowRun[],
+    runs: readonly WorkflowRun[],
+    mode: "insert" | "upsert",
   ): Promise<void> {
-    for (const run of runs.slice(0, 100)) {
-      await client.query(
-        `INSERT INTO sync_runs
-           (organization_id, run_key, kind, status, workflow_version, requested_by, retry_of,
-            started_at, finished_at, demo_mode, account_keys, totals, audit_trail)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)`,
-        [
-          organizationId,
-          run.id,
-          run.kind,
-          run.status,
-          run.workflowVersion,
-          run.requestedBy ?? null,
-          run.retryOf ?? null,
-          run.startedAt,
-          run.finishedAt,
-          run.demoMode,
-          run.accountIds,
-          JSON.stringify(run.totals),
-          JSON.stringify(run.auditTrail),
-        ],
-      );
-    }
+    const updatable = [
+      "kind", "status", "workflow_version", "requested_by", "retry_of", "started_at", "finished_at",
+      "demo_mode", "account_keys", "totals", "audit_trail",
+    ];
+    await insertRowsBatched(client, RUN_INSERT_PREFIX, runs.map((run) => runRowValues(organizationId, run)), {
+      casts: RUN_CASTS,
+      suffix: mode === "upsert"
+        ? `ON CONFLICT (organization_id, run_key) DO UPDATE SET ${excludedAssignments(updatable)}`
+        : undefined,
+    });
   }
 
-  private async insertJobsUnlocked(
+  private async upsertJobsUnlocked(
     client: PgQueryable,
     organizationId: string,
-    jobs: WorkflowJob[],
+    jobs: readonly WorkflowJob[],
+    mode: "insert" | "upsert",
   ): Promise<void> {
-    for (const job of jobs.slice(0, 250)) {
-      await client.query(
-        `INSERT INTO workflow_jobs
-           (organization_id, job_key, schedule_key, kind, status, account_keys, item_limit,
-            attempts, max_attempts, next_attempt_at, created_at, updated_at, locked_at,
-            locked_by, run_key, last_error, workflow_key, trigger_mode, input_payload)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb)`,
-        [
-          organizationId,
-          job.id,
-          job.scheduleKey,
-          job.kind,
-          job.status,
-          job.accountIds,
-          job.limit,
-          job.attempts,
-          job.maxAttempts,
-          job.nextAttemptAt,
-          job.createdAt,
-          job.updatedAt,
-          job.lockedAt ?? null,
-          job.lockedBy ?? null,
-          job.runId ?? null,
-          job.lastError?.slice(0, 1_000) ?? null,
-          job.workflowId ?? null,
-          job.triggerMode ?? null,
-          JSON.stringify(job.input ?? []),
-        ],
-      );
-    }
+    const updatable = [
+      "schedule_key", "kind", "status", "account_keys", "item_limit", "attempts", "max_attempts",
+      "next_attempt_at", "created_at", "updated_at", "locked_at", "locked_by", "run_key", "last_error",
+      "workflow_key", "trigger_mode", "input_payload",
+    ];
+    await insertRowsBatched(client, JOB_INSERT_PREFIX, jobs.map((job) => jobRowValues(organizationId, job)), {
+      casts: JOB_CASTS,
+      suffix: mode === "upsert"
+        ? `ON CONFLICT (organization_id, job_key) DO UPDATE SET ${excludedAssignments(updatable)}`
+        : undefined,
+    });
   }
 
-  private async insertIdempotencyUnlocked(
+  private async upsertIdempotencyUnlocked(
     client: PgQueryable,
     organizationId: string,
-    idempotency: StoredIdempotencyRecord[],
+    records: readonly StoredIdempotencyRecord[],
+    mode: "insert" | "upsert",
   ): Promise<void> {
-    for (const record of idempotency.slice(0, 250)) {
-      await client.query(
-        `INSERT INTO idempotency_keys
-           (organization_id, scope, key, request_hash, status_code, response_json, created_at, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-         ON CONFLICT DO NOTHING`,
-        [
-          organizationId,
-          record.scope,
-          record.key,
-          record.requestHash,
-          record.statusCode,
-          JSON.stringify(record.response),
-          record.createdAt,
-          expiresAt(record),
-        ],
-      );
-    }
+    // Un mismo lote no puede tocar dos veces la misma clave en un ON CONFLICT DO UPDATE.
+    const unique = new Map(records.map((record) => [JSON.stringify([record.scope, record.key]), record]));
+    await insertRowsBatched(
+      client,
+      IDEMPOTENCY_INSERT_PREFIX,
+      [...unique.values()].map((record) => idempotencyRowValues(organizationId, record)),
+      {
+        casts: IDEMPOTENCY_CASTS,
+        suffix: mode === "upsert"
+          ? `ON CONFLICT (organization_id, scope, key) DO UPDATE SET ${excludedAssignments([
+              "request_hash", "status_code", "response_json", "created_at", "expires_at",
+            ])}`
+          : "ON CONFLICT DO NOTHING",
+      },
+    );
   }
 }
