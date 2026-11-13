@@ -32,6 +32,8 @@ export interface IdentityConfig {
   allowedUsersFile?: string;
   /** Correos con rol admin definidos en el entorno del servidor (SAC_FLOW_AUTH_ADMIN_EMAILS). */
   adminEmails?: string[];
+  /** Correos con rol supervisor definidos en el entorno del servidor (SAC_FLOW_AUTH_SUPERVISOR_EMAILS). */
+  supervisorEmails?: string[];
   /** Correos con `defaultRole` definidos en el entorno del servidor (SAC_FLOW_AUTH_ALLOWED_EMAILS). */
   allowedEmails?: string[];
   /** Dominios cuyo correo verificado entra con `defaultRole` aunque no esté en el archivo. */
@@ -183,7 +185,7 @@ export async function readUsersFile(file: string | undefined): Promise<Array<Rec
 
 /**
  * Busca el correo en la allowlist del archivo (que permite afinar rol y marcas); si no está,
- * en las listas del entorno (admins y permitidos) y por último en los dominios permitidos.
+ * en las listas del entorno (admins, supervisores y permitidos) y por último en los dominios permitidos.
  * Lanza 403 cuando no hay autorización.
  */
 export async function findAllowedUser(config: IdentityConfig, email: string, name: string | null): Promise<AllowedUserRecord> {
@@ -195,6 +197,9 @@ export async function findAllowedUser(config: IdentityConfig, email: string, nam
   if (listed) return { ...listed, name: listed.name ?? name };
   if (config.adminEmails?.includes(normalized)) {
     return { email: normalized, name, permissions: [config.adminPermission] };
+  }
+  if (config.supervisorEmails?.includes(normalized)) {
+    return { email: normalized, name, permissions: [config.requiredPermission], nodesRole: "supervisor" };
   }
   if (config.allowedEmails?.includes(normalized)) {
     return { email: normalized, name, permissions: [config.requiredPermission] };

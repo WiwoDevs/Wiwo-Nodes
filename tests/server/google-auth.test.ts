@@ -190,6 +190,7 @@ describe("Configuración del inicio de sesión con Google", () => {
     const config = loadConfig({ ...google, SAC_FLOW_AUTH_ADMIN_EMAILS: " Jefa@Demo.test , otra@demo.test,jefa@demo.test", SAC_FLOW_AUTH_ALLOWED_EMAILS: "" });
     expect(config.auth.adminEmails).toEqual(["jefa@demo.test", "otra@demo.test"]);
     expect(config.auth.allowedEmails).toEqual([]);
+    expect(loadConfig({ ...google, SAC_FLOW_AUTH_SUPERVISOR_EMAILS: "Super@Demo.test" }).auth.supervisorEmails).toEqual(["super@demo.test"]);
     expect(() => loadConfig({ ...google, SAC_FLOW_AUTH_ADMIN_EMAILS: "no-es-un-correo" })).toThrow(/Correo inválido/);
   });
 

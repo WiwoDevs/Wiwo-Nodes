@@ -242,6 +242,7 @@ export function loadConfig(
       : undefined,
     allowedUsersFile: path.resolve(cwd, env.SAC_FLOW_AUTH_ALLOWED_USERS_FILE?.trim() || path.join("data", "allowed-users.json")),
     adminEmails: parseEmailList(env.SAC_FLOW_AUTH_ADMIN_EMAILS),
+    supervisorEmails: parseEmailList(env.SAC_FLOW_AUTH_SUPERVISOR_EMAILS),
     allowedEmails: parseEmailList(env.SAC_FLOW_AUTH_ALLOWED_EMAILS),
     allowedDomains: (env.SAC_FLOW_AUTH_ALLOWED_DOMAINS || "")
       .split(",")

@@ -61,8 +61,9 @@ fuentes, consultadas en este orden:
    persona. En el contenedor de producción `data/` no está montado: úselo solo si agrega el
    volumen.
 2. Variables del servidor, recomendadas en contenedores: `SAC_FLOW_AUTH_ADMIN_EMAILS` (rol
-   admin) y `SAC_FLOW_AUTH_ALLOWED_EMAILS` (rol `SAC_FLOW_AUTH_DEFAULT_ROLE`), separadas por
-   comas. `docker-compose.production.yml` ya las pasa al contenedor junto con el resto de
+   admin), `SAC_FLOW_AUTH_SUPERVISOR_EMAILS` (rol supervisor) y `SAC_FLOW_AUTH_ALLOWED_EMAILS`
+   (rol `SAC_FLOW_AUTH_DEFAULT_ROLE`), separadas por comas. Si un correo aparece en varias, gana
+   la de mayor rol; un correo de un dominio permitido que esté en una lista recibe el rol de esa lista. `docker-compose.production.yml` ya las pasa al contenedor junto con el resto de
    variables de inicio de sesión.
 3. Opcional, `SAC_FLOW_AUTH_ALLOWED_DOMAINS`: todo correo verificado de esos dominios entra
    con el rol por defecto. Déjelo vacío para autorizar solo correos explícitos.

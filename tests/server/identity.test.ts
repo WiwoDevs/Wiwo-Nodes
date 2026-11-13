@@ -131,6 +131,22 @@ describe("findAllowedUser", () => {
     await expect(findAllowedUser(withLists, "otra@demo.test", null)).rejects.toMatchObject({ code: "ACCOUNT_NOT_ALLOWED" });
   });
 
+  it("la lista de supervisores da rol supervisor, también dentro de un dominio permitido", async () => {
+    const withLists = {
+      ...config,
+      allowedDomains: ["demo.test"],
+      adminEmails: ["jefa@demo.test"],
+      supervisorEmails: ["super@demo.test", "jefa@demo.test"],
+    };
+    const session = { uid: "u1", email: "super@demo.test", name: "Super" };
+    const supervisor = await findAllowedUser(withLists, "Super@Demo.test", null);
+    expect(resolveActorFromAllowedUser(supervisor, session, withLists, "google").role).toBe("supervisor");
+    const admin = await findAllowedUser(withLists, "jefa@demo.test", null);
+    expect(resolveActorFromAllowedUser(admin, { ...session, email: "jefa@demo.test" }, withLists, "google").role).toBe("admin");
+    const domainUser = await findAllowedUser(withLists, "agente@demo.test", null);
+    expect(resolveActorFromAllowedUser(domainUser, { ...session, email: "agente@demo.test" }, withLists, "google").role).toBe("agent");
+  });
+
   it("admite por dominio permitido con el permiso mínimo", async () => {
     const user = await findAllowedUser({ ...config, allowedDomains: ["demo.test"] }, "nueva@demo.test", "Nueva");
     expect(user).toMatchObject({ email: "nueva@demo.test", permissions: ["sac"], name: "Nueva" });
