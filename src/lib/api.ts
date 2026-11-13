@@ -852,17 +852,33 @@ function mapAutomationSettings(workflow: ApiWorkflow): AutomationSettings {
   };
 }
 
+/** Máximo de páginas de la bandeja pedidas en paralelo: con miles de contactos no se satura la API. */
+const PAGE_FETCH_CONCURRENCY = 4;
+
+/** Ejecuta tareas con a lo sumo `limit` en curso a la vez, conservando el orden de resultados. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await task(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
 async function fetchAllInboxContacts(init?: RequestInit): Promise<ApiInboxContact[]> {
   const first = await fetchJson<{
     data: ApiInboxContact[];
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
   }>("/inbox/contacts?page=1&pageSize=200", init);
   if (first.pagination.totalPages <= 1) return first.data;
-  const remaining = await Promise.all(
-    Array.from({ length: first.pagination.totalPages - 1 }, (_, index) => index + 2).map((page) =>
-      fetchJson<{ data: ApiInboxContact[] }>(`/inbox/contacts?page=${page}&pageSize=200`, init),
-    ),
-  );
+  const pages = Array.from({ length: first.pagination.totalPages - 1 }, (_, index) => index + 2);
+  const remaining = await mapWithConcurrency(pages, PAGE_FETCH_CONCURRENCY, (page) =>
+    fetchJson<{ data: ApiInboxContact[] }>(`/inbox/contacts?page=${page}&pageSize=200`, init));
   return [first.data, ...remaining.map((response) => response.data)].flat();
 }
 
@@ -873,11 +889,9 @@ async function fetchAllInboxPosts(accountId: string, init?: RequestInit): Promis
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
   }>(`/inbox/posts?${query}&page=1`, init);
   if (first.pagination.totalPages <= 1) return first.data;
-  const remaining = await Promise.all(
-    Array.from({ length: first.pagination.totalPages - 1 }, (_, index) => index + 2).map((page) =>
-      fetchJson<{ data: ApiInboxPost[] }>(`/inbox/posts?${query}&page=${page}`, init),
-    ),
-  );
+  const pages = Array.from({ length: first.pagination.totalPages - 1 }, (_, index) => index + 2);
+  const remaining = await mapWithConcurrency(pages, PAGE_FETCH_CONCURRENCY, (page) =>
+    fetchJson<{ data: ApiInboxPost[] }>(`/inbox/posts?${query}&page=${page}`, init));
   return [first.data, ...remaining.map((response) => response.data)].flat();
 }
 
@@ -888,11 +902,9 @@ async function fetchAllPostComments(postKey: string, init?: RequestInit): Promis
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
   }>(`${path}&page=1`, init);
   if (first.pagination.totalPages <= 1) return first.data;
-  const remaining = await Promise.all(
-    Array.from({ length: first.pagination.totalPages - 1 }, (_, index) => index + 2).map((page) =>
-      fetchJson<{ data: ApiInteraction[] }>(`${path}&page=${page}`, init),
-    ),
-  );
+  const pages = Array.from({ length: first.pagination.totalPages - 1 }, (_, index) => index + 2);
+  const remaining = await mapWithConcurrency(pages, PAGE_FETCH_CONCURRENCY, (page) =>
+    fetchJson<{ data: ApiInteraction[] }>(`${path}&page=${page}`, init));
   return [first.data, ...remaining.map((response) => response.data)].flat();
 }
 

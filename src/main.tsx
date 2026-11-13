@@ -11,6 +11,6 @@ initTheme();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <AuthGate>{(_actor, signOut) => <App onSignOut={signOut ?? undefined} />}</AuthGate>
+    <AuthGate>{(actor, signOut) => <App onSignOut={signOut ?? undefined} sessionActor={actor} />}</AuthGate>
   </React.StrictMode>,
 );

@@ -79,7 +79,7 @@ import {
   type WorkflowValidation,
 } from "./lib/api";
 import { useTheme } from "./lib/theme";
-import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery } from "./types";
+import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor } from "./types";
 
 const WorkflowCanvas = lazy(() =>
   import("./components/WorkflowCanvas").then((module) => ({ default: module.WorkflowCanvas })),
@@ -339,7 +339,11 @@ function suggestedDraft(interaction: Interaction): string {
   return `${firstName}, gracias por escribirnos. Revisamos tu consulta y te respondemos por este mismo canal.`;
 }
 
-export function App({ onSignOut }: { onSignOut?: () => Promise<void> } = {}) {
+export function App({ onSignOut, sessionActor }: {
+  onSignOut?: () => Promise<void>;
+  /** Usuario ya validado por el inicio de sesión: se muestra mientras cargan los datos. */
+  sessionActor?: SessionActor | null;
+} = {}) {
   const [view, setView] = useState<ViewId>("platform-home");
   const [editorTab, setEditorTab] = useState<EditorTab>("editor");
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -402,7 +406,10 @@ export function App({ onSignOut }: { onSignOut?: () => Promise<void> } = {}) {
     [operationalData],
   );
   const activeNav = useMemo(() => navItems.find((item) => item.id === view), [navItems, view]);
-  const visibleData = operationalData ?? emptyOperationalData;
+  // Mientras la operación carga (o si falla), el perfil sale de la sesión ya validada y no
+  // del marcador "API no conectada".
+  const visibleData = operationalData
+    ?? (sessionActor ? { ...emptyOperationalData, actor: sessionActor } : emptyOperationalData);
   const selectedManualAccount = visibleData.accounts.find((account) => account.id === manualAccountId);
   const manualInteractions = useMemo(() => {
     if (!manualAccountId) return [];

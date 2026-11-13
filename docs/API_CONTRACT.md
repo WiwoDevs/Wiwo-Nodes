@@ -691,6 +691,8 @@ Contrato optimizado de la bandeja. Aplica el scope de marca del actor antes de a
 
 Acepta `page` y `pageSize` con las mismas reglas de `/api/interactions`. Primero filtra interacciones y luego agrupa el subconjunto resultante; por eso los recuentos representan los mensajes que cumplen los filtros, no necesariamente todo el historial del contacto. La bandeja principal carga el conjunto autorizado sin filtros de servidor y aplica sus filtros sobre los contactos ya agregados.
 
+Como el agrupado recorre todas las interacciones del alcance, las solicitudes con los mismos filtros comparten un único cálculo durante 10 segundos (incluido el que está en curso), de modo que pedir decenas de páginas cuesta un solo cálculo. Cualquier escritura exitosa (`POST`/`PUT`/`PATCH`/`DELETE` con respuesta < 400) y cada sincronización invalidan ese cálculo. El frontend pide como máximo 4 páginas en paralelo.
+
 ```ts
 type InboxContact = {
   contactKey: string;

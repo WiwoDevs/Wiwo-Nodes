@@ -1454,6 +1454,34 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         : createGoogleIdentity(config.auth)
   );
   let syncInProgress = false;
+  /**
+   * La lista de contactos de la bandeja se arma agrupando TODAS las interacciones del alcance
+   * y luego se pagina. El frontend pide muchas páginas a la vez (decenas con miles de
+   * contactos), así que solicitudes con los mismos filtros comparten un único cálculo durante
+   * unos segundos, incluido el que está en curso. Se invalida al terminar una sincronización.
+   */
+  const INBOX_CONTACTS_CACHE_MS = 10_000;
+  const inboxContactsCache = new Map<string, { at: number; contacts: Promise<ReturnType<typeof groupInboxContacts>> }>();
+  const cachedInboxContacts = (filters: InteractionFilters) => {
+    const key = JSON.stringify(filters);
+    const now = Date.now();
+    const cached = inboxContactsCache.get(key);
+    if (cached && now - cached.at < INBOX_CONTACTS_CACHE_MS) return cached.contacts;
+    const contacts = repository.listInteractions(filters).then(groupInboxContacts);
+    inboxContactsCache.set(key, { at: now, contacts });
+    contacts.catch(() => inboxContactsCache.delete(key));
+    for (const [entryKey, entry] of inboxContactsCache) {
+      if (now - entry.at >= INBOX_CONTACTS_CACHE_MS) inboxContactsCache.delete(entryKey);
+    }
+    return contacts;
+  };
+  // Cualquier escritura exitosa (borrador, respuesta, asignación, estado, marcas…) invalida la
+  // lista para que la siguiente lectura refleje el cambio de inmediato.
+  app.addHook("onResponse", async (request, reply) => {
+    if (inboxContactsCache.size && request.method !== "GET" && request.method !== "HEAD" && reply.statusCode < 400) {
+      inboxContactsCache.clear();
+    }
+  });
   app.sacFlow = { config, repository };
   app.addHook("onClose", async () => {
     const closeable = repository as SacFlowRepository & { close?: () => Promise<void> | void };
@@ -2457,7 +2485,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     assertDateRange(filters.from, filters.to);
     const snapshot = await repository.snapshotCatalog();
     const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, filters);
-    const contacts = groupInboxContacts(await repository.listInteractions(scopedFilters));
+    const contacts = await cachedInboxContacts(scopedFilters);
     const total = contacts.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const offset = (page - 1) * pageSize;
@@ -2953,6 +2981,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         };
       }
       const result = await executeSync(config, repository, metricoolClient, actor, syncBody, undefined, autoLink?.audit ?? []);
+      inboxContactsCache.clear();
       const response = {
         data: publicSyncResult(result),
         meta: { ...apiMeta(config), externalWrites: false },
