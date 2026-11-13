@@ -5967,3 +5967,51 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
     -webkit-box-orient: vertical;
   }
 }
+
+/* Recomendación IA compacta (Gestión DMs/comentarios): etiqueta y origen en una línea, la
+   sugerencia en otra; sin sugerencia queda en una sola línea discreta. El historial del
+   chat conserva la mayor parte del alto. */
+.manual-inbox-recommendation {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+}
+.manual-inbox-recommendation > span { width: 22px; height: 22px; border-radius: 6px; }
+.manual-inbox-recommendation strong,
+.manual-inbox-recommendation small { display: inline; }
+.manual-inbox-recommendation small { margin: 0 0 0 6px; }
+.manual-inbox-recommendation small::before { content: "· "; }
+.manual-inbox-recommendation p { margin-top: 1px; }
+.manual-inbox-recommendation.is-empty { padding: 4px 8px; opacity: 0.85; }
+.manual-inbox-recommendation.is-empty p { display: inline; margin: 0 0 0 6px; color: var(--muted); }
+.manual-inbox-recommendation.is-empty p::before { content: "· "; }
+.manual-inbox-recommendation.is-empty > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* El historial siempre conserva al menos ~45% del alto de la columna; el compositor hace
+   scroll por dentro con sus acciones fijas abajo. */
+.manual-inbox-composer { max-height: 52%; }
+.manual-inbox-composer > textarea { min-height: 40px; }
+@media (max-height: 760px) and (min-width: 861px) {
+  .manual-inbox-composer { max-height: 55%; }
+}
+
+/* Pantallas bajas: menos cromo alrededor del chat para que el historial tenga alto. */
+@media (max-height: 760px) and (min-width: 861px) {
+  .manual-inbox-surfaces { min-height: 40px; padding-top: 4px; }
+  .manual-inbox-surface { min-height: 36px; padding-bottom: 4px; }
+  .manual-inbox-column__header,
+  .manual-inbox-conversation-header { min-height: 48px; padding-top: 6px; padding-bottom: 6px; }
+  .manual-inbox-composer { max-height: 48%; }
+  /* La etiqueta queda para lectores de pantalla; el placeholder ya indica el campo. */
+  .manual-inbox-composer > label[for="manual-inbox-draft"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  /* "Borrador sincronizado" solo ocupa espacio cuando hay cambios sin guardar. */
+  .manual-inbox-draft-state:not(.is-dirty) { display: none; }
+}

@@ -1056,24 +1056,29 @@ export function ManualManagementView({
                         <ContentContext text={visibleDetail.text} context={visibleDetail.contentContext} />
                       </div>
                     ) : null}
-                    <div className="manual-inbox-recommendation">
-                      <span><Sparkle size={17} weight="fill" aria-hidden="true" /></span>
+                    {/* Compacta: una línea de etiqueta y una de texto, para no quitarle alto al historial. */}
+                    <div className={`manual-inbox-recommendation${aiRecommendation ? "" : " is-empty"}`}>
+                      <span><Sparkle size={14} weight="fill" aria-hidden="true" /></span>
                       <div>
                         <strong>Recomendación IA</strong>
                         <small>
                           {visibleDetail.automation?.knowledge.status === "approved"
                             ? "Basada en QA aprobado por la marca"
-                            : "Sugerencia para revisión humana; no se enviará automáticamente"}
+                            : "Para revisión humana; no se envía sola"}
                         </small>
-                        <p>{aiRecommendation || "No hay recomendación disponible para este caso."}</p>
+                        <p title={aiRecommendation || undefined}>
+                          {aiRecommendation || "Sin sugerencia para este caso."}
+                        </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => updateDraft(aiRecommendation)}
-                        disabled={!canWrite || isSaving || caseClosed || !aiRecommendation}
-                      >
-                        Usar sugerencia
-                      </button>
+                      {aiRecommendation ? (
+                        <button
+                          type="button"
+                          onClick={() => updateDraft(aiRecommendation)}
+                          disabled={!canWrite || isSaving || caseClosed}
+                        >
+                          Usar sugerencia
+                        </button>
+                      ) : null}
                     </div>
 
                     <label htmlFor="manual-inbox-draft">Respuesta personal</label>
