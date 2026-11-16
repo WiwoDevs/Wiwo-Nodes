@@ -79,8 +79,33 @@ en `access_roles`. Al hacer clic en una persona puede ajustar lo que puede hacer
 ejemplo, un Supervisor en específico sin Exportar); esos ajustes se guardan como diferencia con
 su rol. Admin no se edita y la administración (usuarios y roles, credenciales, envío
 automático, auditoría) no se puede delegar.
+
+El menú lateral muestra a cada persona solo lo que sus permisos le dejan usar (basta uno):
+Inicio, Bandeja SAC y Gestión DMs/comentarios para todos; **Resumen SAC** con *Ver métricas y
+cola*; **Flujo SAC** y **Configuración** con *Ajustar el flujo SAC* (o *Publicar* para el flujo);
+**Cuentas** con *Gestionar marcas* o *Ver métricas y cola*; **Automatización**, **Ejecuciones** y
+**Plantillas** con *Editar automatizaciones*; **Credenciales** y **Usuarios** solo Admin. Con los
+permisos por defecto, el Agente ve las 4 primeras, el Supervisor suma Resumen, Flujo, Cuentas y
+Configuración, y Admin lo ve todo. Ocultar ordena la pantalla; el servidor valida cada acción.
+
+Inicio también cambia según el rol. El **Agente** ve "Mis casos en plazo", lo que vence en 24 h
+y el botón **Tomar siguiente**, con sus casos primero en la cola. El **Supervisor** (quien tiene
+*Ver métricas y cola* o *Asignar a otras personas*) ve además el panel **Equipo**: casos en plazo
+de cada persona y los que nadie tomó. **Admin** suma el panel **Sistema**: última sincronización
+con Metricool, sincronización automática, envío automático y trabajos fallidos. Los botones que
+un rol no puede usar no se muestran (Exportar vista, Tomar siguiente, Actualizar cuenta, Importar
+o Conectar Metricool, Nueva marca), y la versión interna del caso solo la ve supervisión.
 `SAC_FLOW_AUTH_ADMIN_EMAILS` sigue siendo la llave maestra: esos correos son siempre admin y no
 se pueden cambiar desde la app, así nunca se pierde el acceso de administración.
+
+Hay dos clases de Admin. El **admin principal** está en `SAC_FLOW_AUTH_ADMIN_EMAILS` y puede
+todo. El **admin asignado** recibió el rol Admin desde la app: administra igual (usuarios,
+credenciales, envío automático), pero no puede dar el rol Admin ni cambiar a otro admin, solo
+mira la pestaña **Roles** (no crea, edita ni restablece roles) y no puede dar a nadie los
+permisos sensibles: *Gestionar marcas*, *Editar automatizaciones*, *Publicar el flujo SAC*,
+*Archivar vencidos en lote* y *Exportar a Excel*. Eso incluye asignar un rol que los traiga a
+quien no los tenía (por ejemplo, pasar un Agente a Supervisor). Sí puede quitarlos o bajar de
+rol a alguien.
 
 | En la allowlist (`permissions`) | Rol en Nodes | Alcance |
 | --- | --- | --- |

@@ -459,7 +459,7 @@ export function InteractionsView({
             />
             {isRefreshing ? "Actualizando" : "Actualizar ahora"}
           </button>
-          {onTakeNext ? (
+          {onTakeNext && canAssign ? (
             <button
               className="button button--secondary"
               type="button"
@@ -475,16 +475,17 @@ export function InteractionsView({
               Tomar siguiente
             </button>
           ) : null}
-          <button
-            className="button button--primary"
-            type="button"
-            onClick={() => onExport?.(filteredInteractions)}
-            disabled={!canExport || filteredInteractions.length === 0}
-            title={!canExport ? "Requiere rol supervisor o administrador" : undefined}
-          >
-            <Export className="button__icon" size={17} weight="bold" aria-hidden="true" />
-            Exportar vista
-          </button>
+          {canExport ? (
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() => onExport?.(filteredInteractions)}
+              disabled={filteredInteractions.length === 0}
+            >
+              <Export className="button__icon" size={17} weight="bold" aria-hidden="true" />
+              Exportar vista
+            </button>
+          ) : null}
         </div>
       </header>
 

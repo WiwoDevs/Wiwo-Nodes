@@ -6928,3 +6928,49 @@ button.users-roles-person:hover strong { color: var(--accent-text); }
   .confirm-dialog { grid-template-columns: 1fr; }
   .confirm-dialog__actions .button { flex: 1 1 auto; justify-content: center; }
 }
+
+/* Tarjetas de Inicio que informan pero no abren nada para este rol (sin permiso para la sección). */
+.sac-home-kpis button.is-static:disabled,
+.sac-account-list button.is-static:disabled {
+  opacity: 1;
+  cursor: default;
+  transform: none;
+}
+.sac-home-kpis button.is-static > svg:last-child { display: none; }
+
+/* Inicio por rol: equipo (Supervisor/Admin) y estado técnico (Admin). */
+.sac-home-team-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+.sac-home-team-row.has-system { grid-template-columns: minmax(0, 1.45fr) minmax(330px, 0.7fr); }
+.sac-team-icon { color: var(--accent-text); font-size: 20px; }
+.sac-team-list {
+  display: grid;
+  max-height: 320px;
+  overflow-y: auto;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.sac-team-list > div {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sac-team-list > div > span:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
+.sac-team-list em { color: var(--ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+.sac-team-list > div.is-warning em { color: var(--amber, var(--ink)); }
+.sac-team-list .empty-inline { margin: 0; padding: 12px 15px; color: var(--muted); font-size: 11.5px; }
+.sac-system-panel dd.is-warning { color: var(--rose); }
+.sac-system-panel .button { margin: 12px 15px 14px; }
+@media (max-width: 1100px) {
+  .sac-home-team-row.has-system { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Usuarios y roles visto por un admin asignado (no principal). */
+.users-roles-readonly { margin: 0 16px 12px; }
+.users-roles-perm.is-master-locked { opacity: 0.62; cursor: not-allowed; }

@@ -22,6 +22,7 @@ import {
   ADMIN_ONLY_CAPABILITIES,
   applyPermissionOverrides,
   DEFAULT_ROLE_PERMISSIONS,
+  MASTER_ONLY_PERMISSIONS,
   PERMISSION_CATALOG,
   PERMISSION_KEYS,
   resolveRoleCatalog,
@@ -129,7 +130,33 @@ export interface AccessControlListing {
   roles: RoleView[];
   permissions: PermissionDefinition[];
   adminOnly: string[];
+  /** Permisos que solo un admin principal puede otorgar. */
+  masterOnlyPermissions: Permission[];
+  /** Quién mira: un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) o uno asignado desde la app. */
+  viewer: { masterAdmin: boolean };
   policy: UserAccessPolicy;
+}
+
+/** Admin principal: su correo está en SAC_FLOW_AUTH_ADMIN_EMAILS. Los demás admin son asignados. */
+export function isMasterAdmin(config: IdentityConfig, email: string | undefined): boolean {
+  return Boolean(email) && (config.adminEmails ?? []).includes(normalizeEmail(email!));
+}
+
+/** Permisos que tendría una persona con otro rol, conservando sus ajustes personales. */
+export function permissionsWithRole(
+  catalog: RoleDefinition[],
+  roleId: AccessRole,
+  overrides: { permissionsAdd?: Permission[]; permissionsRemove?: Permission[] },
+): Permission[] {
+  if (roleId === "none") return [];
+  const base = rolePermissionsFor(catalog, roleId);
+  if (roleId === "admin") return base;
+  return applyPermissionOverrides(base, { permissionsAdd: overrides.permissionsAdd ?? [], permissionsRemove: overrides.permissionsRemove ?? [] });
+}
+
+/** Permisos solo de admin principal que el cambio agregaría a quien no los tenía. */
+export function newlyGrantedMasterOnly(before: readonly Permission[], after: readonly Permission[]): Permission[] {
+  return MASTER_ONLY_PERMISSIONS.filter((permission) => after.includes(permission) && !before.includes(permission));
 }
 
 /**
@@ -209,6 +236,8 @@ export async function listAccessControl(
     roles,
     permissions: PERMISSION_CATALOG,
     adminOnly: ADMIN_ONLY_CAPABILITIES,
+    masterOnlyPermissions: MASTER_ONLY_PERMISSIONS,
+    viewer: { masterAdmin: isMasterAdmin(config, currentEmail) },
     policy: {
       authEnabled: config.enabled,
       allowedDomains: config.allowedDomains,

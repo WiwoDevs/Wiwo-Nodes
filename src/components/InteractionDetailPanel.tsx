@@ -333,6 +333,8 @@ export function InteractionDetailPanel({
     ? ["pending", "sending", "uncertain"].includes(latestDelivery.status)
     : false;
   const canReconcile = can(actor, "deliveries.reconcile");
+  // Versión del caso y otros datos internos: útiles para supervisión y soporte, ruido para el Agente.
+  const canSeeTechnical = canReconcile || can(actor, "metrics.read");
   const aiRecommendation = detail?.automation?.proposal?.text || "";
   const hasConversationHistory = (detail?.conversationHistory.length ?? 0) > 1;
   const caseClosed = detail
@@ -487,10 +489,12 @@ export function InteractionDetailPanel({
                 <dt>Asignación</dt>
                 <dd>{detail.assignedTo?.displayName ?? "Sin asignar"}</dd>
               </div>
-              <div>
-                <dt>Versión</dt>
-                <dd>v{detail.version}</dd>
-              </div>
+              {canSeeTechnical ? (
+                <div>
+                  <dt>Versión</dt>
+                  <dd>v{detail.version}</dd>
+                </div>
+              ) : null}
               {detail.statusReason ? (
                 <div>
                   <dt>Último motivo</dt>

@@ -104,11 +104,20 @@ import {
   type MetricoolInboxSurface,
   type MetricoolInstagramProvider,
 } from "./types.js";
-import { createAccessDirectory, customRoleId, listAccessControl, lockedReason } from "./user-access.js";
+import {
+  createAccessDirectory,
+  customRoleId,
+  isMasterAdmin,
+  listAccessControl,
+  lockedReason,
+  newlyGrantedMasterOnly,
+  permissionsWithRole,
+} from "./user-access.js";
 import { expiredOpenInteractions, isSensitiveCase } from "./reply-window.js";
 import {
   actorCan,
   applyPermissionOverrides,
+  PERMISSION_CATALOG,
   normalizePermissions,
   permissionOverridesFor,
   permissionLabel,
@@ -129,7 +138,7 @@ import { buildSecurityAudit } from "./security-audit.js";
 import { normalizeDiscoveredBrands, type DiscoveredMetricoolBrand } from "./metricool-brands.js";
 import { createDemoStore } from "./seed.js";
 import { buildSacRows } from "./sac-rows.js";
-import { IdentityError, type CreatedSession, type IdentityService } from "./identity.js";
+import { IdentityError, normalizeEmail, type CreatedSession, type IdentityService } from "./identity.js";
 import { createGoogleIdentity, type GoogleOAuthClient } from "./google-auth.js";
 import { createDevAuth } from "./dev-auth.js";
 import {
@@ -2072,6 +2081,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return { data: buildSecurityAudit(config, { ...catalog, automation }), meta: apiMeta(config) };
   });
 
+  /** Crear, editar o restablecer roles cambia a todas sus personas: solo un admin principal. */
+  const requireMasterAdmin = (email: string | undefined) => {
+    if (!isMasterAdmin(identityConfig, email)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede crear, editar o restablecer roles.");
+    }
+  };
+  const masterOnlyError = (granted: Permission[], subject: string) => {
+    const labels = granted.map((key) => PERMISSION_CATALOG.find((permission) => permission.key === key)?.label ?? key);
+    return new ApiError(403, "MASTER_ONLY_PERMISSION", `${subject} da permisos que solo un admin principal puede otorgar: ${labels.join(", ")}.`);
+  };
+
   /** Usuarios y roles (solo admin): personas, su rol efectivo y de dónde sale, y el catálogo de roles. */
   app.get("/api/admin/users", async (request) => {
     const actor = requireRole(config, request, "admin");
@@ -2087,8 +2107,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const body = userAccessRoleSchema.parse(request.body);
     const reason = await lockedReason(identityConfig, body.email, actor.email);
     if (reason) throw new ApiError(409, "ACCESS_LOCKED", reason);
-    if (body.role && body.role !== "none" && !(await accessDirectory.roles()).some((role) => role.id === body.role)) {
+    const roleCatalog = await accessDirectory.roles();
+    if (body.role && body.role !== "none" && !roleCatalog.some((role) => role.id === body.role)) {
       throw new ApiError(400, "ROLE_NOT_FOUND", "El rol elegido no existe.");
+    }
+    if (!isMasterAdmin(identityConfig, actor.email)) {
+      // Un admin asignado no crea admins, no cambia a otros admins y no reparte permisos sensibles.
+      if (body.role === "admin") {
+        throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede dar el rol Admin.");
+      }
+      const listing = await listAccessControl(identityConfig, repository, actor.email);
+      const person = listing.users.find((user) => user.email === normalizeEmail(body.email));
+      if (person?.effectiveRole === "admin") {
+        throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal puede cambiar el rol de otro admin.");
+      }
+      const nextRole = body.role ?? person?.serverRole ?? "none";
+      if (nextRole === "admin") {
+        throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Sin rol asignado esta persona sería Admin por la configuración del servidor; solo un admin principal puede hacerlo.");
+      }
+      const granted = newlyGrantedMasterOnly(person?.permissions ?? [], permissionsWithRole(roleCatalog, nextRole, person ?? {}));
+      if (granted.length) throw masterOnlyError(granted, "Ese rol");
     }
     await repository.setUserAccessRole({
       email: body.email,
@@ -2121,6 +2159,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const overrides = body.permissions === null
       ? { add: [], remove: [] }
       : permissionOverridesFor(person.rolePermissions, body.permissions);
+    if (!isMasterAdmin(identityConfig, actor.email)) {
+      const after = applyPermissionOverrides(person.rolePermissions, { permissionsAdd: overrides.add, permissionsRemove: overrides.remove });
+      const granted = newlyGrantedMasterOnly(person.permissions, after);
+      if (granted.length) throw masterOnlyError(granted, "Ese ajuste");
+    }
     await repository.setUserPermissionOverrides({
       email: body.email,
       add: overrides.add,
@@ -2137,6 +2180,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   /** Crea un rol propio a partir de un rol de base. */
   app.post("/api/admin/roles", async (request) => {
     const actor = requireRole(config, request, "admin");
+    requireMasterAdmin(actor.email);
     const body = accessRoleCreateSchema.parse(request.body);
     const catalog = await accessDirectory.roles();
     const name = body.name.trim();
@@ -2161,6 +2205,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   /** Cambia los permisos (y el nombre, si es propio) de un rol. Admin no se edita. */
   app.put("/api/admin/roles/:roleId", async (request) => {
     const actor = requireRole(config, request, "admin");
+    requireMasterAdmin(actor.email);
     const { roleId } = accessRoleIdParamsSchema.parse(request.params);
     const body = accessRoleUpdateSchema.parse(request.body);
     if (roleId === "admin") throw new ApiError(409, "ROLE_LOCKED", "Admin tiene siempre todos los permisos y no se edita.");
@@ -2188,6 +2233,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   /** Borra un rol propio sin personas asignadas, o restablece un rol de base. */
   app.delete("/api/admin/roles/:roleId", async (request) => {
     const actor = requireRole(config, request, "admin");
+    requireMasterAdmin(actor.email);
     const { roleId } = accessRoleIdParamsSchema.parse(request.params);
     if (roleId === "admin") throw new ApiError(409, "ROLE_LOCKED", "Admin no se puede borrar ni restablecer.");
     const catalog = await accessDirectory.roles();

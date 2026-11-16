@@ -81,6 +81,10 @@ export interface AccessControlListing {
   roles: RoleView[];
   permissions: PermissionDefinition[];
   adminOnly: string[];
+  /** Permisos que solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede otorgar. */
+  masterOnlyPermissions?: string[];
+  /** Quién mira: admin principal o admin asignado desde la app. */
+  viewer?: { masterAdmin: boolean };
   policy: UserAccessPolicy;
 }
 

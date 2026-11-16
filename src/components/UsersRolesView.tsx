@@ -230,6 +230,8 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
   const users = data?.users ?? [];
   const roles = data?.roles ?? [];
   const policy = data?.policy;
+  // Un admin asignado no da el rol Admin ni cambia a otros admin (solo los de SAC_FLOW_AUTH_ADMIN_EMAILS).
+  const master = data?.viewer?.masterAdmin ?? true;
 
   const visibleUsers = useMemo(() => {
     const term = query.trim().toLocaleLowerCase("es-CL");
@@ -283,10 +285,13 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
           {visibleUsers.map((user) => {
             const lastSignIn = when(user.lastSignInAt);
             const assignedAt = when(user.assignedAt);
-            const disabled = user.locked || user.isSelf || busy === `user:${user.email}`;
+            const adminOfOther = !master && user.effectiveRole === "admin";
+            const disabled = user.locked || user.isSelf || adminOfOther || busy === `user:${user.email}`;
             const currentValue = user.assignedRole ?? user.effectiveRole;
             const lockTitle = user.isSelf
               ? "No puedes cambiar tu propio rol."
+              : adminOfOther && !user.locked
+                ? "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede cambiar a otro admin."
               : user.locked
                 ? user.serverSource === "server_admin"
                   ? "Admin definido en el .env del servidor (SAC_FLOW_AUTH_ADMIN_EMAILS)."
@@ -330,9 +335,9 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
                         if (role !== currentValue) void onApplyRole(user, role);
                       }}
                     >
-                      {roleOptions.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                      {roleOptions.map((role) => <option key={role.id} value={role.id} disabled={role.id === "admin" && !master}>{role.name}</option>)}
                     </select>
-                    {user.locked || user.isSelf ? <LockSimple size={13} weight="bold" aria-hidden="true" /> : null}
+                    {user.locked || user.isSelf || adminOfOther ? <LockSimple size={13} weight="bold" aria-hidden="true" /> : null}
                   </label>
                   {user.assignedRole && !disabled ? (
                     <button
@@ -369,7 +374,7 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
             <label className="form-field">
               <span>Rol</span>
               <select value={newRole} onChange={(event) => setNewRole(event.target.value)}>
-                {roleOptions.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                {roleOptions.map((role) => <option key={role.id} value={role.id} disabled={role.id === "admin" && !master}>{role.name}</option>)}
               </select>
             </label>
             {addError ? <p className="users-roles-add__error" role="alert">{addError}</p> : null}
@@ -470,7 +475,9 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
 
   const isAdmin = user.effectiveRole === "admin";
   const revoked = user.effectiveRole === NO_ACCESS;
-  const roleLocked = user.locked || user.isSelf;
+  const master = data.viewer?.masterAdmin ?? true;
+  const masterOnly = new Set(data.masterOnlyPermissions ?? []);
+  const roleLocked = user.locked || user.isSelf || (!master && isAdmin);
   const permissionsLocked = roleLocked || isAdmin || revoked;
   const hasOverrides = user.permissionsAdd.length > 0 || user.permissionsRemove.length > 0;
   const dirty = !sameSet(draft, user.permissions);
@@ -482,6 +489,8 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
       ? user.serverSource === "server_admin"
         ? "Es admin por configuración del servidor (SAC_FLOW_AUTH_ADMIN_EMAILS): se cambia en el .env del servidor."
         : "Está definido en el archivo de usuarios del servidor: se cambia en ese archivo."
+      : !master && isAdmin
+        ? "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede cambiar a otro admin."
       : isAdmin
         ? "Admin tiene siempre todos los permisos."
         : revoked
@@ -525,7 +534,7 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
                     if (role !== currentRole) void onApplyRole(user, role);
                   }}
                 >
-                  {roleOptions.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                  {roleOptions.map((role) => <option key={role.id} value={role.id} disabled={role.id === "admin" && !master}>{role.name}</option>)}
                 </select>
               </label>
               {user.assignedRole && !roleLocked ? (
@@ -550,12 +559,15 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
                   const checked = isAdmin || draft.includes(permission.key);
                   const fromRole = user.rolePermissions.includes(permission.key);
                   const state = isAdmin ? "" : checked && !fromRole ? "added" : !checked && fromRole ? "removed" : "";
+                  // Un admin asignado puede quitar un permiso sensible, pero no darlo a quien no lo tiene.
+                  const masterLocked = !master && masterOnly.has(permission.key) && !user.permissions.includes(permission.key);
                   return (
-                    <label key={permission.key} className={`users-roles-perm${checked ? " is-on" : ""}${state ? ` is-${state}` : ""}`}>
-                      <input type="checkbox" checked={checked} disabled={permissionsLocked || busy} onChange={() => toggle(permission.key)} />
+                    <label key={permission.key} className={`users-roles-perm${checked ? " is-on" : ""}${state ? ` is-${state}` : ""}${masterLocked ? " is-master-locked" : ""}`} title={masterLocked ? "Solo un admin principal puede dar este permiso." : undefined}>
+                      <input type="checkbox" checked={checked} disabled={permissionsLocked || busy || masterLocked} onChange={() => toggle(permission.key)} />
                       <span>
                         <strong>
                           {permission.label}
+                          {masterLocked && !isAdmin ? <em className="users-roles-perm__tag"><LockSimple size={10} weight="bold" aria-hidden="true" /> Admin principal</em> : null}
                           {state === "added" ? <em className="users-roles-perm__tag users-roles-perm__tag--added">Agregado</em> : null}
                           {state === "removed" ? <em className="users-roles-perm__tag users-roles-perm__tag--removed">Quitado</em> : null}
                         </strong>
@@ -629,6 +641,8 @@ function RolesTab({ data, busy, onSave, onCreate, onRemove }: RolesTabProps) {
   if (!selected) return <p className="users-roles-empty">Cargando roles…</p>;
 
   const isAdmin = selected.id === "admin";
+  // Crear, editar o restablecer roles cambia a todas sus personas: solo un admin principal.
+  const readOnly = !(data?.viewer?.masterAdmin ?? true);
   const dirty = !isAdmin && (!sameSet(draftPermissions, selected.permissions) || (!selected.builtIn && draftName.trim() !== selected.name));
   const isBusy = busy === `role:${selected.id}`;
   const matchesDefault = selected.defaultPermissions ? sameSet(selected.permissions, selected.defaultPermissions) : true;
@@ -670,12 +684,21 @@ function RolesTab({ data, busy, onSave, onCreate, onRemove }: RolesTabProps) {
             <h2 id="users-roles-roles-title" className="panel__title">Roles</h2>
             <p className="panel__description">Elige un rol para ver y cambiar sus permisos.</p>
           </div>
-          <button className="button button--secondary" type="button" onClick={() => setCreating((value) => !value)}>
-            <Plus size={15} weight="bold" aria-hidden="true" /> Crear rol
-          </button>
+          {!readOnly ? (
+            <button className="button button--secondary" type="button" onClick={() => setCreating((value) => !value)}>
+              <Plus size={15} weight="bold" aria-hidden="true" /> Crear rol
+            </button>
+          ) : null}
         </header>
 
-        {creating ? (
+        {readOnly ? (
+          <p className="users-roles-drawer__lock users-roles-readonly">
+            <LockSimple size={14} weight="bold" aria-hidden="true" />
+            Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede crear, editar o restablecer roles. Tú puedes asignarlos a las personas.
+          </p>
+        ) : null}
+
+        {creating && !readOnly ? (
           <form className="users-roles-create" onSubmit={(event) => void create(event)}>
             <label className="form-field">
               <span>Nombre</span>
@@ -747,7 +770,7 @@ function RolesTab({ data, busy, onSave, onCreate, onRemove }: RolesTabProps) {
                 const checked = isAdmin || draftPermissions.includes(permission.key);
                 return (
                   <label key={permission.key} className={`users-roles-perm${checked ? " is-on" : ""}`}>
-                    <input type="checkbox" checked={checked} disabled={isAdmin || isBusy} onChange={() => toggle(permission.key)} />
+                    <input type="checkbox" checked={checked} disabled={isAdmin || isBusy || readOnly} onChange={() => toggle(permission.key)} />
                     <span>
                       <strong>{permission.label}</strong>
                       <small>{permission.description}</small>
@@ -766,7 +789,7 @@ function RolesTab({ data, busy, onSave, onCreate, onRemove }: RolesTabProps) {
           </fieldset>
         </div>
 
-        {!isAdmin ? (
+        {!isAdmin && !readOnly ? (
           <footer className="users-roles-editor__actions">
             {selected.builtIn ? (
               <button className="button button--secondary" type="button" onClick={() => void remove()} disabled={isBusy || (!selected.customized && matchesDefault)}>

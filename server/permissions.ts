@@ -61,6 +61,19 @@ export const ADMIN_ONLY_CAPABILITIES = [
   "Reintentar trabajos de sincronización",
 ];
 
+/**
+ * Permisos que solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede otorgar. Un admin
+ * asignado desde la app no los agrega a nadie: ni con ajustes personales ni asignando un rol
+ * que los traiga a quien no los tenía.
+ */
+export const MASTER_ONLY_PERMISSIONS: Permission[] = [
+  "brands.manage",
+  "automations.edit",
+  "workflow.publish",
+  "inbox.archive_expired",
+  "export.xlsx",
+];
+
 export type BaseRole = Exclude<ActorRole, "admin">;
 export const BASE_ROLES: BaseRole[] = ["viewer", "agent", "supervisor"];
 

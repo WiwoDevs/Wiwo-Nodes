@@ -127,6 +127,21 @@ const navigation = [
   { id: "settings" as const, label: "Configuración", railLabel: "Configu\u00ADración", icon: GearSix, group: "Sistema" },
 ];
 
+/**
+ * Permisos que muestran cada sección del menú (basta uno). Las que no aparecen aquí las ve
+ * todo rol; Credenciales y Usuarios son solo de Admin. Ocultar ordena la pantalla: el
+ * servidor vuelve a validar cada acción.
+ */
+const VIEW_PERMISSIONS: Partial<Record<ViewId, Permission[]>> = {
+  dashboard: ["metrics.read"],
+  workflow: ["workflow.edit", "workflow.publish"],
+  accounts: ["brands.manage", "metrics.read"],
+  automations: ["automations.edit"],
+  "automation-executions": ["automations.edit"],
+  templates: ["automations.edit"],
+  settings: ["workflow.edit"],
+};
+
 const editorTabs: { id: EditorTab; label: string }[] = [
   { id: "editor", label: "Editor" },
   { id: "executions", label: "Ejecuciones" },
@@ -414,10 +429,19 @@ export function App({ onSignOut, sessionActor }: {
 
   const page = pageTitles[view];
   // Credenciales y variables solo para admin; el servidor tampoco las entrega a otros roles.
-  const navIsAdmin = (operationalData?.actor ?? sessionActor)?.role === "admin";
+  const navActor = operationalData?.actor ?? sessionActor;
+  const navIsAdmin = navActor?.role === "admin";
+  /** La persona en sesión puede abrir esta sección (menú, accesos directos y navegación). */
+  const canSeeView = useCallback((destination: ViewId): boolean => {
+    if (!navActor) return destination === "platform-home";
+    if (navActor.role === "admin") return true;
+    if (navigation.some((item) => item.id === destination && "adminOnly" in item)) return false;
+    const required = VIEW_PERMISSIONS[destination];
+    return !required || required.some((permission) => can(navActor, permission));
+  }, [navActor]);
   const navItems = useMemo(
     () =>
-      navigation.filter((item) => !("adminOnly" in item) || navIsAdmin).map((item) => {
+      navigation.filter((item) => canSeeView(item.id)).map((item) => {
         if (item.id === "interactions") {
           const pending = operationalData?.interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review").length;
           return { ...item, badge: operationalData ? String(pending) : "…" };
@@ -429,8 +453,12 @@ export function App({ onSignOut, sessionActor }: {
         }
         return item;
       }),
-    [navIsAdmin, operationalData],
+    [canSeeView, operationalData],
   );
+  // Si la sección abierta deja de estar permitida (cambio de rol, sesión nueva), vuelve a Inicio.
+  useEffect(() => {
+    if (navActor && !canSeeView(view)) setView("platform-home");
+  }, [canSeeView, navActor, view]);
   const activeNav = useMemo(() => navItems.find((item) => item.id === view), [navItems, view]);
   // Mientras la operación carga (o si falla), el perfil sale de la sesión ya validada y no
   // del marcador "API no conectada".
@@ -841,7 +869,7 @@ export function App({ onSignOut, sessionActor }: {
     if (isRunning) return;
     setIsRunning(true);
     setEditorTab("editor");
-    setView("workflow");
+    if (canSeeView("workflow")) setView("workflow");
     try {
       const result = action === "run" ? await runWorkflow() : await syncMetricool();
       setExecutions((current) => [result, ...current.filter((item) => item.executionId !== result.executionId)]);
@@ -1636,6 +1664,7 @@ export function App({ onSignOut, sessionActor }: {
   }
 
   async function navigateToView(destination: ViewId) {
+    if (!canSeeView(destination)) return;
     if (
       isManualView(view)
       && destination !== view
@@ -1833,7 +1862,13 @@ export function App({ onSignOut, sessionActor }: {
               interactions={visibleData.interactions}
               sacWorkflow={visibleData.workflow}
               isOperationalLoading={isLoadingData}
-              onNavigate={(destination) => setView(destination)}
+              onNavigate={(destination) => { if (canSeeView(destination)) setView(destination); }}
+              canOpen={canSeeView}
+              homeRole={visibleData.actor.role === "admin" ? "admin" : canReadMetrics || allowed("inbox.assign_others") ? "supervisor" : "agent"}
+              currentUserId={visibleData.actor.userId}
+              onTakeNext={allowed("inbox.assign") ? takeNextCase : undefined}
+              inboxSync={visibleData.inboxSync}
+              automaticRepliesEnabled={visibleData.automationSettings.automaticRepliesEnabled}
               onOpenInteraction={openInteractionDetail}
               onToast={showPlatformToast}
               userName={visibleData.actor.displayName}
@@ -1852,9 +1887,9 @@ export function App({ onSignOut, sessionActor }: {
               canExport={canExport}
               onRefresh={() => execute("sync")}
               onExport={exportExcel}
-              onViewAllAccounts={() => setView("accounts")}
+              onViewAllAccounts={() => { if (canSeeView("accounts")) setView("accounts"); }}
               onViewAllInteractions={() => setView("interactions")}
-              onSelectBrand={() => setView("accounts")}
+              onSelectBrand={() => { if (canSeeView("accounts")) setView("accounts"); }}
               onOpenInteraction={openInteractionDetail}
             />
           </div>

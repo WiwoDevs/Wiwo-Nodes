@@ -412,38 +412,36 @@ export function AccountsView({
           </p>
         </div>
         <div className="view-header__actions">
-          {onImportMetricoolBrands ? (
+          {onImportMetricoolBrands && canAdmin ? (
             <button
               className="button button--secondary"
               type="button"
               onClick={() => setImportOpen(true)}
-              disabled={!canAdmin}
-              title={!canAdmin ? "Requiere rol administrador" : undefined}
             >
               <CloudArrowDown size={17} weight="bold" aria-hidden="true" />
               Importar desde Metricool
             </button>
           ) : null}
-          <button
-            className="button button--secondary"
-            type="button"
-            onClick={() => openCredentialDialog()}
-            disabled={!canAdmin}
-            title={!canAdmin ? "Requiere rol administrador" : undefined}
-          >
-            <LinkSimple size={17} weight="bold" aria-hidden="true" />
-            Conectar Metricool
-          </button>
-          <button
-            className="button button--primary"
-            type="button"
-            onClick={() => openBrandDialog("create")}
-            disabled={!canAdmin}
-            title={!canAdmin ? "Requiere rol administrador" : undefined}
-          >
-            <Plus size={17} weight="bold" aria-hidden="true" />
-            Nueva marca
-          </button>
+          {canAdmin ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => openCredentialDialog()}
+            >
+              <LinkSimple size={17} weight="bold" aria-hidden="true" />
+              Conectar Metricool
+            </button>
+          ) : null}
+          {canAdmin ? (
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() => openBrandDialog("create")}
+            >
+              <Plus size={17} weight="bold" aria-hidden="true" />
+              Nueva marca
+            </button>
+          ) : null}
         </div>
       </header>
 

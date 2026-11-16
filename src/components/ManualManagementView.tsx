@@ -719,7 +719,7 @@ export function ManualManagementView({
               </option>
             ))}
           </select>
-          {selectedAccount && onRefreshAccount ? (
+          {selectedAccount && onRefreshAccount && canRefresh ? (
             <button
               className="manual-inbox-refresh"
               type="button"
