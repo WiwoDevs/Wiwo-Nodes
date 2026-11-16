@@ -174,10 +174,18 @@ describe("buildSacReport", () => {
     expect(cifras.coberturaPct).toBe(50);
   });
 
-  it("avisa cuando los mensajes se decidieron por reglas", () => {
+  it("informa lo decidido por reglas en la clasificación, no como advertencia de la marca", () => {
     const cifras = buildSacReport(brand, [caso({ sacTriage: undefined })], AGOSTO);
-    expect(cifras.advertencias.some((a) => a.includes("por reglas"))).toBe(true);
     expect(cifras.clasificacion).toEqual({ manual: 0, ia: 0, reglas: 1 });
+    expect(cifras.advertencias.some((a) => a.includes("por reglas"))).toBe(false);
+  });
+
+  it("marca para revisar una variación de ±200 % o más", () => {
+    const actuales = Array.from({ length: 30 }, () => caso({ type: "comment" }));
+    const previos = Array.from({ length: 5 }, () => caso({ type: "comment", createdAt: "2026-07-10T12:00:00.000Z" }));
+    const cifras = buildSacReport(brand, [...actuales, ...previos], { ...AGOSTO, previous: { from: "2026-07-01", to: "2026-07-31" } });
+    expect(cifras.variacion).toMatchObject({ anterior: 5, deltaPct: 500, comparable: true, revisar: true });
+    expect(cifras.advertencias.some((a) => a.includes("revisa que el mes anterior"))).toBe(true);
   });
 
   it("sin clasificación, las reglas no cuentan el ruido social como caso", () => {
@@ -244,9 +252,10 @@ describe("buildSacReport", () => {
     expect(reportPlaceholders(cifras).sac_variacion_texto).toContain("+20%");
   });
 
-  it("advierte siempre que TikTok privado quede en cero", () => {
-    const cifras = buildSacReport(brand, [caso({})], AGOSTO);
-    expect(cifras.advertencias.some((a) => a.includes("TikTok"))).toBe(true);
+  it("advierte que TikTok privado queda en cero solo si la marca tiene TikTok", () => {
+    const conTikTok = { ...brand, account: { ...brand.account, channels: ["instagram", "tiktok"] } } as Brand;
+    expect(buildSacReport(conTikTok, [caso({})], AGOSTO).advertencias.some((a) => a.includes("TikTok"))).toBe(true);
+    expect(buildSacReport(brand, [caso({})], AGOSTO).advertencias.some((a) => a.includes("TikTok"))).toBe(false);
   });
 
   it("ordena los motivos de mayor a menor", () => {

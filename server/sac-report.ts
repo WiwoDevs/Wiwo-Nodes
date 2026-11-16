@@ -57,8 +57,12 @@ export interface SacReportFigures {
   publicos: number;
   motivos: Array<{ motivo: string; casos: number; pct: number }>;
   tono: { positivo: number; neutro: number; negativo: number };
-  /** `comparable: false` cuando el período anterior está truncado o sin clasificar. */
-  variacion?: { anterior: number; deltaPct: number; comparable: boolean };
+  /**
+   * `comparable: false` cuando el período anterior está truncado o se filtró distinto.
+   * `revisar: true` cuando, siendo comparable, cambió ±200 % o más: casi siempre es un mes
+   * anterior con pocos datos, no un crecimiento real.
+   */
+  variacion?: { anterior: number; deltaPct: number; comparable: boolean; revisar?: boolean };
   /** Advertencias que el operador debe leer antes de presentar el informe. */
   advertencias: string[];
   /** De dónde salió la decisión "es caso / es ruido" de cada mensaje entrante del mes. */
@@ -258,14 +262,9 @@ export function buildSacReport(
     && item.direction === "inbound"
     && dentro(item, options.from, options.to));
 
+  // Cuánto se decidió por reglas, a mano o con IA viaja en `clasificacion`: es una nota del
+  // mes, no un problema de la marca, así que no se repite como advertencia en cada una.
   const clasificacion = origenes(entrantes);
-  if (clasificacion.reglas) {
-    advertencias.push(
-      `${clasificacion.reglas} de ${entrantes.length} mensajes se decidieron por reglas (sin IA): se `
-      + "descuentan reacciones, menciones, emojis y textos muy cortos. Revisa a mano los dudosos; "
-      + "los derivados solo cuentan lo marcado.",
-    );
-  }
 
   // Lo marcado (a mano o por IA) manda; lo demás se decide por reglas de contenido.
   const casos = entrantes.filter(esCasoSac);
@@ -362,11 +361,15 @@ export function buildSacReport(
       && Math.abs(proporcion(reglasPrevias, previos.length) - proporcion(clasificacion.reglas, entrantes.length)) > 0.2;
 
     const comparable = !privadosTruncados && !baseSinFiltrar;
-    variacion = {
-      anterior,
-      deltaPct: anterior ? Math.round(((casos.length - anterior) / anterior) * 1000) / 10 : 0,
-      comparable,
-    };
+    const deltaPct = anterior ? Math.round(((casos.length - anterior) / anterior) * 1000) / 10 : 0;
+    const revisar = comparable && Math.abs(deltaPct) >= 200;
+    variacion = { anterior, deltaPct, comparable, ...(revisar ? { revisar } : {}) };
+    if (revisar) {
+      advertencias.push(
+        `La variación contra el mes anterior es de ${deltaPct > 0 ? "+" : ""}${deltaPct.toLocaleString("es-CL")} % `
+        + `(de ${anterior} a ${casos.length} casos): revisa que el mes anterior tenga datos completos antes de presentarla.`,
+      );
+    }
 
     if (privadosTruncados) {
       advertencias.push(
@@ -382,7 +385,8 @@ export function buildSacReport(
     }
   }
 
-  if (!canales.tt_privado) {
+  // Solo importa en marcas con TikTok conectado: en las demás el cero es real.
+  if (!canales.tt_privado && brand.account.channels?.includes("tiktok")) {
     advertencias.push("Metricool no expone mensajes privados de TikTok; ese dato queda en cero.");
   }
 

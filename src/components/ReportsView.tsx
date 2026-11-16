@@ -2,7 +2,8 @@
  * Reportes: las cifras del informe SAC mensual por marca, con las advertencias de datos a
  * revisar antes de entregarlo y la descarga del Excel del mes. Solo lectura: no cambia casos ni escribe en Metricool.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDownRight,
   ArrowLeft,
@@ -11,6 +12,7 @@ import {
   ChatCircleText,
   CheckCircle,
   FileXls,
+  Info,
   PresentationChart,
   ShareNetwork,
   WarningCircle,
@@ -58,20 +60,99 @@ function clasificacionTexto(counts: { manual: number; ia: number; reglas: number
   return `Caso o ruido: ${parts.join(", ")}. Corrige a mano desde el detalle de cada caso o en lote desde la Bandeja.`;
 }
 
+/**
+ * Insignia de avisos: al pasar el mouse (o enfocarla con el teclado) muestra qué avisos son;
+ * al hacer clic abre el detalle de la marca. El globo va en un portal con posición fija para
+ * que la tabla con desplazamiento no lo recorte.
+ */
+function WarningsBadge({ warnings, onOpen }: { warnings: string[]; onOpen: () => void }) {
+  const tooltipId = useId();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number; above: boolean } | null>(null);
+  const show = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 340;
+    const above = window.innerHeight - rect.bottom < 220 && rect.top > 220;
+    setPosition({
+      top: above ? rect.top - 8 : rect.bottom + 8,
+      left: Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12)),
+      above,
+    });
+  };
+  const hide = () => setPosition(null);
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="reports-badge is-warning reports-badge--button"
+        aria-describedby={position ? tooltipId : undefined}
+        aria-label={`${warnings.length} avisos: ver detalle de la marca`}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onClick={onOpen}
+      >
+        <WarningCircle size={13} weight="fill" aria-hidden="true" />{warnings.length}
+      </button>
+      {position ? createPortal(
+        <div
+          id={tooltipId}
+          role="tooltip"
+          className={`reports-warnings-tip${position.above ? " is-above" : ""}`}
+          style={{ top: position.top, left: position.left }}
+        >
+          <strong>{warnings.length === 1 ? "1 aviso" : `${warnings.length} avisos`}</strong>
+          <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+          <small>Clic para ver el detalle de la marca.</small>
+        </div>,
+        document.body,
+      ) : null}
+    </>
+  );
+}
+
 function Variation({ figures }: { figures: SacReportBrand["figures"] }) {
   const variation = figures.variacion;
   if (!variation) return <span className="reports-muted">Sin mes anterior</span>;
   if (!variation.comparable) return <span className="reports-muted" title="El mes anterior está incompleto o sin clasificar">No comparable</span>;
   const up = variation.deltaPct > 0;
   return (
-    <span className={`trend trend--${variation.deltaPct === 0 ? "flat" : up ? "up" : "down"}`} title={`Mes anterior: ${formatCount(variation.anterior)} casos`}>
-      {variation.deltaPct === 0 ? null : up ? <ArrowUpRight size={13} weight="bold" aria-hidden="true" /> : <ArrowDownRight size={13} weight="bold" aria-hidden="true" />}
-      {variation.deltaPct > 0 ? "+" : ""}{formatPct(variation.deltaPct)}
+    <span className="reports-variation">
+      <span className={`trend trend--${variation.deltaPct === 0 ? "flat" : up ? "up" : "down"}`} title={`Mes anterior: ${formatCount(variation.anterior)} casos`}>
+        {variation.deltaPct === 0 ? null : up ? <ArrowUpRight size={13} weight="bold" aria-hidden="true" /> : <ArrowDownRight size={13} weight="bold" aria-hidden="true" />}
+        {variation.deltaPct > 0 ? "+" : ""}{formatPct(variation.deltaPct)}
+      </span>
+      {variation.revisar ? (
+        <span className="reports-chip is-warning" title={`De ${formatCount(variation.anterior)} a ${formatCount(figures.casosSac)} casos: suele ser un mes anterior con pocos datos. Revísalo antes de presentarlo.`}>
+          Revisar
+        </span>
+      ) : null}
     </span>
   );
 }
 
+type SortKey = "marca" | "casos" | "recibidos" | "respondidos" | "cobertura" | "variacion" | "avisos";
+
+const SORT_VALUE: Record<Exclude<SortKey, "marca">, (brand: SacReportBrand) => number> = {
+  casos: (brand) => brand.figures.casosSac,
+  recibidos: (brand) => brand.figures.volumenBruto,
+  respondidos: (brand) => brand.figures.respondidos,
+  cobertura: (brand) => brand.figures.coberturaPct,
+  // Sin variación comparable va al final en cualquier dirección.
+  variacion: (brand) => (brand.figures.variacion?.comparable ? brand.figures.variacion.deltaPct : Number.NaN),
+  avisos: (brand) => brand.figures.advertencias.length,
+};
+
+/** Cobertura bajo 30 % en rojo y bajo 60 % en ámbar. */
+function coverageTone(pct: number): string {
+  return pct < 30 ? " is-low" : pct < 60 ? " is-mid" : "";
+}
+
 export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps) {
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "casos", desc: true });
   const months = useMemo(() => recentMonths(), []);
   const [month, setMonth] = useState(months[1]?.value ?? months[0]!.value);
   const [volumen, setVolumen] = useState<"gestionado" | "bruto">("gestionado");
@@ -96,6 +177,31 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
   useEffect(() => { void load(); }, [load]);
 
   const withCases = useMemo(() => report?.brands.filter((brand) => brand.figures.casosSac > 0) ?? [], [report]);
+  const sortedBrands = useMemo(() => {
+    const direction = sort.desc ? -1 : 1;
+    return [...withCases].sort((left, right) => {
+      if (sort.key === "marca") return direction * left.brandName.localeCompare(right.brandName, "es");
+      const a = SORT_VALUE[sort.key](left);
+      const b = SORT_VALUE[sort.key](right);
+      if (Number.isNaN(a) || Number.isNaN(b)) return Number.isNaN(a) === Number.isNaN(b) ? 0 : Number.isNaN(a) ? 1 : -1;
+      return direction * (a - b) || left.brandName.localeCompare(right.brandName, "es");
+    });
+  }, [sort, withCases]);
+  const sortHeader = (key: SortKey, text: string, numeric = false) => {
+    const active = sort.key === key;
+    return (
+      <th scope="col" className={numeric ? "numeric" : undefined} aria-sort={active ? (sort.desc ? "descending" : "ascending") : "none"}>
+        <button
+          type="button"
+          className={`reports-sort${active ? " is-active" : ""}`}
+          onClick={() => setSort((current) => current.key === key ? { key, desc: !current.desc } : { key, desc: key !== "marca" })}
+        >
+          {text}
+          <span aria-hidden="true">{active ? (sort.desc ? "↓" : "↑") : "↕"}</span>
+        </button>
+      </th>
+    );
+  };
   const totals = useMemo(() => withCases.reduce((sum, brand) => ({
     casos: sum.casos + brand.figures.casosSac,
     recibidos: sum.recibidos + brand.figures.volumenBruto,
@@ -179,6 +285,13 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
         </div>
       ) : null}
 
+      {!selected && report && totals.reglas ? (
+        <p className="reports-info" role="note">
+          <Info size={16} weight="fill" aria-hidden="true" />
+          <span>{clasificacionTexto(totals)}</span>
+        </p>
+      ) : null}
+
       {selected ? (
         <BrandDetail brand={selected} label={report?.label ?? ""} volumen={volumen} onBack={() => setSelectedBrandId(null)} />
       ) : (
@@ -192,9 +305,9 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
             </article>
             <article className="kpi-card">
               <div className="kpi-card__topline"><span className="kpi-card__icon"><ShareNetwork size={21} weight="duotone" aria-hidden="true" /></span></div>
-              <p className="kpi-card__value">{loading && !report ? "—" : formatCount(volumen === "bruto" ? totals.recibidos : totals.gestionados)}</p>
-              <h2 className="kpi-card__label">{volumen === "bruto" ? "Mensajes recibidos" : "Mensajes gestionados"}</h2>
-              <p className="kpi-card__detail">{formatCount(totals.recibidos)} recibidos en bruto</p>
+              <p className="kpi-card__value">{loading && !report ? "—" : formatCount(totals.recibidos)}</p>
+              <h2 className="kpi-card__label">Mensajes recibidos</h2>
+              <p className="kpi-card__detail">{formatCount(Math.max(0, totals.recibidos - totals.casos))} descontados como ruido</p>
             </article>
             <article className="kpi-card">
               <div className="kpi-card__topline"><span className="kpi-card__icon"><CheckCircle size={21} weight="duotone" aria-hidden="true" /></span></div>
@@ -214,26 +327,26 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
             <header className="panel__header">
               <div>
                 <h2 className="panel__title">Marcas · {report?.label ?? "…"}</h2>
-                <p className="panel__description">Elige una marca para ver su detalle: motivos, tono, canales y avisos.</p>
+                <p className="panel__description">Elige una marca para ver su detalle. Ordena con un clic en cada columna; la cobertura bajo 30 % se marca en rojo y bajo 60 % en ámbar.</p>
               </div>
             </header>
             <div className="table-scroll">
               <table className="data-table reports-table">
                 <thead>
                   <tr>
-                    <th scope="col">Marca</th>
-                    <th scope="col" className="numeric">Casos SAC</th>
-                    <th scope="col" className="numeric">{volumen === "bruto" ? "Recibidos" : "Gestionados"}</th>
-                    <th scope="col" className="numeric">Respondidos</th>
-                    <th scope="col" className="numeric">Cobertura</th>
-                    <th scope="col">vs. mes anterior</th>
-                    <th scope="col">Avisos</th>
+                    {sortHeader("marca", "Marca")}
+                    {sortHeader("casos", "Casos SAC", true)}
+                    {sortHeader("recibidos", "Recibidos", true)}
+                    {sortHeader("respondidos", "Respondidos", true)}
+                    {sortHeader("cobertura", "Cobertura", true)}
+                    {sortHeader("variacion", "vs. mes anterior")}
+                    {sortHeader("avisos", "Avisos")}
                   </tr>
                 </thead>
                 <tbody>
                   {loading && !report ? <tr><td colSpan={7} className="reports-muted">Calculando el reporte…</td></tr> : null}
                   {report && !withCases.length ? <tr><td colSpan={7} className="reports-muted">Ninguna marca tuvo casos en {report.label}.</td></tr> : null}
-                  {withCases.map((brand) => (
+                  {sortedBrands.map((brand) => (
                     <tr key={brand.brandId} className="data-table__row">
                       <td>
                         <button className="reports-brand" type="button" onClick={() => setSelectedBrandId(brand.brandId)}>
@@ -242,13 +355,16 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
                         </button>
                       </td>
                       <td className="numeric"><strong>{formatCount(brand.figures.casosSac)}</strong></td>
-                      <td className="numeric">{formatCount(volumen === "bruto" ? brand.figures.volumenBruto : brand.figures.mensajesGestionados)}</td>
+                      <td className="numeric">
+                        {formatCount(brand.figures.volumenBruto)}
+                        <small className="reports-noise">{formatCount(Math.max(0, brand.figures.volumenBruto - brand.figures.casosSac))} ruido</small>
+                      </td>
                       <td className="numeric">{formatCount(brand.figures.respondidos)}</td>
-                      <td className="numeric">{formatPct(brand.figures.coberturaPct)}</td>
+                      <td className="numeric"><span className={`reports-coverage${coverageTone(brand.figures.coberturaPct)}`}>{formatPct(brand.figures.coberturaPct)}</span></td>
                       <td><Variation figures={brand.figures} /></td>
                       <td>
                         {brand.figures.advertencias.length
-                          ? <span className="reports-badge is-warning"><WarningCircle size={13} weight="fill" aria-hidden="true" />{brand.figures.advertencias.length}</span>
+                          ? <WarningsBadge warnings={brand.figures.advertencias} onOpen={() => setSelectedBrandId(brand.brandId)} />
                           : <span className="reports-badge"><CheckCircle size={13} weight="fill" aria-hidden="true" />OK</span>}
                       </td>
                     </tr>
@@ -259,7 +375,7 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
             {report ? (
               <footer className="panel__footer reports-footnote">
                 {report.brands.length - withCases.length ? `${report.brands.length - withCases.length} marcas activas sin casos en el mes no se listan. ` : ""}
-                {clasificacionTexto(totals)} Cifras calculadas por día en UTC.
+                Cifras calculadas por día en UTC.
               </footer>
             ) : null}
           </article>
@@ -298,12 +414,12 @@ function BrandDetail({ brand, label, volumen, onBack }: { brand: SacReportBrand;
           <p className="kpi-card__detail"><Variation figures={figures} /></p>
         </article>
         <article className="kpi-card">
-          <p className="kpi-card__value">{formatCount(volumen === "bruto" ? figures.volumenBruto : figures.mensajesGestionados)}</p>
-          <h3 className="kpi-card__label">{volumen === "bruto" ? "Mensajes recibidos" : "Mensajes gestionados"}</h3>
-          <p className="kpi-card__detail">{formatCount(figures.volumenBruto)} en bruto{figures.ilegibles ? ` · ${formatCount(figures.ilegibles)} ilegibles` : ""}</p>
+          <p className="kpi-card__value">{formatCount(figures.volumenBruto)}</p>
+          <h3 className="kpi-card__label">Mensajes recibidos</h3>
+          <p className="kpi-card__detail">{formatCount(Math.max(0, figures.volumenBruto - figures.casosSac))} descontados como ruido{figures.ilegibles ? ` · ${formatCount(figures.ilegibles)} ilegibles` : ""}</p>
         </article>
         <article className="kpi-card">
-          <p className="kpi-card__value">{formatPct(figures.coberturaPct)}</p>
+          <p className={`kpi-card__value reports-coverage${coverageTone(figures.coberturaPct)}`}>{formatPct(figures.coberturaPct)}</p>
           <h3 className="kpi-card__label">Cobertura</h3>
           <p className="kpi-card__detail">{formatCount(figures.respondidos)} de {formatCount(figures.casosSac)} casos respondidos</p>
         </article>

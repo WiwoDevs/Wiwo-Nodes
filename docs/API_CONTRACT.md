@@ -885,7 +885,7 @@ Cifras del informe SAC mensual de cada marca activa dentro del alcance del actor
 }
 ```
 
-Cada `figures` incluye `clasificacion: { manual, ia, reglas }`: cuántos mensajes entrantes del mes se decidieron como caso o ruido a mano, con IA o por reglas sin IA (reacciones, menciones en historias, emojis sueltos, textos de menos de cuatro palabras e ilegibles no son casos). `brands` viene ordenado por casos SAC de mayor a menor. `warnings` avisa de cuentas activas que apuntan al mismo usuario de red social (sus mensajes se contarían dos veces). `400 VALIDATION_ERROR` con un mes inválido o ausente; `403` sin `metrics.read`. El Excel del mes se descarga con `GET /api/export/xlsx` usando `from=<mes>-01T00:00:00.000Z` y `to=<último día>T23:59:59.999Z`.
+`variacion` trae `revisar: true` cuando, siendo comparable, cambió ±200 % o más (casi siempre un mes anterior con pocos datos), con su advertencia. Lo decidido por reglas no se repite como advertencia de cada marca: viaja en `clasificacion`. Cada `figures` incluye `clasificacion: { manual, ia, reglas }`: cuántos mensajes entrantes del mes se decidieron como caso o ruido a mano, con IA o por reglas sin IA (reacciones, menciones en historias, emojis sueltos, textos de menos de cuatro palabras e ilegibles no son casos). `brands` viene ordenado por casos SAC de mayor a menor. `warnings` avisa de cuentas activas que apuntan al mismo usuario de red social (sus mensajes se contarían dos veces). `400 VALIDATION_ERROR` con un mes inválido o ausente; `403` sin `metrics.read`. El Excel del mes se descarga con `GET /api/export/xlsx` usando `from=<mes>-01T00:00:00.000Z` y `to=<último día>T23:59:59.999Z`.
 
 ### `PUT /api/interactions/:id/triage`
 

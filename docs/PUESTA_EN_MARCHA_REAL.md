@@ -99,7 +99,11 @@ menciones en historias, emojis sueltos, textos de menos de cuatro palabras ni me
 El equipo corrige a mano desde el detalle de cada caso (**Para el reporte: Es caso / No es caso**,
 con **Requiere derivación**) o en lote desde la Bandeja (**No es caso (ruido)** sobre las
 conversaciones seleccionadas). Lo marcado a mano manda, no se pisa en lote y se puede devolver a
-lo automático. Reportes indica cuánto del mes se decidió a mano, con IA o por reglas.
+lo automático. Reportes indica arriba, como nota del mes, cuánto se decidió a mano, con IA o por reglas;
+los avisos de cada marca quedan solo para problemas reales (mensajes ilegibles, meses no
+comparables, variaciones de ±200 % o más marcadas **Revisar**, cuentas duplicadas). La tabla
+muestra recibidos y ruido descontado por marca, se ordena con un clic en cada columna y marca la
+cobertura bajo 30 % en rojo y bajo 60 % en ámbar; al pasar el mouse por un aviso se ve qué es.
 
 Inicio también cambia según el rol. El **Agente** ve "Mis casos en plazo", lo que vence en 24 h
 y el botón **Tomar siguiente**, con sus casos primero en la cola. El **Supervisor** (quien tiene

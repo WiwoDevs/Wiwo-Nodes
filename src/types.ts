@@ -505,7 +505,7 @@ export interface SacReportFigures {
   publicos: number;
   motivos: Array<{ motivo: string; casos: number; pct: number }>;
   tono: { positivo: number; neutro: number; negativo: number };
-  variacion?: { anterior: number; deltaPct: number; comparable: boolean };
+  variacion?: { anterior: number; deltaPct: number; comparable: boolean; revisar?: boolean };
   advertencias: string[];
   /** Quién decidió caso o ruido en cada mensaje del mes. */
   clasificacion?: { manual: number; ia: number; reglas: number };
