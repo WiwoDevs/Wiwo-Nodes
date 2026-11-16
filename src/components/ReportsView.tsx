@@ -2,7 +2,7 @@
  * Reportes: las cifras del informe SAC mensual por marca, con las advertencias de datos a
  * revisar antes de entregarlo y la descarga del Excel del mes. Solo lectura: no cambia casos ni escribe en Metricool.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowDownRight,
@@ -60,19 +60,20 @@ function clasificacionTexto(counts: { manual: number; ia: number; reglas: number
   return `Caso o ruido: ${parts.join(", ")}. Corrige a mano desde el detalle de cada caso o en lote desde la Bandeja.`;
 }
 
+type TipPosition = { top: number; left: number; above: boolean };
+
 /**
- * Insignia de avisos: al pasar el mouse (o enfocarla con el teclado) muestra qué avisos son;
- * al hacer clic abre el detalle de la marca. El globo va en un portal con posición fija para
- * que la tabla con desplazamiento no lo recorte.
+ * Globo con el estilo de la web (no el del navegador): aparece al pasar el mouse o al enfocar
+ * con el teclado, va en un portal con posición fija para que la tabla con desplazamiento no
+ * lo recorte, y se cierra al salir o al desplazar la página.
  */
-function WarningsBadge({ warnings, onOpen }: { warnings: string[]; onOpen: () => void }) {
-  const tooltipId = useId();
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number; above: boolean } | null>(null);
+function useHoverTip<T extends HTMLElement>(width = 340) {
+  const id = useId();
+  const ref = useRef<T>(null);
+  const [position, setPosition] = useState<TipPosition | null>(null);
   const show = () => {
-    const rect = buttonRef.current?.getBoundingClientRect();
+    const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
-    const width = 340;
     const above = window.innerHeight - rect.bottom < 220 && rect.top > 220;
     setPosition({
       top: above ? rect.top - 8 : rect.bottom + 8,
@@ -81,35 +82,81 @@ function WarningsBadge({ warnings, onOpen }: { warnings: string[]; onOpen: () =>
     });
   };
   const hide = () => setPosition(null);
+  useEffect(() => {
+    if (!position) return;
+    window.addEventListener("scroll", hide, true);
+    return () => window.removeEventListener("scroll", hide, true);
+  }, [position]);
+  const triggerProps = {
+    ref,
+    "aria-describedby": position ? id : undefined,
+    onMouseEnter: show,
+    onMouseLeave: hide,
+    onFocus: show,
+    onBlur: hide,
+  };
+  return { id, position, triggerProps };
+}
+
+function HoverTipBubble({ id, position, tone = "warning", children }: {
+  id: string;
+  position: TipPosition | null;
+  tone?: "warning" | "info";
+  children: ReactNode;
+}) {
+  if (!position) return null;
+  return createPortal(
+    <div
+      id={id}
+      role="tooltip"
+      className={`reports-warnings-tip${position.above ? " is-above" : ""}${tone === "info" ? " is-info" : ""}`}
+      style={{ top: position.top, left: position.left }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+/** Texto con explicación al pasar el mouse (enfocable con el teclado). */
+function HoverTip({ className, title, tone = "warning", tip, children }: {
+  className: string;
+  title: string;
+  tone?: "warning" | "info";
+  tip: ReactNode;
+  children: ReactNode;
+}) {
+  const { id, position, triggerProps } = useHoverTip<HTMLSpanElement>(300);
+  return (
+    <>
+      <span className={`${className} reports-tip-trigger`} tabIndex={0} {...triggerProps}>{children}</span>
+      <HoverTipBubble id={id} position={position} tone={tone}>
+        <strong>{title}</strong>
+        <p>{tip}</p>
+      </HoverTipBubble>
+    </>
+  );
+}
+
+/** Insignia de avisos: al pasar el mouse muestra qué avisos son; al hacer clic abre la marca. */
+function WarningsBadge({ warnings, onOpen }: { warnings: string[]; onOpen: () => void }) {
+  const { id, position, triggerProps } = useHoverTip<HTMLButtonElement>();
   return (
     <>
       <button
-        ref={buttonRef}
         type="button"
         className="reports-badge is-warning reports-badge--button"
-        aria-describedby={position ? tooltipId : undefined}
         aria-label={`${warnings.length} avisos: ver detalle de la marca`}
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
         onClick={onOpen}
+        {...triggerProps}
       >
         <WarningCircle size={13} weight="fill" aria-hidden="true" />{warnings.length}
       </button>
-      {position ? createPortal(
-        <div
-          id={tooltipId}
-          role="tooltip"
-          className={`reports-warnings-tip${position.above ? " is-above" : ""}`}
-          style={{ top: position.top, left: position.left }}
-        >
-          <strong>{warnings.length === 1 ? "1 aviso" : `${warnings.length} avisos`}</strong>
-          <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-          <small>Clic para ver el detalle de la marca.</small>
-        </div>,
-        document.body,
-      ) : null}
+      <HoverTipBubble id={id} position={position}>
+        <strong>{warnings.length === 1 ? "1 aviso" : `${warnings.length} avisos`}</strong>
+        <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        <small>Clic para ver el detalle de la marca.</small>
+      </HoverTipBubble>
     </>
   );
 }
@@ -117,18 +164,37 @@ function WarningsBadge({ warnings, onOpen }: { warnings: string[]; onOpen: () =>
 function Variation({ figures }: { figures: SacReportBrand["figures"] }) {
   const variation = figures.variacion;
   if (!variation) return <span className="reports-muted">Sin mes anterior</span>;
-  if (!variation.comparable) return <span className="reports-muted" title="El mes anterior está incompleto o sin clasificar">No comparable</span>;
+  if (!variation.comparable) {
+    return (
+      <HoverTip
+        className="reports-muted"
+        title="No comparable"
+        tip="El mes anterior está incompleto (Metricool no guarda DMs tan antiguos) o se clasificó distinto que este mes, así que la variación no sería real."
+      >
+        No comparable
+      </HoverTip>
+    );
+  }
   const up = variation.deltaPct > 0;
   return (
     <span className="reports-variation">
-      <span className={`trend trend--${variation.deltaPct === 0 ? "flat" : up ? "up" : "down"}`} title={`Mes anterior: ${formatCount(variation.anterior)} casos`}>
+      <HoverTip
+        className={`trend trend--${variation.deltaPct === 0 ? "flat" : up ? "up" : "down"}`}
+        title="Contra el mes anterior"
+        tone="info"
+        tip={`El mes anterior tuvo ${formatCount(variation.anterior)} casos SAC y este mes ${formatCount(figures.casosSac)}.`}
+      >
         {variation.deltaPct === 0 ? null : up ? <ArrowUpRight size={13} weight="bold" aria-hidden="true" /> : <ArrowDownRight size={13} weight="bold" aria-hidden="true" />}
         {variation.deltaPct > 0 ? "+" : ""}{formatPct(variation.deltaPct)}
-      </span>
+      </HoverTip>
       {variation.revisar ? (
-        <span className="reports-chip is-warning" title={`De ${formatCount(variation.anterior)} a ${formatCount(figures.casosSac)} casos: suele ser un mes anterior con pocos datos. Revísalo antes de presentarlo.`}>
+        <HoverTip
+          className="reports-chip is-warning"
+          title="Variación por revisar"
+          tip={`De ${formatCount(variation.anterior)} a ${formatCount(figures.casosSac)} casos: suele ser un mes anterior con pocos datos. Revísalo antes de presentarlo.`}
+        >
           Revisar
-        </span>
+        </HoverTip>
       ) : null}
     </span>
   );
@@ -254,8 +320,18 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
             </select>
           </label>
           <label className="filter-field">
-            <span className="filter-field__label">Volumen</span>
-            <select value={volumen} onChange={(event) => setVolumen(event.target.value as "gestionado" | "bruto")} title="Gestionado descuenta menciones en historias, reacciones y aplausos sueltos">
+            <span className="filter-field__label">
+              Volumen{" "}
+              <HoverTip
+                className="reports-help"
+                title="Volumen de motivos, tono y canales"
+                tone="info"
+                tip="Gestionado descuenta menciones en historias, reacciones, emojis sueltos y textos muy cortos. Bruto usa todo lo recibido."
+              >
+                <Info size={12} weight="bold" aria-label="Qué es el volumen" />
+              </HoverTip>
+            </span>
+            <select value={volumen} onChange={(event) => setVolumen(event.target.value as "gestionado" | "bruto")}>
               <option value="gestionado">Gestionado</option>
               <option value="bruto">Bruto</option>
             </select>

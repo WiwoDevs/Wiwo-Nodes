@@ -7143,3 +7143,11 @@ button.users-roles-person:hover strong { color: var(--accent-text); }
   font-weight: 700;
 }
 .reports-chip.is-warning { color: var(--amber); background: var(--amber-soft); }
+
+/* Globo reutilizable de Reportes: variante informativa y disparadores enfocables. */
+.reports-warnings-tip.is-info strong { color: var(--ink); }
+.reports-warnings-tip p { margin: 0; color: var(--ink); }
+.reports-tip-trigger { cursor: help; }
+.reports-tip-trigger:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 6px; }
+.reports-help { display: inline-flex; align-items: center; vertical-align: middle; color: var(--muted); }
+.reports-help:hover { color: var(--accent-text); }
