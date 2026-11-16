@@ -37,6 +37,7 @@ import {
   devPasswordSessionSchema,
   userAccessRoleSchema,
   userPermissionsSchema,
+  archiveExpiredSchema,
   accessRoleCreateSchema,
   accessRoleIdParamsSchema,
   accessRoleUpdateSchema,
@@ -104,6 +105,7 @@ import {
   type MetricoolInstagramProvider,
 } from "./types.js";
 import { createAccessDirectory, customRoleId, listAccessControl, lockedReason } from "./user-access.js";
+import { expiredOpenInteractions, isSensitiveCase } from "./reply-window.js";
 import {
   actorCan,
   applyPermissionOverrides,
@@ -3848,6 +3850,57 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       });
     });
     return { data: publicInteractionMutationState(updated), meta: { ...apiMeta(config), statusChanged: true } };
+  });
+
+  /**
+   * Archiva como histórico (resuelto, motivo "Fuera de plazo de respuesta") los casos abiertos
+   * cuyo plazo de Meta venció. Nunca toca Metricool, nunca archiva casos sensibles (quedan para
+   * revisión humana) y respeta el alcance de marcas. `dryRun` (por defecto) solo cuenta.
+   */
+  app.post("/api/interactions/archive-expired", async (request) => {
+    const actor = requirePermission(config, request, "inbox.archive_expired");
+    const body = archiveExpiredSchema.parse(request.body ?? {});
+    const snapshot = await repository.snapshotCatalog();
+    const scoped = scopedInteractionFilters(actor, snapshot.brands, {
+      ...(body.accountId ? { accountId: body.accountId } : {}),
+    });
+    const candidates = expiredOpenInteractions(await repository.listInteractions(scoped))
+      .filter((interaction) => !body.type || interaction.type === body.type);
+    const sensitive = candidates.filter(isSensitiveCase);
+    const toArchive = candidates.filter((interaction) => !isSensitiveCase(interaction));
+    if (body.dryRun || !toArchive.length) {
+      return { data: { dryRun: body.dryRun, archived: 0, eligible: toArchive.length, skippedSensitive: sensitive.length }, meta: apiMeta(config) };
+    }
+    const reason = statusReasonFor("resolved", "reply_window_expired")!;
+    const ids = new Set(toArchive.map((interaction) => interaction.id));
+    const at = new Date().toISOString();
+    const archived = await repository.mutateInteractions([...ids], (store) => {
+      let count = 0;
+      for (const item of store.interactions) {
+        if (!ids.has(item.id) || !["new", "pending", "drafted", "escalated"].includes(item.status)) continue;
+        item.status = "resolved";
+        item.statusReason = {
+          code: reason.code,
+          label: reason.label,
+          changedAt: at,
+          changedBy: { userId: actor.userId, displayName: actor.displayName },
+        };
+        item.audit.push({
+          id: randomUUID(),
+          at,
+          action: "status_changed",
+          actor: "agent",
+          detail: `${reason.label} (archivado en lote)`,
+          metadata: { status: "resolved", reasonCode: reason.code, actorId: actor.userId, bulk: true },
+        });
+        item.version = (Number.isInteger(item.version) && item.version > 0 ? item.version : 1) + 1;
+        item.updatedAt = at;
+        count += 1;
+      }
+      return count;
+    });
+    request.log.info({ event: "expired_cases_archived", count: archived, skippedSensitive: sensitive.length, by: actor.userId }, "Casos fuera de plazo archivados.");
+    return { data: { dryRun: false, archived, eligible: toArchive.length, skippedSensitive: sensitive.length }, meta: apiMeta(config) };
   });
 
   app.put("/api/interactions/:id/assignment", async (request) => {

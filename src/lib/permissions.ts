@@ -9,6 +9,7 @@ export type Permission =
   | "inbox.triage"
   | "inbox.assign"
   | "inbox.assign_others"
+  | "inbox.archive_expired"
   | "sync.run"
   | "export.xlsx"
   | "metrics.read"
@@ -25,7 +26,7 @@ const LEGACY_DEFAULTS: Record<Exclude<SessionActor["role"], "admin">, Permission
   agent: ["inbox.reply", "inbox.triage", "inbox.assign", "sync.run", "automations.run"],
   supervisor: [
     "inbox.reply", "inbox.triage", "inbox.assign", "sync.run", "automations.run",
-    "inbox.assign_others", "export.xlsx", "metrics.read", "deliveries.reconcile", "workflow.edit",
+    "inbox.assign_others", "inbox.archive_expired", "export.xlsx", "metrics.read", "deliveries.reconcile", "workflow.edit",
   ],
 };
 

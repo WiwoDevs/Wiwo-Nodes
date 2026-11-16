@@ -71,6 +71,8 @@ export interface ManualManagementViewProps {
    */
   surfaceKind?: "dm" | "comment";
   accounts: BrandAccount[];
+  /** Casos por atender de esta superficie por cuenta (en plazo y total), para el selector. */
+  pendingCounts?: Record<string, { inWindow: number; total: number }>;
   interactions: Interaction[];
   selectedAccountId: string | null;
   selectedInteractionId?: string | null;
@@ -377,6 +379,7 @@ function PostPreview({ context }: { context?: InteractionPostContext }) {
 
 export function ManualManagementView({
   accounts,
+  pendingCounts,
   interactions,
   selectedAccountId,
   selectedInteractionId = null,
@@ -669,6 +672,11 @@ export function ManualManagementView({
   const statusOptions = statusAction ? statusReasons[statusAction] : [];
   const selectedReason = statusOptions.find((option) => option.code === reasonCode);
 
+  // Cuentas ordenadas por casos en plazo (lo urgente primero), luego por pendientes y nombre.
+  const accountOptions = [...accounts]
+    .map((account) => ({ account, inWindow: pendingCounts?.[account.id]?.inWindow ?? 0, total: pendingCounts?.[account.id]?.total ?? 0 }))
+    .sort((left, right) => right.inWindow - left.inWindow || right.total - left.total || left.account.name.localeCompare(right.account.name, "es"));
+
   return (
     <section className="manual-inbox-view" aria-labelledby="manual-inbox-title">
       <header className="manual-inbox-header">
@@ -697,9 +705,10 @@ export function ManualManagementView({
             required
           >
             <option value="" disabled>Selecciona una cuenta</option>
-            {accounts.map((account) => (
+            {accountOptions.map(({ account, inWindow, total }) => (
               <option key={account.id} value={account.id}>
                 {account.name} · {account.accountHandle || account.channels[0]?.username || account.id}
+                {pendingCounts ? ` — ${inWindow ? `${inWindow} en plazo` : "sin casos en plazo"}${total > inWindow ? ` (${total - inWindow} vencidos)` : ""}` : ""}
               </option>
             ))}
           </select>
@@ -1030,7 +1039,7 @@ export function ManualManagementView({
                         <ChatCenteredText size={18} weight="duotone" aria-hidden="true" />
                         <strong>Historial del chat</strong>
                       </div>
-                      <small>{timeline.length} mensajes · selección {visibleDetail.id}</small>
+                      <small title={`Caso ${visibleDetail.id}`}>{timeline.length} mensajes</small>
                     </header>
                     <ol>
                       {timeline.map((message) => (

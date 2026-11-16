@@ -35,6 +35,7 @@ import { ManualManagementView } from "./components/ManualManagementView";
 import { SettingsView } from "./components/SettingsView";
 import { UsersRolesView } from "./components/UsersRolesView";
 import { can, type Permission } from "./lib/permissions";
+import { isExpired, needsAction } from "./lib/reply-window";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { ExportDialog, type ExportFilters } from "./components/ExportDialog";
 import type { WorkflowEditorStatus } from "./components/WorkflowCanvas";
@@ -48,6 +49,7 @@ import {
   createBrand,
   deactivateBrand,
   importMetricoolBrands,
+  archiveExpiredInteractions,
   deleteInteractionDraft,
   disconnectMetricoolAccount,
   downloadBrandWorkbook,
@@ -439,6 +441,26 @@ export function App({ onSignOut, sessionActor }: {
     [visibleData.accounts],
   );
   const selectedManualAccount = visibleData.accounts.find((account) => account.id === manualAccountId);
+  /** Casos por atender por cuenta y superficie: en plazo y total (para el selector de cuenta). */
+  const manualPendingCounts = useMemo(() => {
+    const counts: Record<"dm" | "comment", Record<string, { inWindow: number; total: number }>> = { dm: {}, comment: {} };
+    const now = Date.now();
+    for (const interaction of visibleData.interactions) {
+      if (!needsAction(interaction) || (interaction.kind !== "dm" && interaction.kind !== "comment")) continue;
+      const bucket = counts[interaction.kind][interaction.accountId] ??= { inWindow: 0, total: 0 };
+      bucket.total += 1;
+      if (!isExpired(interaction, now)) bucket.inWindow += 1;
+    }
+    return counts;
+  }, [visibleData.interactions]);
+  // La cuenta inicial la elige la app (la de más trabajo en plazo) una sola vez, cuando llegan
+  // los datos; después nunca la cambia sola (no debe mover a nadie a mitad de una respuesta).
+  const manualAccountSettled = useRef(false);
+  /** Orden visible de la Bandeja SAC (filtros y orden aplicados), para "siguiente caso". */
+  const inboxOrderRef = useRef<Interaction[]>([]);
+  const rememberInboxOrder = useCallback((interactions: Interaction[]) => { inboxOrderRef.current = interactions; }, []);
+  /** Orden de la bandeja al abrir el caso: si se resuelve y sale de la lista, "siguiente" sigue siendo su vecino. */
+  const navSnapshotRef = useRef<string[]>([]);
   const manualInteractions = useMemo(() => {
     if (!manualAccountId) return [];
     return visibleData.interactions.filter((interaction) => interaction.accountId === manualAccountId);
@@ -535,9 +557,27 @@ export function App({ onSignOut, sessionActor }: {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
+  // Casos nuevos en plazo desde la última vez que la persona miró una bandeja: "(3) Bandeja SAC".
+  const [inboxSeenAt, setInboxSeenAt] = useState(() => Date.now());
+  const isInboxView = view === "interactions" || isManualView(view);
   useEffect(() => {
-    document.title = `${page.title} | WIWO.Nodes`;
-  }, [page.title]);
+    if (!isInboxView) return;
+    const markSeen = () => { if (document.visibilityState === "visible") setInboxSeenAt(Date.now()); };
+    markSeen();
+    document.addEventListener("visibilitychange", markSeen);
+    return () => document.removeEventListener("visibilitychange", markSeen);
+  }, [isInboxView, lastInboxRefreshAt]);
+  const newInboxCount = useMemo(() => {
+    const now = Date.now();
+    return visibleData.interactions.filter((interaction) =>
+      needsAction(interaction)
+      && !isExpired(interaction, now)
+      && Date.parse(interaction.latestInboundAt ?? interaction.receivedAt) > inboxSeenAt).length;
+  }, [inboxSeenAt, visibleData.interactions]);
+
+  useEffect(() => {
+    document.title = `${newInboxCount ? `(${newInboxCount}) ` : ""}${page.title} | WIWO.Nodes`;
+  }, [newInboxCount, page.title]);
 
   useEffect(() => {
     void refreshOperationalData();
@@ -649,11 +689,23 @@ export function App({ onSignOut, sessionActor }: {
       if (manualAccountId !== null) setManualAccountId(null);
       return;
     }
-    if (manualAccountId && accounts.some((account) => account.id === manualAccountId)) return;
-    const withActivity = accounts.find((account) =>
-      operationalData?.interactions.some((interaction) => interaction.accountId === account.id));
-    setManualAccountId((withActivity ?? accounts[0]!).id);
-  }, [manualAccountId, operationalData?.accounts, operationalData?.interactions]);
+    const current = manualAccountId && accounts.some((account) => account.id === manualAccountId);
+    if (current && manualAccountSettled.current) return;
+    // Por defecto, la cuenta con más casos en plazo de la superficie que se está viendo (DMs o
+    // comentarios), igual que el orden del selector; luego la de más pendientes.
+    const surface = view === "manual-comments" ? "comment" : "dm";
+    const score = (accountId: string) => {
+      const counts = manualPendingCounts[surface][accountId];
+      return [counts?.inWindow ?? 0, counts?.total ?? 0] as const;
+    };
+    const best = [...accounts].sort((left, right) => {
+      const [leftWindow, leftTotal] = score(left.id);
+      const [rightWindow, rightTotal] = score(right.id);
+      return rightWindow - leftWindow || rightTotal - leftTotal;
+    })[0]!;
+    if (best.id !== manualAccountId) setManualAccountId(best.id);
+    if (operationalData?.interactions.length) manualAccountSettled.current = true;
+  }, [manualAccountId, manualPendingCounts, operationalData?.accounts, operationalData?.interactions.length, view]);
 
   async function refreshExecutions() {
     setLoadingExecutions(true);
@@ -702,6 +754,40 @@ export function App({ onSignOut, sessionActor }: {
     } catch (error) {
       setToast({ tone: "warning", title: "No se pudo guardar el canvas", detail: error instanceof Error ? error.message : "Revisa la API." });
       return false;
+    }
+  }
+
+  /** Archiva como histórico los casos fuera de plazo, previa vista previa y confirmación. */
+  async function archiveExpired(scope: { accountId?: string; type?: "dm" | "comment" }) {
+    try {
+      const preview = await archiveExpiredInteractions({ ...scope, dryRun: true });
+      if (!preview.eligible) {
+        setToast({
+          tone: "warning",
+          title: "Nada para archivar",
+          detail: preview.skippedSensitive
+            ? `Los ${preview.skippedSensitive} casos fuera de plazo son sensibles y quedan para revisión humana.`
+            : "No hay casos fuera de plazo con estos filtros.",
+        });
+        return;
+      }
+      const format = new Intl.NumberFormat("es-CL").format;
+      const confirmed = window.confirm(
+        `¿Archivar ${format(preview.eligible)} casos fuera de plazo como histórico?\n\n`
+        + "Se cierran en Nodes con el motivo «Fuera de plazo de respuesta». No se borra ni se envía nada a Metricool, "
+        + "y se pueden reabrir cambiando su estado."
+        + (preview.skippedSensitive ? `\n\n${format(preview.skippedSensitive)} casos sensibles quedan sin archivar para revisión humana.` : ""),
+      );
+      if (!confirmed) return;
+      const result = await archiveExpiredInteractions({ ...scope, dryRun: false });
+      setToast({
+        tone: "success",
+        title: "Casos archivados",
+        detail: `${format(result.archived)} casos fuera de plazo quedaron como histórico.${result.skippedSensitive ? ` ${format(result.skippedSensitive)} sensibles siguen en revisión.` : ""}`,
+      });
+      await refreshInboxData(true);
+    } catch (error) {
+      setToast({ tone: "warning", title: "No se pudo archivar", detail: error instanceof Error ? error.message : "Error desconocido." });
     }
   }
 
@@ -821,6 +907,9 @@ export function App({ onSignOut, sessionActor }: {
   ) {
     const requestSequence = ++detailRequestSequence.current;
     selectedInteractionIdRef.current = interaction.id;
+    if (inboxOrderRef.current.some((candidate) => candidate.id === interaction.id)) {
+      navSnapshotRef.current = inboxOrderRef.current.map((candidate) => candidate.id);
+    }
     setSelectedInteractionId(interaction.id);
     setDetailPresentation(presentation);
     setSelectedInteractionDetail(null);
@@ -1103,6 +1192,45 @@ export function App({ onSignOut, sessionActor }: {
     } finally {
       setMutatingInteraction(false);
     }
+  }
+
+  /** Asigna a la persona en sesión el caso en plazo que vence antes y lo abre de inmediato. */
+  async function takeNextCase(interaction: Interaction) {
+    if (isMutatingInteraction || isRunning || interaction.version === undefined) return;
+    setMutatingInteraction(true);
+    try {
+      await updateInteractionAssignment(interaction.id, interaction.version, "claim");
+      setToast({ tone: "success", title: "Caso tomado", detail: `${interaction.customerName} quedó asignado a ti.` });
+      void openInteractionDetail(interaction);
+      void refreshInboxData(false);
+    } catch (error) {
+      setToast({
+        tone: "warning",
+        title: "No se pudo tomar el caso",
+        detail: error instanceof Error ? `${error.message} Actualiza la bandeja e intenta con el siguiente.` : "Actualiza la bandeja e intenta nuevamente.",
+      });
+      void refreshInboxData(false);
+    } finally {
+      setMutatingInteraction(false);
+    }
+  }
+
+  /** Abre el caso anterior o siguiente según el orden visible de la bandeja. */
+  function adjacentCase(currentId: string | null, direction: 1 | -1): Interaction | undefined {
+    const snapshot = navSnapshotRef.current;
+    const visible = new Map(inboxOrderRef.current.map((interaction) => [interaction.id, interaction]));
+    let index = currentId ? snapshot.indexOf(currentId) : -1;
+    if (index < 0) return undefined;
+    for (index += direction; index >= 0 && index < snapshot.length; index += direction) {
+      const candidate = visible.get(snapshot[index]!);
+      if (candidate) return candidate;
+    }
+    return undefined;
+  }
+
+  function openAdjacentCase(direction: 1 | -1) {
+    const target = adjacentCase(selectedInteractionIdRef.current, direction);
+    if (target) void openInteractionDetail(target);
   }
 
   async function changeInteractionAssignment(detail: InteractionDetail) {
@@ -1741,6 +1869,12 @@ export function App({ onSignOut, sessionActor }: {
               onSendAutomaticResponse={createDraft}
               onSendAutomaticResponses={createDrafts}
               onResolveInteraction={(interaction) => { void resolveInteraction(interaction, "answered"); }}
+              canArchiveExpired={allowed("inbox.archive_expired")}
+              onArchiveExpired={archiveExpired}
+              currentUserId={visibleData.actor.userId}
+              canAssign={allowed("inbox.assign")}
+              onTakeNext={takeNextCase}
+              onVisibleOrderChange={rememberInboxOrder}
             />
           </div>
         ) : null}
@@ -1751,6 +1885,7 @@ export function App({ onSignOut, sessionActor }: {
               // Solo cuentas operativas: una marca desactivada no debe poder seleccionarse
               // para responder. Sigue apareciendo en Cuentas para poder reactivarla.
               accounts={operationalAccounts}
+              pendingCounts={manualPendingCounts[view === "manual-comments" ? "comment" : "dm"]}
               interactions={manualInteractions}
               selectedAccountId={manualAccountId}
               selectedInteractionId={selectedInteractionId}
@@ -1772,6 +1907,7 @@ export function App({ onSignOut, sessionActor }: {
               refreshIssue={manualCommentsIssue || inboxRefreshIssue}
               statusReasons={visibleData.statusReasons}
               onSelectAccount={(account) => {
+                manualAccountSettled.current = true;
                 closeInteractionDetail();
                 setManualDraftDirty(false);
                 manualCommentsRequestSequence.current += 1;
@@ -1899,6 +2035,11 @@ export function App({ onSignOut, sessionActor }: {
           onEscalate={async (detail, reasonCode, reasonNote) => { await escalateInteraction(detail, reasonCode, reasonNote); }}
           onChangeAssignment={changeInteractionAssignment}
           onAddInternalNote={addInternalNote}
+          onNavigate={view === "interactions" ? openAdjacentCase : undefined}
+          navigation={view === "interactions" ? {
+            hasPrevious: Boolean(adjacentCase(selectedInteractionId, -1)),
+            hasNext: Boolean(adjacentCase(selectedInteractionId, 1)),
+          } : undefined}
         />
       ) : null}
 

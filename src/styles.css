@@ -1383,7 +1383,8 @@ textarea:focus-visible {
 
 .filter-bar {
   display: grid;
-  grid-template-columns: minmax(240px, 1.7fr) repeat(5, minmax(108px, 0.72fr)) auto;
+  /* Búsqueda + 6 filtros (cuenta, asignación, canal, tipo, plazo, estado) + limpiar. */
+  grid-template-columns: minmax(200px, 1.2fr) repeat(6, minmax(104px, 0.8fr)) auto;
   gap: 9px;
   align-items: end;
   margin-bottom: 12px;
@@ -5923,7 +5924,7 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
   }
 }
 
-@media (max-height: 760px) and (min-width: 861px) {
+@media (max-height: 820px) and (min-width: 861px) {
   .manual-inbox-header { min-height: 0; padding-top: 10px; padding-bottom: 10px; }
   .manual-inbox-header__copy > span { display: none; }
   .manual-inbox-column__header,
@@ -5941,11 +5942,11 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
   background: var(--surface-overlay);
 }
 
-@media (max-height: 760px) and (min-width: 861px) {
+@media (max-height: 820px) and (min-width: 861px) {
   .manual-inbox-composer { max-height: 58%; }
 }
 
-@media (max-height: 760px) and (min-width: 861px) {
+@media (max-height: 820px) and (min-width: 861px) {
   /* El historial cede alto (hace scroll por dentro) para que el compositor entre completo. */
   .manual-inbox-timeline { min-height: 84px; }
 }
@@ -5998,12 +5999,12 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
    scroll por dentro con sus acciones fijas abajo. */
 .manual-inbox-composer { max-height: 52%; }
 .manual-inbox-composer > textarea { min-height: 40px; }
-@media (max-height: 760px) and (min-width: 861px) {
+@media (max-height: 820px) and (min-width: 861px) {
   .manual-inbox-composer { max-height: 55%; }
 }
 
 /* Pantallas bajas: menos cromo alrededor del chat para que el historial tenga alto. */
-@media (max-height: 760px) and (min-width: 861px) {
+@media (max-height: 820px) and (min-width: 861px) {
   .manual-inbox-surfaces { min-height: 40px; padding-top: 4px; }
   .manual-inbox-surface { min-height: 36px; padding-bottom: 4px; }
   .manual-inbox-column__header,
@@ -6543,3 +6544,298 @@ button.users-roles-person:hover strong { color: var(--accent-text); }
 
 /* Resumen SAC → Actividad reciente: la hora no baja del mínimo legible (9.5px). */
 .activity-item__meta small { font-size: 10px; }
+
+/* Plazos de respuesta (Meta: 7 d DMs, 24 h comentarios) */
+.sac-home-kpis button.is-loading strong { color: var(--muted-2); }
+.sac-home-kpis button.is-loading small { color: var(--muted); }
+.sac-queue-deadline { color: var(--amber); font-weight: 700; }
+
+.deadline-label {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.deadline-label--soon { color: var(--amber); }
+.deadline-label--expired { color: var(--rose); }
+
+.results-toolbar__expired {
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  color: var(--accent-text);
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.expired-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--amber-line);
+  border-radius: 10px;
+  color: var(--ink-2);
+  background: var(--amber-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.expired-banner strong { color: var(--ink); }
+.expired-banner .button { flex: 0 0 auto; }
+
+/*
+ * Gestión DMs/comentarios en pantallas bajas (≤ 820 px de alto: p. ej. 1920×1080 al 150% deja
+ * ~1280×625 y al 125% ~1536×770). Todo el cromo alrededor del chat se compacta para que el
+ * historial tenga alto real sin que el operador tenga que alejar el zoom.
+ */
+@media (max-height: 820px) and (min-width: 861px) {
+  .topbar { min-height: 52px; padding-top: 5px; padding-bottom: 5px; }
+
+  /* Título y selector de cuenta en una sola fila baja. */
+  .manual-inbox-header { gap: 14px; padding: 6px 14px; }
+  .manual-inbox-header__copy p { display: none; }
+  .manual-inbox-header__copy h1 { margin: 0; font-size: 17px; white-space: nowrap; }
+  .manual-inbox-account-picker {
+    min-width: min(100%, 560px);
+    grid-template-columns: minmax(240px, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .manual-inbox-account-picker label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .manual-inbox-account-picker select,
+  .manual-inbox-refresh { min-height: 34px; }
+  .manual-inbox-refresh-status { grid-column: auto; min-height: 0; justify-content: flex-start; font-size: 10.5px; }
+
+  .manual-inbox-surfaces { min-height: 34px; padding-top: 2px; }
+  .manual-inbox-surface { min-height: 30px; padding-bottom: 2px; }
+
+  .manual-inbox-column__header,
+  .manual-inbox-conversation-header { min-height: 40px; padding-top: 4px; padding-bottom: 4px; }
+
+  .manual-inbox-timeline > header { min-height: 28px; padding: 3px 12px; }
+  .manual-inbox-timeline ol { gap: 8px; }
+
+  /* Compositor: 2 líneas visibles (se puede agrandar), recomendación y acciones más bajas. */
+  .manual-inbox-composer { max-height: 44%; gap: 4px; padding-top: 6px; }
+  .manual-inbox-composer > textarea { height: 48px; min-height: 40px; }
+  .manual-inbox-recommendation { padding-top: 3px; padding-bottom: 3px; }
+  .manual-inbox-composer__actions { padding-top: 4px; padding-bottom: 6px; }
+  .manual-inbox-composer__actions .button { min-height: 32px; }
+}
+
+/* La etiqueta de estado de la cuenta (Operativa, Desconectada…) nunca se recorta. */
+.manual-inbox-health { flex: 0 0 auto; white-space: nowrap; }
+
+/*
+ * Gestión comentarios en pantallas bajas: la publicación original pasa a una franja compacta
+ * (miniatura + texto en 2 líneas + enlace al lado) y la lista de comentarios cede alto con
+ * scroll propio, para que el compositor y sus acciones queden siempre a la vista.
+ */
+@media (max-height: 820px) and (min-width: 861px) {
+  .manual-inbox-column--conversation > .manual-inbox-post-preview {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    align-items: center;
+    margin: 8px 10px;
+  }
+  .manual-inbox-column--conversation > .manual-inbox-post-preview .manual-inbox-post-preview__media {
+    height: 64px;
+    min-height: 0;
+  }
+  .manual-inbox-column--conversation > .manual-inbox-post-preview .manual-inbox-post-preview__copy {
+    gap: 2px;
+    padding: 6px 10px;
+  }
+  .manual-inbox-column--conversation > .manual-inbox-post-preview .manual-inbox-post-preview__copy span { display: none; }
+  .manual-inbox-column--conversation > .manual-inbox-post-preview .manual-inbox-post-preview__copy strong {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.35;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .manual-inbox-column--conversation > .manual-inbox-post-preview .manual-inbox-post-preview__link,
+  .manual-inbox-column--conversation > .manual-inbox-post-preview .manual-inbox-post-preview__unavailable {
+    grid-column: auto;
+    min-height: 0;
+    align-self: stretch;
+    padding: 6px 12px;
+    border-top: 0;
+    border-left: 1px solid var(--accent-line);
+    white-space: nowrap;
+  }
+
+  .manual-inbox-exact-comments { min-height: 96px; }
+  .manual-inbox-exact-comments > header { min-height: 36px; padding: 5px 12px; }
+  .manual-inbox-exact-comments > header small { display: inline; margin: 0 0 0 6px; font-size: 11px; }
+  .manual-inbox-exact-comments > header strong { display: inline; }
+  .manual-inbox-exact-comments > ol { gap: 6px; padding: 8px 10px; }
+  .manual-inbox-column--conversation > .manual-inbox-composer { flex: 0 0 auto; }
+}
+
+/* Pantallas bajas: "Respondiendo a …" en una línea (el comentario completo ya se ve arriba,
+   seleccionado en la lista), para que el campo de respuesta quede visible sin scroll. */
+@media (max-height: 820px) and (min-width: 861px) {
+  .manual-inbox-reply-target {
+    display: flex;
+    max-height: 30px;
+    align-items: baseline;
+    gap: 8px;
+    overflow: hidden;
+    padding: 4px 10px;
+    white-space: nowrap;
+  }
+  .manual-inbox-reply-target > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .manual-inbox-reply-target .content-context__fallback { display: none; }
+  .manual-inbox-deadline-warning { padding-top: 4px; padding-bottom: 4px; }
+}
+
+/* Filtro de cuenta con búsqueda (Bandeja SAC) */
+.account-filter { position: relative; min-width: 0; }
+.account-filter__trigger {
+  display: flex;
+  width: 100%;
+  height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--ink-2);
+  background: var(--surface);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.account-filter__trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-filter__trigger svg { flex: 0 0 auto; color: var(--muted); }
+.account-filter__popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  width: max(100%, 320px);
+  max-height: min(420px, 60vh);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: var(--glass-blur);
+}
+.account-filter__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+.account-filter__search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+.account-filter__list { overflow-y: auto; margin: 0; padding: 4px; list-style: none; }
+.account-filter__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.account-filter__option.is-active { background: var(--accent-soft); }
+.account-filter__option.is-selected strong { color: var(--accent-text); }
+.account-filter__copy { display: grid; min-width: 0; gap: 1px; }
+.account-filter__copy strong { overflow: hidden; color: var(--ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.account-filter__copy small { overflow: hidden; color: var(--muted); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.account-filter__count {
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 800;
+  text-align: center;
+}
+.account-filter__empty { padding: 10px; color: var(--muted); font-size: 11.5px; }
+
+/* Detalle de caso: moverse entre casos (J/K). */
+.case-detail-panel__nav { display: inline-flex; gap: 2px; }
+.case-detail-panel__nav .icon-button:disabled { opacity: 0.4; cursor: default; }
+
+/* Botón de filtros: solo en pantallas angostas. */
+.filters-toggle { display: none; }
+
+/*
+ * Bandeja en el celular (≤ 640 px): filtros plegables detrás de un botón y cada conversación
+ * como tarjeta en vez de fila de tabla (sin deslizar hacia los lados).
+ */
+@media (max-width: 640px) {
+  .interactions-view .view-header__actions { flex-wrap: wrap; }
+  .interactions-view .view-header__actions .button { flex: 1 1 auto; }
+  .filters-toggle { display: inline-flex; width: 100%; justify-content: center; margin-bottom: 10px; }
+  .interactions-view .filter-bar { display: none; }
+  .interactions-view .filter-bar.is-open { display: grid; grid-template-columns: 1fr; }
+  .interactions-view .filter-bar .search-field { grid-column: auto; }
+  .interactions-view .account-filter__popover { width: 100%; }
+  .interactions-view .results-toolbar { flex-direction: column; gap: 6px; }
+  .interactions-view .results-toolbar__meta { max-width: 100%; justify-items: start; text-align: left; }
+  .interactions-view .results-toolbar__freshness { justify-content: flex-start; flex-wrap: wrap; row-gap: 3px; }
+  .interactions-view .results-toolbar__freshness > * { white-space: normal; }
+
+  .interactions-view .table-scroll { overflow: visible; }
+  .interactions-table,
+  .interactions-table tbody { display: block; min-width: 0; width: 100%; }
+  .interactions-table thead { display: none; }
+  .interactions-table tr.data-table__row {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .interactions-table tr.data-table__row > td { display: block; min-width: 0; padding: 0; border: 0; }
+  .interactions-table tr.data-table__row > td.selection-column { grid-row: 1; grid-column: 1; }
+  .interactions-table tr.data-table__row > td:nth-child(2) { grid-row: 1; grid-column: 2; }
+  .interactions-table tr.data-table__row > td.actions-cell { grid-row: 1; grid-column: 3; }
+  .interactions-table tr.data-table__row > td:nth-child(3),
+  .interactions-table tr.data-table__row > td:nth-child(4),
+  .interactions-table tr.data-table__row > td:nth-child(5),
+  .interactions-table tr.data-table__row > td:nth-child(6) { grid-column: 2 / -1; }
+  .interactions-table tr.data-table__row > td:nth-child(3),
+  .interactions-table tr.data-table__row > td:nth-child(4),
+  .interactions-table tr.data-table__row > td:nth-child(5) { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
+}

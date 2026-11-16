@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { deadlineLabel, isExpired, needsAction, replyDeadline } from "../lib/reply-window";
+import { AccountFilter } from "./AccountFilter";
 import {
   ArrowClockwise,
   Check,
   CheckCircle,
   Export,
   FunnelSimple,
+  HandGrabbing,
   MagnifyingGlass,
   PaperPlaneTilt,
   Robot,
@@ -29,7 +32,41 @@ import {
 import { ContentContext } from "./ContentContext";
 
 type FilterValue<T extends string> = T | "all";
-type AssignmentFilter = "all" | "assigned" | "unassigned";
+type AssignmentFilter = "all" | "assigned" | "unassigned" | "mine";
+/** Plazo de respuesta de Meta: por defecto se ocultan los casos vencidos (histórico). */
+type DeadlineFilter = "hide_expired" | "expired" | "all";
+
+/** Filtros recordados por navegador (no la búsqueda): al volver, la bandeja queda como estaba. */
+const FILTERS_STORAGE_KEY = "wiwo-nodes.inbox-filters.v1";
+type StoredFilters = {
+  account?: string;
+  assignment?: AssignmentFilter;
+  platform?: string;
+  kind?: string;
+  status?: string;
+  deadline?: DeadlineFilter;
+};
+
+function readStoredFilters(): StoredFilters {
+  try {
+    const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as unknown : null;
+    return parsed && typeof parsed === "object" ? parsed as StoredFilters : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredFilters(filters: StoredFilters): void {
+  try {
+    window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  } catch {
+    // Sin almacenamiento (modo privado, bloqueado): la bandeja funciona igual, solo no recuerda.
+  }
+}
+
+const ASSIGNMENT_VALUES: AssignmentFilter[] = ["all", "assigned", "unassigned", "mine"];
+const DEADLINE_VALUES: DeadlineFilter[] = ["hide_expired", "expired", "all"];
 const PAGE_SIZE = 50;
 
 export interface InteractionsViewProps {
@@ -49,6 +86,17 @@ export interface InteractionsViewProps {
   onSendAutomaticResponse?: (interaction: Interaction) => void | Promise<void>;
   onSendAutomaticResponses?: (interactions: Interaction[]) => void | Promise<void>;
   onResolveInteraction?: (interaction: Interaction) => void | Promise<void>;
+  /** Archivar como histórico los casos fuera de plazo (permiso inbox.archive_expired). */
+  canArchiveExpired?: boolean;
+  onArchiveExpired?: (scope: { accountId?: string; type?: "dm" | "comment" }) => void | Promise<void>;
+  /** Persona en sesión, para el filtro "Mis casos". */
+  currentUserId?: string;
+  /** Puede tomarse casos (permiso inbox.assign). */
+  canAssign?: boolean;
+  /** Asigna a la persona el caso indicado y lo abre. */
+  onTakeNext?: (interaction: Interaction) => void | Promise<void>;
+  /** Orden visible (filtros y orden aplicados), para pasar al caso siguiente desde el detalle. */
+  onVisibleOrderChange?: (interactions: Interaction[]) => void;
 }
 
 function normalize(value: string) {
@@ -130,10 +178,6 @@ function StatusMark({ status }: { status: InteractionStatus }) {
   return <WarningCircle {...props} />;
 }
 
-/** Una conversación requiere acción si su caso está sin responder o derivado a revisión humana. */
-function needsAction(interaction: { status: string }): boolean {
-  return interaction.status === "pending" || interaction.status === "needs_review";
-}
 
 export function InteractionsView({
   interactions,
@@ -152,14 +196,54 @@ export function InteractionsView({
   onSendAutomaticResponse,
   onSendAutomaticResponses,
   onResolveInteraction,
+  canArchiveExpired = false,
+  onArchiveExpired,
+  currentUserId,
+  canAssign = false,
+  onTakeNext,
+  onVisibleOrderChange,
 }: InteractionsViewProps) {
+  const [stored] = useState(readStoredFilters);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [accountFilter, setAccountFilter] = useState("all");
-  const [platformFilter, setPlatformFilter] = useState<FilterValue<SocialPlatform>>("all");
-  const [kindFilter, setKindFilter] = useState<FilterValue<InteractionKind>>("all");
-  const [statusFilter, setStatusFilter] = useState<FilterValue<InteractionStatus>>("all");
-  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>("all");
+  // La búsqueda filtra ~11.000 filas: se aplica cuando la persona deja de escribir.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [accountFilter, setAccountFilter] = useState(stored.account || "all");
+  const [platformFilter, setPlatformFilter] = useState<FilterValue<SocialPlatform>>((stored.platform as FilterValue<SocialPlatform>) || "all");
+  const [kindFilter, setKindFilter] = useState<FilterValue<InteractionKind>>((stored.kind as FilterValue<InteractionKind>) || "all");
+  const [statusFilter, setStatusFilter] = useState<FilterValue<InteractionStatus>>((stored.status as FilterValue<InteractionStatus>) || "all");
+  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>(
+    stored.assignment && ASSIGNMENT_VALUES.includes(stored.assignment) ? stored.assignment : "all",
+  );
+  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>(
+    stored.deadline && DEADLINE_VALUES.includes(stored.deadline) ? stored.deadline : "hide_expired",
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setSearchQuery(query), 200);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  useEffect(() => {
+    writeStoredFilters({
+      account: accountFilter,
+      assignment: assignmentFilter,
+      platform: platformFilter,
+      kind: kindFilter,
+      status: statusFilter,
+      deadline: deadlineFilter,
+    });
+  }, [accountFilter, assignmentFilter, deadlineFilter, kindFilter, platformFilter, statusFilter]);
+
+  // Una cuenta recordada que ya no está (desactivada, sin acceso) vuelve a "todas".
+  useEffect(() => {
+    if (accountFilter !== "all" && accounts.length && !accounts.some((account) => account.id === accountFilter)) {
+      setAccountFilter("all");
+    }
+  }, [accountFilter, accounts]);
   const [selectedContactKeys, setSelectedContactKeys] = useState<Set<string>>(() => new Set());
+  // Referencia de tiempo para los plazos; se renueva con cada actualización de la bandeja.
+  const now = useMemo(() => Date.now(), [interactions]);
   const [page, setPage] = useState(1);
   const availablePlatforms = useMemo(() => {
     const connected = new Set([
@@ -170,7 +254,7 @@ export function InteractionsView({
   }, [accounts, interactions]);
 
   const filteredInteractions = useMemo(() => {
-    const normalizedQuery = normalize(query.trim());
+    const normalizedQuery = normalize(searchQuery.trim());
 
     return interactions.filter((interaction) => {
       const matchesQuery =
@@ -183,16 +267,53 @@ export function InteractionsView({
       const matchesKind = kindFilter === "all" || includesKind(interaction, kindFilter);
       const matchesStatus = statusFilter === "all" || interaction.status === statusFilter;
       const matchesAssignment = assignmentFilter === "all"
-        || (assignmentFilter === "assigned" ? Boolean(interaction.assignedTo) : !interaction.assignedTo);
+        || (assignmentFilter === "mine"
+          ? Boolean(currentUserId) && interaction.assignedTo?.userId === currentUserId
+          : assignmentFilter === "assigned" ? Boolean(interaction.assignedTo) : !interaction.assignedTo);
+      const expired = isExpired(interaction, now);
+      const matchesDeadline = deadlineFilter === "all" || (deadlineFilter === "expired" ? expired : !expired);
 
-      return matchesQuery && matchesAccount && matchesPlatform && matchesKind && matchesStatus && matchesAssignment;
+      return matchesQuery && matchesAccount && matchesPlatform && matchesKind && matchesStatus && matchesAssignment && matchesDeadline;
     })
-      // Primero lo que requiere acción (sin responder o en revisión humana); dentro de cada
-      // grupo se mantiene el orden del servidor (actividad más reciente primero).
-      .map((interaction, index) => ({ interaction, index, actionable: needsAction(interaction) }))
-      .sort((left, right) => Number(right.actionable) - Number(left.actionable) || left.index - right.index)
+      // Primero lo que requiere acción y, dentro de eso, lo que vence antes (sin plazo al
+      // final); el resto mantiene el orden del servidor (actividad más reciente primero).
+      .map((interaction, index) => ({
+        interaction,
+        index,
+        actionable: needsAction(interaction),
+        deadline: needsAction(interaction) && !isExpired(interaction, now) ? replyDeadline(interaction) ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY,
+      }))
+      .sort((left, right) =>
+        Number(right.actionable) - Number(left.actionable)
+        || left.deadline - right.deadline
+        || left.index - right.index)
       .map(({ interaction }) => interaction);
-  }, [accountFilter, assignmentFilter, interactions, kindFilter, platformFilter, query, statusFilter]);
+  }, [accountFilter, assignmentFilter, currentUserId, deadlineFilter, interactions, kindFilter, now, platformFilter, searchQuery, statusFilter]);
+
+  useEffect(() => {
+    onVisibleOrderChange?.(filteredInteractions);
+  }, [filteredInteractions, onVisibleOrderChange]);
+
+  /** Casos por atender en plazo por cuenta (para el filtro de cuenta). */
+  const inWindowCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const interaction of interactions) {
+      if (needsAction(interaction) && !isExpired(interaction, now)) counts[interaction.accountId] = (counts[interaction.accountId] ?? 0) + 1;
+    }
+    return counts;
+  }, [interactions, now]);
+
+  /** Siguiente caso para tomar: sin asignar, por atender, en plazo, el que vence antes. */
+  const nextToTake = useMemo(() => filteredInteractions.find((interaction) =>
+    needsAction(interaction) && !isExpired(interaction, now) && !interaction.assignedTo && interaction.version !== undefined),
+  [filteredInteractions, now]);
+
+  // Casos fuera de plazo con los demás filtros aplicados (para el aviso y el archivado).
+  const expiredInScope = useMemo(() => interactions.filter((interaction) =>
+    isExpired(interaction, now)
+    && (accountFilter === "all" || interaction.accountId === accountFilter)
+    && (kindFilter === "all" || includesKind(interaction, kindFilter))).length,
+  [accountFilter, interactions, kindFilter, now]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInteractions.length / PAGE_SIZE));
   const visibleInteractions = filteredInteractions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -203,7 +324,7 @@ export function InteractionsView({
 
   useEffect(() => {
     setPage(1);
-  }, [accountFilter, assignmentFilter, kindFilter, platformFilter, query, statusFilter]);
+  }, [accountFilter, assignmentFilter, deadlineFilter, kindFilter, platformFilter, searchQuery, statusFilter]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -232,7 +353,16 @@ export function InteractionsView({
     platformFilter !== "all" ||
     kindFilter !== "all" ||
     statusFilter !== "all" ||
-    assignmentFilter !== "all";
+    assignmentFilter !== "all" ||
+    deadlineFilter !== "hide_expired";
+  const activeFilterCount = [
+    accountFilter !== "all",
+    assignmentFilter !== "all",
+    platformFilter !== "all",
+    kindFilter !== "all",
+    statusFilter !== "all",
+    deadlineFilter !== "hide_expired",
+  ].filter(Boolean).length;
 
   const toggleSelection = (contactKey: string) => {
     setSelectedContactKeys((current) => {
@@ -282,11 +412,13 @@ export function InteractionsView({
 
   const clearFilters = () => {
     setQuery("");
+    setSearchQuery("");
     setAccountFilter("all");
     setPlatformFilter("all");
     setKindFilter("all");
     setStatusFilter("all");
     setAssignmentFilter("all");
+    setDeadlineFilter("hide_expired");
   };
 
   return (
@@ -327,6 +459,22 @@ export function InteractionsView({
             />
             {isRefreshing ? "Actualizando" : "Actualizar ahora"}
           </button>
+          {onTakeNext ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => { if (nextToTake) void onTakeNext(nextToTake); }}
+              disabled={!canAssign || !nextToTake || isRefreshing}
+              title={!canAssign
+                ? "Tu rol no permite tomar casos"
+                : nextToTake
+                  ? `Te asigna y abre ${nextToTake.customerName} (${deadlineLabel(nextToTake, now) ?? "sin plazo"})`
+                  : "No hay casos en plazo sin asignar con estos filtros"}
+            >
+              <HandGrabbing size={17} weight="bold" aria-hidden="true" />
+              Tomar siguiente
+            </button>
+          ) : null}
           <button
             className="button button--primary"
             type="button"
@@ -340,7 +488,17 @@ export function InteractionsView({
         </div>
       </header>
 
-      <div className="filter-bar" role="search" aria-label="Buscar y filtrar conversaciones">
+      <button
+        className="button button--secondary filters-toggle"
+        type="button"
+        aria-expanded={filtersOpen}
+        onClick={() => setFiltersOpen((current) => !current)}
+      >
+        <FunnelSimple size={16} weight="bold" aria-hidden="true" />
+        {filtersOpen ? "Ocultar filtros" : `Filtros${activeFilterCount ? ` (${activeFilterCount})` : ""}`}
+      </button>
+
+      <div className={`filter-bar${filtersOpen ? " is-open" : ""}`} role="search" aria-label="Buscar y filtrar conversaciones">
         <label className="search-field">
           <span className="sr-only">Buscar conversaciones</span>
           <MagnifyingGlass className="search-field__icon" size={18} aria-hidden="true" />
@@ -363,15 +521,10 @@ export function InteractionsView({
           ) : null}
         </label>
 
-        <label className="filter-field">
+        <div className="filter-field">
           <span className="filter-field__label">Cuenta</span>
-          <select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}>
-            <option value="all">Todas las cuentas</option>
-            {accounts.map((account) => (
-              <option value={account.id} key={account.id}>{account.name}</option>
-            ))}
-          </select>
-        </label>
+          <AccountFilter accounts={accounts} value={accountFilter} onChange={setAccountFilter} inWindowCounts={inWindowCounts} />
+        </div>
 
         <label className="filter-field">
           <span className="filter-field__label">Asignación</span>
@@ -380,6 +533,7 @@ export function InteractionsView({
             onChange={(event) => setAssignmentFilter(event.target.value as AssignmentFilter)}
           >
             <option value="all">Todos los casos</option>
+            {currentUserId ? <option value="mine">Mis casos</option> : null}
             <option value="unassigned">Sin asignar</option>
             <option value="assigned">Asignados</option>
           </select>
@@ -412,6 +566,19 @@ export function InteractionsView({
         </label>
 
         <label className="filter-field">
+          <span className="filter-field__label">Plazo</span>
+          <select
+            value={deadlineFilter}
+            onChange={(event) => setDeadlineFilter(event.target.value as DeadlineFilter)}
+            title="Meta permite responder DMs hasta 7 días y comentarios hasta 24 horas después del último mensaje del cliente"
+          >
+            <option value="hide_expired">Ocultar vencidas</option>
+            <option value="expired">Solo fuera de plazo</option>
+            <option value="all">Todas</option>
+          </select>
+        </label>
+
+        <label className="filter-field">
           <span className="filter-field__label">Estado</span>
           <select
             value={statusFilter}
@@ -437,6 +604,11 @@ export function InteractionsView({
       <div className="results-toolbar">
         <p className="results-toolbar__count" aria-live="polite">
           <strong>{filteredInteractions.length}</strong> conversaciones · <strong>{filteredMessageCount}</strong> mensajes
+          {deadlineFilter === "hide_expired" && expiredInScope ? (
+            <button className="results-toolbar__expired" type="button" onClick={() => setDeadlineFilter("expired")}>
+              {new Intl.NumberFormat("es-CL").format(expiredInScope)} fuera de plazo ocultas
+            </button>
+          ) : null}
         </p>
         <div className="results-toolbar__meta">
           <p className="results-toolbar__hint">
@@ -480,6 +652,28 @@ export function InteractionsView({
           <button className="button button--ghost" type="button" onClick={() => setSelectedContactKeys(new Set())}>
             Cancelar selección
           </button>
+        </div>
+      ) : null}
+
+      {deadlineFilter === "expired" && expiredInScope > 0 ? (
+        <div className="expired-banner" role="note">
+          <span>
+            <strong>{new Intl.NumberFormat("es-CL").format(expiredInScope)} casos fuera del plazo de respuesta.</strong>
+            {" "}Meta ya no garantiza que se puedan responder; igual puedes abrir uno e intentarlo.
+            {canArchiveExpired ? " Archivarlos los cierra como histórico en Nodes (no borra nada en Metricool) y deja los casos sensibles para revisión humana." : ""}
+          </span>
+          {canArchiveExpired && onArchiveExpired ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => void onArchiveExpired({
+                ...(accountFilter !== "all" ? { accountId: accountFilter } : {}),
+                ...(kindFilter === "dm" || kindFilter === "comment" ? { type: kindFilter } : {}),
+              })}
+            >
+              Archivar fuera de plazo
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -597,6 +791,11 @@ export function InteractionsView({
                         {automationRouteLabel(interaction) ? (
                           <small className={`automation-route automation-route--${interaction.automation?.effectiveRoute}`}>
                             {automationRouteLabel(interaction)}
+                          </small>
+                        ) : null}
+                        {needsAction(interaction) && deadlineLabel(interaction, now) ? (
+                          <small className={`deadline-label${isExpired(interaction, now) ? " deadline-label--expired" : (replyDeadline(interaction) ?? Infinity) - now < 24 * 60 * 60 * 1_000 ? " deadline-label--soon" : ""}`}>
+                            {deadlineLabel(interaction, now)}
                           </small>
                         ) : null}
                       </td>

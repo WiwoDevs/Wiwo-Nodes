@@ -50,6 +50,7 @@ Cada ruta exige un **permiso**; los roles son conjuntos de permisos editables de
 | `inbox.triage` | Notas, `PATCH .../status`, `POST /api/sac/protocol/evaluate` | Agente, Supervisor |
 | `inbox.assign` | `PUT .../assignment` sobre sí mismo | Agente, Supervisor |
 | `inbox.assign_others` | Asignar a otra persona y soltar casos ajenos | Supervisor |
+| `inbox.archive_expired` | `POST /api/interactions/archive-expired` | Supervisor |
 | `sync.run` | `POST /api/sync` | Agente, Supervisor |
 | `export.xlsx` | `GET /api/export/xlsx` | Supervisor |
 | `metrics.read` | `GET /api/metrics`, `GET /api/jobs` | Supervisor |
@@ -710,9 +711,15 @@ En cada sincronización live, la API intenta leer `GET /v2/settings/brands/{blog
 
 Rol `viewer`. Responde `{ data: { revision } }`, una cadena opaca que cambia con cada escritura exitosa en la API (sincronización, borrador, respuesta, asignación, estado, marcas…) y nunca con lecturas ni con rutas de sesión. El prefijo cambia en cada arranque de la API. La UI la consulta cada 30 s con la bandeja visible y solo descarga `/api/brands` e `/api/inbox/contacts` si cambió; además hace una descarga completa al menos cada 5 minutos para cubrir cambios hechos fuera de la API (despachador de respuestas automáticas).
 
+### Plazos de respuesta y `POST /api/interactions/archive-expired`
+
+Metricool informa 7 días para responder DMs y 24 horas para comentarios en Instagram y Facebook, contados desde el último mensaje del cliente (para DMs, el último entrante de la conversación). La UI usa `latestInboundAt` de cada contacto para mostrar "Vence en…"/"Venció hace…", contar en Inicio solo lo que sigue **en plazo** y, en la Bandeja, ocultar por defecto lo vencido (filtro **Plazo**). Fuera de plazo igual se puede abrir, redactar e intentar una respuesta manual: Metricool/Meta deciden.
+
+`POST /api/interactions/archive-expired` (permiso `inbox.archive_expired`) con `{ dryRun?: boolean = true, accountId?, type?: "dm" | "comment" }`: cierra como `resolved` con motivo `reply_window_expired` ("Fuera de plazo de respuesta (histórico)") los casos entrantes abiertos (`new`, `pending`, `drafted`, `escalated`) cuyo plazo venció, dentro del alcance de marcas del actor. Nunca archiva casos sensibles (sentimiento negativo o riesgo `high`/`critical`), nunca escribe en Metricool y deja una entrada de auditoría por caso (`metadata.bulk: true`). Responde `{ data: { dryRun, archived, eligible, skippedSensitive } }`; con `dryRun` solo cuenta. Un caso archivado se reabre cambiando su estado.
+
 ### `GET /api/inbox/contacts`
 
-Contrato optimizado de la bandeja. Aplica el scope de marca del actor antes de agrupar y pagina después de construir contactos. Una fila representa una persona dentro de la misma cuenta y plataforma; nunca fusiona marcas o redes. La identidad pública `contactKey` es un SHA-256 opaco y no revela el ID social.
+Contrato optimizado de la bandeja. Cada contacto incluye `latestInboundAt` (último mensaje del cliente), usado para el plazo de respuesta. Aplica el scope de marca del actor antes de agrupar y pagina después de construir contactos. Una fila representa una persona dentro de la misma cuenta y plataforma; nunca fusiona marcas o redes. La identidad pública `contactKey` es un SHA-256 opaco y no revela el ID social.
 
 Acepta `page` y `pageSize` con las mismas reglas de `/api/interactions`. Primero filtra interacciones y luego agrupa el subconjunto resultante; por eso los recuentos representan los mensajes que cumplen los filtros, no necesariamente todo el historial del contacto. La bandeja principal carga el conjunto autorizado sin filtros de servidor y aplica sus filtros sobre los contactos ya agregados.
 

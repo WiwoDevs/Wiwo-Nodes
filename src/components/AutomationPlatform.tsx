@@ -81,6 +81,7 @@ import type { BrandAccount, Interaction } from "../types";
 import { interactionKindLabel, SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
 import { greetingNameOf, salutationFor } from "../lib/greeting";
+import { deadlineLabel, isExpired, needsAction, replyDeadline } from "../lib/reply-window";
 
 export type AutomationSection = "home" | "workflows" | "executions" | "templates" | "credentials";
 export type AutomationHomeDestination = "platform-home" | "automations" | "automation-executions" | "workflow" | "dashboard" | "interactions" | "accounts";
@@ -692,14 +693,30 @@ export function AutomationPlatform({
 
   if (section === "home") {
     const greetingName = greetingNameOf(userName);
-    const attention = interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review");
+    // Mientras carga la operación no hay datos: se muestran marcadores, nunca ceros que
+    // parezcan "todo al día".
+    const isFirstLoad = isOperationalLoading && interactions.length === 0;
+    const now = Date.now();
+    const formatCount = (value: number) => new Intl.NumberFormat("es-CL").format(value);
+    // "Por atender" cuenta solo lo que sigue dentro del plazo de Meta (7 d DMs, 24 h
+    // comentarios); lo vencido se informa aparte porque ya no es trabajo del día.
+    const allAttention = interactions.filter(needsAction);
+    const attention = allAttention.filter((interaction) => !isExpired(interaction, now));
+    const expiredCount = allAttention.length - attention.length;
     const review = attention.filter((interaction) => interaction.status === "needs_review");
     const unassigned = attention.filter((interaction) => !interaction.assignee && !interaction.assignedTo);
-    const waitingOverHour = attention.filter((interaction) => Date.now() - Date.parse(interaction.receivedAt) > 60 * 60 * 1_000);
+    const dueSoon = attention.filter((interaction) => {
+      const deadline = replyDeadline(interaction);
+      return deadline !== undefined && deadline - now < 24 * 60 * 60 * 1_000;
+    });
     const accountsWithAlerts = accounts.filter((account) => account.health !== "healthy");
     const priorityRank = { urgent: 0, high: 1, normal: 2 } as const;
+    // Primero lo que vence antes; sin plazo (reseñas, otras redes) después, por prioridad y antigüedad.
     const topQueue = [...attention]
-      .sort((left, right) => priorityRank[left.priority] - priorityRank[right.priority] || Date.parse(left.receivedAt) - Date.parse(right.receivedAt))
+      .sort((left, right) =>
+        (replyDeadline(left) ?? Number.POSITIVE_INFINITY) - (replyDeadline(right) ?? Number.POSITIVE_INFINITY)
+        || priorityRank[left.priority] - priorityRank[right.priority]
+        || Date.parse(left.receivedAt) - Date.parse(right.receivedAt))
       .slice(0, 5);
     const active = state.workflows.filter((workflow) => workflow.active && !workflow.archived).length;
     const successful = state.executions.filter((execution) => execution.status === "success").length;
@@ -728,42 +745,43 @@ export function AutomationPlatform({
       </section>
 
       <section className="sac-home-kpis" aria-label="Prioridades operativas">
-        <button onClick={() => onNavigate("interactions")} className={attention.length ? "is-warning" : "is-ready"}>
-          <span><ChatCircleDots weight="duotone" /> Por atender</span><strong>{attention.length}</strong><small>{waitingOverHour.length ? `${waitingOverHour.length} hace más de 1 h` : "Sin esperas prolongadas"}</small><ArrowRight />
+        <button onClick={() => onNavigate("interactions")} className={isFirstLoad ? "is-loading" : attention.length ? "is-warning" : "is-ready"} title="Casos sin responder o en revisión que siguen dentro del plazo de respuesta de Meta">
+          <span><ChatCircleDots weight="duotone" /> Por atender en plazo</span><strong>{isFirstLoad ? "—" : formatCount(attention.length)}</strong><small>{isFirstLoad ? "Cargando…" : dueSoon.length ? `${formatCount(dueSoon.length)} vencen en menos de 24 h` : "Sin vencimientos cercanos"}{!isFirstLoad && expiredCount ? <><br />{formatCount(expiredCount)} fuera de plazo</> : null}</small><ArrowRight />
         </button>
-        <button onClick={() => onNavigate("interactions")} className={review.length ? "is-warning" : "is-ready"}>
-          <span><UserFocus weight="duotone" /> Revisión humana</span><strong>{review.length}</strong><small>{review.length ? "Requieren una decisión" : "Sin revisiones pendientes"}</small><ArrowRight />
+        <button onClick={() => onNavigate("interactions")} className={isFirstLoad ? "is-loading" : review.length ? "is-warning" : "is-ready"}>
+          <span><UserFocus weight="duotone" /> Revisión humana</span><strong>{isFirstLoad ? "—" : formatCount(review.length)}</strong><small>{isFirstLoad ? "Cargando…" : review.length ? "En plazo · requieren una decisión" : "Sin revisiones en plazo"}</small><ArrowRight />
         </button>
-        <button onClick={() => onNavigate("interactions")} className={unassigned.length ? "is-warning" : "is-ready"}>
-          <span><UserFocus weight="duotone" /> Sin asignar</span><strong>{unassigned.length}</strong><small>{unassigned.length ? "Disponibles para tomar" : "Todo tiene responsable"}</small><ArrowRight />
+        <button onClick={() => onNavigate("interactions")} className={isFirstLoad ? "is-loading" : unassigned.length ? "is-warning" : "is-ready"}>
+          <span><UserFocus weight="duotone" /> Sin asignar</span><strong>{isFirstLoad ? "—" : formatCount(unassigned.length)}</strong><small>{isFirstLoad ? "Cargando…" : unassigned.length ? "En plazo · disponibles para tomar" : "Todo tiene responsable"}</small><ArrowRight />
         </button>
-        <button onClick={() => onNavigate("accounts")} className={accountsWithAlerts.length ? "is-warning" : "is-ready"}>
-          <span><Buildings weight="duotone" /> Cuentas con alertas</span><strong>{accountsWithAlerts.length}</strong><small>{accountsWithAlerts.length ? `de ${accounts.length} conectadas` : `${accounts.length} operativa${accounts.length === 1 ? "" : "s"}`}</small><ArrowRight />
+        <button onClick={() => onNavigate("accounts")} className={isFirstLoad ? "is-loading" : accountsWithAlerts.length ? "is-warning" : "is-ready"}>
+          <span><Buildings weight="duotone" /> Cuentas con alertas</span><strong>{isFirstLoad ? "—" : accountsWithAlerts.length}</strong><small>{isFirstLoad ? "Cargando…" : accountsWithAlerts.length ? `de ${accounts.length} conectadas` : `${accounts.length} operativa${accounts.length === 1 ? "" : "s"}`}</small><ArrowRight />
         </button>
       </section>
 
       <div className="sac-home-operations">
         <section className="sac-home-panel sac-queue-panel">
-          <header><div><span className="panel-kicker">Cola priorizada</span><h3>Conversaciones que requieren acción</h3><p>Urgencia, revisión y antigüedad ordenadas para decidir qué atender ahora.</p></div><button className="text-button" onClick={() => onNavigate("interactions")}>Ver bandeja <ArrowRight /></button></header>
+          <header><div><span className="panel-kicker">Cola priorizada</span><h3>Conversaciones que requieren acción</h3><p>En plazo, ordenadas por lo que vence antes.</p></div><button className="text-button" onClick={() => onNavigate("interactions")}>Ver bandeja <ArrowRight /></button></header>
           <div className="sac-queue-list">
             {topQueue.map((interaction) => <button key={interaction.id} onClick={() => onOpenInteraction(interaction)}>
               <span className="sac-queue-avatar">{interaction.brandInitials}</span>
               <span className="sac-queue-copy"><span><strong>{interaction.customerName}</strong><small>{interaction.brandName}</small></span><p><ContentContext text={interaction.preview} context={interaction.contentContext} compact /></p><small><SocialPlatformIcon platform={interaction.platform} weight="fill" />{interactionKindLabel(interaction.kind)}<i />{interaction.receivedAtLabel}</small></span>
-              <span className="sac-queue-state"><em className={`priority-${interaction.priority}`}>{interactionPriorityLabel(interaction.priority)}</em><small>{interactionStatusLabel(interaction.status)}</small></span>
+              <span className="sac-queue-state"><em className={`priority-${interaction.priority}`}>{interactionPriorityLabel(interaction.priority)}</em><small>{interactionStatusLabel(interaction.status)}</small>{deadlineLabel(interaction, now) ? <small className="sac-queue-deadline">{deadlineLabel(interaction, now)}</small> : null}</span>
               <ArrowRight className="sac-queue-arrow" />
             </button>)}
-            {!topQueue.length ? <div className="sac-panel-empty"><CheckCircle weight="fill" /><span><strong>Cola al día</strong><small>No hay conversaciones pendientes o en revisión.</small></span></div> : null}
+            {isFirstLoad ? <div className="sac-panel-empty" role="status"><ArrowsClockwise className="spin" /><span><strong>Cargando conversaciones…</strong><small>Preparando la cola por plazo de respuesta.</small></span></div> : null}
+            {!isFirstLoad && !topQueue.length ? <div className="sac-panel-empty"><CheckCircle weight="fill" /><span><strong>Cola al día</strong><small>{expiredCount ? `No hay casos en plazo. ${formatCount(expiredCount)} quedan fuera de plazo en la bandeja.` : "No hay conversaciones pendientes o en revisión."}</small></span></div> : null}
           </div>
         </section>
 
         <div className="sac-home-side-stack">
           <section className="sac-home-panel sac-account-panel">
-            <header><div><span className="panel-kicker">Salud de cuentas</span><h3>{accountsWithAlerts.length ? "Requieren revisión" : "Todas operativas"}</h3></div><button className="icon-button" aria-label="Abrir cuentas" onClick={() => onNavigate("accounts")}><ArrowRight /></button></header>
+            <header><div><span className="panel-kicker">Salud de cuentas</span><h3>{isFirstLoad ? "Cargando…" : accountsWithAlerts.length ? "Requieren revisión" : "Todas operativas"}</h3></div><button className="icon-button" aria-label="Abrir cuentas" onClick={() => onNavigate("accounts")}><ArrowRight /></button></header>
             <div className="sac-account-list">
               {(accountsWithAlerts.length ? accountsWithAlerts : accounts.slice(0, 3)).slice(0, 4).map((account) => <button key={account.id} onClick={() => onNavigate("accounts")}>
                 <span className="sac-account-avatar">{account.initials}</span><span><strong>{account.name}</strong><small>{account.healthDetail}</small></span><em className={`health-${account.health}`}><i />{accountHealthLabel(account.health)}</em>
               </button>)}
-              {!accounts.length ? <div className="sac-panel-empty compact"><Buildings /><span><strong>Sin cuentas todavía</strong><small>Conecta las cuentas cuando estén disponibles.</small></span></div> : null}
+              {!accounts.length && !isFirstLoad ? <div className="sac-panel-empty compact"><Buildings /><span><strong>Sin cuentas todavía</strong><small>Conecta las cuentas cuando estén disponibles.</small></span></div> : null}
             </div>
           </section>
 

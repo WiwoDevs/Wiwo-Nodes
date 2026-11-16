@@ -323,6 +323,13 @@ export const userAccessRoleSchema = z.object({
   role: z.string().trim().min(1).max(80).nullable(),
 }).strict();
 
+export const archiveExpiredSchema = z.object({
+  accountId: z.string().trim().min(1).max(120).optional(),
+  type: z.enum(["dm", "comment"]).optional(),
+  /** true: solo cuenta lo que se archivaría, sin escribir. */
+  dryRun: z.boolean().default(true),
+}).strict();
+
 export const userPermissionsSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   /** Permisos que debe tener la persona; null quita sus ajustes y vuelve a los de su rol. */

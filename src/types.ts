@@ -274,6 +274,8 @@ export interface Interaction {
   direction: "inbound" | "outbound";
   preview: string;
   receivedAt: string;
+  /** Último mensaje del cliente en la conversación: desde ahí corre el plazo de Meta. */
+  latestInboundAt?: string;
   receivedAtLabel: string;
   status: InteractionStatus;
   priority: InteractionPriority;

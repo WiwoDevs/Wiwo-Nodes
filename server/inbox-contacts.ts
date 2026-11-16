@@ -56,6 +56,8 @@ export interface InboxContactSummary {
   customerHandle: string;
   replyTarget?: PublicInboxInteraction;
   latest: InboxContactLatest;
+  /** Último mensaje del cliente: desde ahí corre el plazo de respuesta de Meta. */
+  latestInboundAt?: string;
   messageCount: number;
   pendingCount: number;
   dmCount: number;
@@ -323,6 +325,7 @@ export function groupInboxContacts(interactions: Interaction[]): InboxContactSum
       customerName: display.customerName,
       customerHandle: display.customerHandle,
       replyTarget: replyTarget ? publicInboxInteraction(replyTarget) : undefined,
+      latestInboundAt: ordered.find((interaction) => interaction.direction === "inbound")?.createdAt,
       latest: {
         id: latest.id,
         direction: latest.direction,

@@ -14,6 +14,7 @@ export const PERMISSION_KEYS = [
   "inbox.triage",
   "inbox.assign",
   "inbox.assign_others",
+  "inbox.archive_expired",
   "sync.run",
   "export.xlsx",
   "metrics.read",
@@ -39,6 +40,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { key: "inbox.triage", group: "Bandeja", label: "Notas y estados", description: "Agregar notas internas, cambiar el estado de un caso y evaluar el protocolo SAC." },
   { key: "inbox.assign", group: "Bandeja", label: "Tomar casos", description: "Asignarse un caso y soltar los propios." },
   { key: "inbox.assign_others", group: "Bandeja", label: "Asignar a otras personas", description: "Asignar casos a otra persona y soltar casos ajenos." },
+  { key: "inbox.archive_expired", group: "Bandeja", label: "Archivar vencidos en lote", description: "Cerrar como histórico los casos fuera del plazo de respuesta (nunca los sensibles)." },
   { key: "sync.run", group: "Bandeja", label: "Actualizar desde Metricool", description: "Pedir una lectura de Metricool con «Actualizar ahora»." },
   { key: "export.xlsx", group: "Reportes", label: "Exportar a Excel", description: "Descargar el Excel de interacciones por período y marca." },
   { key: "metrics.read", group: "Reportes", label: "Ver métricas y cola", description: "Ver métricas técnicas y la cola de trabajos de sincronización." },
@@ -68,7 +70,7 @@ const AGENT_DEFAULTS: Permission[] = ["inbox.reply", "inbox.triage", "inbox.assi
 export const DEFAULT_ROLE_PERMISSIONS: Record<BaseRole, Permission[]> = {
   viewer: [],
   agent: AGENT_DEFAULTS,
-  supervisor: [...AGENT_DEFAULTS, "inbox.assign_others", "export.xlsx", "metrics.read", "deliveries.reconcile", "workflow.edit"],
+  supervisor: [...AGENT_DEFAULTS, "inbox.assign_others", "inbox.archive_expired", "export.xlsx", "metrics.read", "deliveries.reconcile", "workflow.edit"],
 };
 
 export const BUILT_IN_ROLE_NAMES: Record<ActorRole, string> = {

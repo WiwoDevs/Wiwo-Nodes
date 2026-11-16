@@ -1,6 +1,9 @@
 import { can } from "../lib/permissions";
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowRight,
+  CaretDown,
+  CaretUp,
   ArrowSquareOut,
   CheckCircle,
   ChatCenteredText,
@@ -49,6 +52,15 @@ export interface InteractionDetailPanelProps {
   onEscalate: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => void | Promise<void>;
   onChangeAssignment: (detail: InteractionDetail) => void | Promise<void>;
   onAddInternalNote: (detail: InteractionDetail, text: string) => boolean | Promise<boolean>;
+  /** Pasar al caso anterior (-1) o siguiente (1) de la bandeja; solo en la Bandeja SAC. */
+  onNavigate?: (direction: 1 | -1) => void;
+  navigation?: { hasPrevious: boolean; hasNext: boolean };
+}
+
+/** Atajos solo cuando la persona no está escribiendo en un campo. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
 function statusLabel(status: InteractionStatus) {
@@ -200,7 +212,17 @@ export function InteractionDetailPanel({
   onEscalate,
   onChangeAssignment,
   onAddInternalNote,
+  onNavigate,
+  navigation,
 }: InteractionDetailPanelProps) {
+  const shortcutsRef = useRef<{
+    onNavigate?: (direction: 1 | -1) => void;
+    navigation?: { hasPrevious: boolean; hasNext: boolean };
+    canReply: boolean;
+    canEscalate: boolean;
+    focusComposer?: () => void;
+    openEscalate?: () => void;
+  }>({ canReply: false, canEscalate: false });
   const [draftText, setDraftText] = useState("");
   const [noteText, setNoteText] = useState("");
   const [statusIntent, setStatusIntent] = useState<"escalated" | "resolved" | null>(null);
@@ -269,6 +291,22 @@ export function InteractionDetailPanel({
     setDraftDirty(true);
   };
 
+  // Atajos de teclado del detalle: J/K siguiente/anterior, R responder, E escalar. El efecto
+  // va antes del return temprano para no cambiar el número de hooks entre renders.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isTypingTarget(event.target)) return;
+      const state = shortcutsRef.current;
+      const key = event.key.toLowerCase();
+      if (key === "j" && state.onNavigate && state.navigation?.hasNext) { event.preventDefault(); state.onNavigate(1); }
+      else if (key === "k" && state.onNavigate && state.navigation?.hasPrevious) { event.preventDefault(); state.onNavigate(-1); }
+      else if (key === "r" && state.canReply) { event.preventDefault(); state.focusComposer?.(); }
+      else if (key === "e" && state.canEscalate) { event.preventDefault(); state.openEscalate?.(); }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   if (!detail && !isLoading) return null;
 
   const canWrite = can(actor, "inbox.reply");
@@ -315,6 +353,22 @@ export function InteractionDetailPanel({
     setStatusReasonNote("");
   };
 
+  const focusComposer = () => {
+    const composer = document.getElementById("case-draft-text");
+    composer?.scrollIntoView({ behavior: "smooth", block: "center" });
+    composer?.focus({ preventScroll: true });
+  };
+
+  // Estado que leen los atajos de teclado (el hook vive antes del return temprano).
+  shortcutsRef.current = {
+    onNavigate,
+    navigation,
+    canReply: Boolean(detail) && canWrite && !caseClosed,
+    canEscalate: Boolean(detail) && canTriage && !caseClosed && !isSaving,
+    focusComposer,
+    openEscalate: () => openStatusForm("escalated"),
+  };
+
   return (
     <aside
       ref={panelRef}
@@ -330,19 +384,50 @@ export function InteractionDetailPanel({
           <h2>{detail ? detail.customerName : "Cargando interacción"}</h2>
         </div>
         <span className="case-detail-panel__header-actions">
-          {detail && canWrite && !caseClosed ? (
+          {detail && caseClosed && onNavigate && navigation?.hasNext ? (
+            <button
+              className="button button--primary case-detail-panel__jump"
+              type="button"
+              onClick={() => onNavigate(1)}
+              title="Abrir el siguiente caso de la bandeja (J)"
+            >
+              Siguiente caso
+              <ArrowRight size={14} weight="bold" aria-hidden="true" />
+            </button>
+          ) : detail && canWrite && !caseClosed ? (
             <button
               className="button button--secondary case-detail-panel__jump"
               type="button"
-              onClick={() => {
-                const composer = document.getElementById("case-draft-text");
-                composer?.scrollIntoView({ behavior: "smooth", block: "center" });
-                composer?.focus({ preventScroll: true });
-              }}
+              onClick={focusComposer}
+              title="Ir a la respuesta (R)"
             >
               <PaperPlaneTilt size={14} weight="bold" aria-hidden="true" />
               Responder
             </button>
+          ) : null}
+          {onNavigate ? (
+            <span className="case-detail-panel__nav" role="group" aria-label="Moverse entre casos">
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => onNavigate(-1)}
+                disabled={!navigation?.hasPrevious}
+                aria-label="Caso anterior"
+                title="Caso anterior (K)"
+              >
+                <CaretUp size={16} weight="bold" aria-hidden="true" />
+              </button>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => onNavigate(1)}
+                disabled={!navigation?.hasNext}
+                aria-label="Caso siguiente"
+                title="Caso siguiente (J)"
+              >
+                <CaretDown size={16} weight="bold" aria-hidden="true" />
+              </button>
+            </span>
           ) : null}
           <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar detalle">
             <X size={17} weight="bold" aria-hidden="true" />

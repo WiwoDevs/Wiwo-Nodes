@@ -136,6 +136,7 @@ type ApiInboxContact = {
   customerName: string;
   customerHandle: string;
   replyTarget?: ApiInteraction;
+  latestInboundAt?: string;
   latest: {
     id: string;
     text: string;
@@ -664,6 +665,7 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
       direction: replyTarget?.direction ?? contact.latest.direction,
       preview: contact.latest.text,
       receivedAt: contact.latest.createdAt,
+      latestInboundAt: contact.latestInboundAt,
       receivedAtLabel: relativeTimeLabel(contact.latest.createdAt),
       status: replyTarget ? mapStatus(replyTarget) : mapRawStatus(contact.latest.status),
       priority: replyTarget ? mapPriority(replyTarget) : "normal",
@@ -1433,6 +1435,23 @@ export async function reconcileReplyDelivery(
     body: JSON.stringify({ outcome, expectedVersion, note }),
   });
   if (!response.ok) await throwApiError(response);
+}
+
+export type ArchiveExpiredResult = { dryRun: boolean; archived: number; eligible: number; skippedSensitive: number };
+
+/**
+ * Archiva como histórico los casos fuera de plazo (sin tocar Metricool ni casos sensibles).
+ * Con dryRun solo cuenta cuántos se archivarían.
+ */
+export async function archiveExpiredInteractions(input: { dryRun: boolean; accountId?: string; type?: "dm" | "comment" }): Promise<ArchiveExpiredResult> {
+  const response = await fetch(`${API_BASE}/interactions/archive-expired`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: ArchiveExpiredResult };
+  return payload.data;
 }
 
 export async function updateInteractionStatus(

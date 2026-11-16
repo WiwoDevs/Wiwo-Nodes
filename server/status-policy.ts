@@ -32,6 +32,7 @@ export const INTERACTION_STATUS_REASON_CATALOG: StatusReasonCatalog = {
     { code: "spam", label: "Spam o contenido no válido" },
     { code: "no_response", label: "Sin respuesta del cliente" },
     { code: "transferred_external", label: "Derivado fuera de SAC" },
+    { code: "reply_window_expired", label: "Fuera de plazo de respuesta (histórico)" },
     { code: "other", label: "Otro motivo", noteRequired: true },
   ],
 };
