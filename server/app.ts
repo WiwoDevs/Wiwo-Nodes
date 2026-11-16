@@ -858,6 +858,11 @@ interface SyncRequestBody {
   since?: string;
 }
 
+/** "@Marca_CL " -> "marca_cl"; vacío si no hay usuario. */
+function normalizeInstagramHandle(value: string | undefined): string {
+  return (value ?? "").trim().replace(/^@/, "").toLowerCase();
+}
+
 type MetricoolLinkResult = {
   created: Array<{ blogId: string; brandId: string; accountId: string; name: string; channels: Channel[] }>;
   skipped: Array<{ blogId: string; reason: string }>;
@@ -878,9 +883,15 @@ async function linkMetricoolBrands(
   // Solo marcas y workflow: no se leen las interacciones.
   const store = snapshot ?? await repository.snapshotCatalog();
   const alreadyLinked = new Set<string>();
+  // Instagram ya vinculado por otra marca de Metricool: dos marcas de Metricool conectadas
+  // a la misma cuenta traerían los mismos mensajes dos veces (pasó con FlixBus).
+  const linkedInstagram = new Set<string>();
   for (const brand of store.brands) {
     const reference = resolveMetricoolAccount(config, brand.account.id, brand.account.metricool);
-    if (reference) alreadyLinked.add(reference.blogId);
+    if (!reference) continue;
+    alreadyLinked.add(reference.blogId);
+    const handle = normalizeInstagramHandle(brand.account.handle);
+    if (handle) linkedInstagram.add(handle);
   }
 
   const created: MetricoolLinkResult["created"] = [];
@@ -889,6 +900,11 @@ async function linkMetricoolBrands(
   for (const source of sources) {
     if (alreadyLinked.has(source.blogId)) {
       skipped.push({ blogId: source.blogId, reason: "ALREADY_LINKED" });
+      continue;
+    }
+    const instagram = normalizeInstagramHandle(source.instagramHandle);
+    if (instagram && linkedInstagram.has(instagram)) {
+      skipped.push({ blogId: source.blogId, reason: "DUPLICATE_INSTAGRAM" });
       continue;
     }
     // Solo se vinculan marcas con al menos un canal que el inbox sepa leer; el resto
@@ -933,6 +949,7 @@ async function linkMetricoolBrands(
       instagramProvider: options.instagramProvider,
     });
     alreadyLinked.add(source.blogId);
+    if (instagram) linkedInstagram.add(instagram);
     created.push({ blogId: source.blogId, brandId: brand.id, accountId: brand.account.id, name: brand.name, channels });
   }
   return { created, skipped };
@@ -988,7 +1005,7 @@ async function autoLinkMetricoolCatalog(
     .map((brand) => resolveMetricoolAccount(config, brand.account.id, brand.account.metricool)?.blogId)
     .filter((blogId): blogId is string => Boolean(blogId)));
   const pending = discovered.filter((brand) => !excluded.has(brand.blogId) && !linkedBlogIds.has(brand.blogId));
-  const { created } = pending.length
+  const { created, skipped } = pending.length
     ? await linkMetricoolBrands(
       config,
       repository,
@@ -996,7 +1013,8 @@ async function autoLinkMetricoolCatalog(
       { instagramProvider: config.metricool.defaultInstagramProvider ?? "INSTAGRAMBUSINESS", color: "#4242ff", active: true },
       current,
     )
-    : { created: [] as MetricoolLinkResult["created"] };
+    : { created: [] as MetricoolLinkResult["created"], skipped: [] as MetricoolLinkResult["skipped"] };
+  const duplicates = skipped.filter((item) => item.reason === "DUPLICATE_INSTAGRAM").length;
 
   const retired = await retireDemoSeedBrands(config, repository, current);
 
@@ -1004,7 +1022,7 @@ async function autoLinkMetricoolCatalog(
     auditStep(
       "Catálogo Metricool",
       "success",
-      `${discovered.length} marcas en el catálogo; ${created.length} vinculadas nuevas${excluded.size ? `; ${excluded.size} excluidas por configuración` : ""}.`,
+      `${discovered.length} marcas en el catálogo; ${created.length} vinculadas nuevas${excluded.size ? `; ${excluded.size} excluidas por configuración` : ""}${duplicates ? `; ${duplicates} omitidas porque su Instagram ya está vinculado a otra marca` : ""}.`,
       created.length,
     ),
   ];

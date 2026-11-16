@@ -189,4 +189,23 @@ describe("Vinculación automática del catálogo de Metricool", () => {
     expect(response.json().data.run.accountIds).toContain(real.account.id);
     expect(response.json().data.run.accountIds).not.toContain(seedAccountIds[0]);
   });
+
+  it("no vincula una segunda marca de Metricool con el mismo Instagram (mensajes duplicados)", async () => {
+    const catalog = [
+      { id: "2001", userId: "u-1", label: "Marca Gemela", instagram: "marca_gemela", facebook: "pagina-gemela" },
+      { id: "2002", userId: "u-1", label: "Marca Gemela", instagram: "@Marca_Gemela", facebook: "pagina-gemela" },
+    ];
+    const { app } = await makeApp({}, fakeMetricool(async () => catalog));
+    const first = await sync(app);
+    expect(first.statusCode).toBe(200);
+
+    const linked = (await brands(app)).filter((brand) => brand.name === "Marca Gemela");
+    expect(linked).toHaveLength(1);
+    expect(linked[0]?.account.metricool?.blogId).toBe("2001");
+    expect(JSON.stringify(first.json().data.run)).toContain("1 omitidas porque su Instagram ya está vinculado a otra marca");
+
+    // En ciclos siguientes tampoco se crea.
+    await sync(app);
+    expect((await brands(app)).filter((brand) => brand.name === "Marca Gemela")).toHaveLength(1);
+  });
 });

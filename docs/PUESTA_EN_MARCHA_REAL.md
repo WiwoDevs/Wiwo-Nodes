@@ -156,7 +156,11 @@ Invoke-RestMethod http://localhost:8787/api/metricool/brands/import -Method Post
 ```
 
 La importación es idempotente por `blogId`: repetirla no duplica marcas. Devuelve las
-creadas y las omitidas con su motivo (`ALREADY_LINKED`, `NO_SUPPORTED_CHANNELS`).
+creadas y las omitidas con su motivo (`ALREADY_LINKED`, `NO_SUPPORTED_CHANNELS`,
+`DUPLICATE_INSTAGRAM`). Una marca de Metricool cuyo Instagram ya está vinculado a otra marca
+no se vincula (traería los mismos mensajes dos veces); la vinculación automática lo informa
+en la auditoría del ciclo. Si ya existe un duplicado, desactiva una de las dos cuentas en
+**Cuentas**: sus conversaciones dejan de contarse y de sincronizarse.
 
 Ambas rutas exigen rol `admin` con alcance completo de marcas, y ninguna escribe en
 Metricool.

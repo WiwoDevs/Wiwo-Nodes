@@ -27,6 +27,7 @@ const CHANNEL_LABEL: Record<string, string> = {
 const SKIP_REASON: Record<string, string> = {
   ALREADY_LINKED: "ya estaba vinculada",
   NO_SUPPORTED_CHANNELS: "no tiene canales que la bandeja pueda leer",
+  DUPLICATE_INSTAGRAM: "su Instagram ya está vinculado a otra marca (evita mensajes duplicados)",
 };
 
 type MetricoolImportDialogProps = {

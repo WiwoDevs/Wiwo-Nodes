@@ -4612,7 +4612,7 @@ a:focus-visible {
   gap: 10px;
   color: var(--muted);
 }
-.manual-inbox-refresh-status small { display: inline-flex; align-items: center; gap: 5px; }
+.manual-inbox-refresh-status small { display: inline-flex; align-items: center; gap: 5px; font-size: inherit; }
 .manual-inbox-refresh-status .is-warning { color: var(--rose); }
 .manual-inbox-refresh {
   display: inline-flex;
