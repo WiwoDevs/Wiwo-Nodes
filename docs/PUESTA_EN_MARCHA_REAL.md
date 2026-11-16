@@ -88,13 +88,11 @@ métricas y cola*; **Flujo SAC** y **Configuración** con *Ajustar el flujo SAC*
 permisos por defecto, el Agente ve las 4 primeras, el Supervisor suma Resumen, Reportes, Flujo,
 Cuentas y Configuración, y Admin lo ve todo. Ocultar ordena la pantalla; el servidor valida cada acción.
 
-**Reportes** muestra las cifras del informe SAC mensual de cada marca (las mismas que llena la
-plantilla con `scripts/generate-sac-report.mjs`): casos SAC, mensajes gestionados o en bruto,
+**Reportes** muestra las cifras del informe SAC mensual de cada marca: casos SAC, mensajes gestionados o en bruto,
 respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales, con las
 advertencias a revisar antes de presentar (mensajes sin clasificar, cuentas duplicadas,
 sincronización detenida). Quien tiene *Exportar a Excel* descarga el Excel del mes o de una marca
-con los mismos días UTC del informe. La presentación desde la web y el cierre de mes (congelar las
-cifras entregadas, permiso propio para Supervisor y Admin) son la siguiente etapa.
+con los mismos días UTC del informe.
 
 Inicio también cambia según el rol. El **Agente** ve "Mis casos en plazo", lo que vence en 24 h
 y el botón **Tomar siguiente**, con sus casos primero en la cola. El **Supervisor** (quien tiene

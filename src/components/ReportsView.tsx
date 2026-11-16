@@ -1,13 +1,11 @@
 /**
- * Reportes: las cifras del informe SAC mensual por marca, las mismas que llena la plantilla
- * de presentación, con las advertencias de datos a revisar antes de entregarlo y la descarga
- * del Excel del mes. Solo lectura: no cambia casos ni escribe en Metricool.
+ * Reportes: las cifras del informe SAC mensual por marca, con las advertencias de datos a
+ * revisar antes de entregarlo y la descarga del Excel del mes. Solo lectura: no cambia casos ni escribe en Metricool.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownRight,
   ArrowLeft,
-  ArrowRight,
   ArrowUpRight,
   ArrowsClockwise,
   ChatCircleText,
@@ -246,7 +244,7 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
             {report ? (
               <footer className="panel__footer reports-footnote">
                 {report.brands.length - withCases.length ? `${report.brands.length - withCases.length} marcas activas sin casos en el mes no se listan. ` : ""}
-                Cifras calculadas en días UTC, igual que el informe; la presentación y el cierre de mes llegan en la siguiente etapa.
+                Cifras calculadas por día en UTC.
               </footer>
             ) : null}
           </article>
@@ -337,7 +335,6 @@ function BrandDetail({ brand, label, volumen, onBack }: { brand: SacReportBrand;
           </ul>
         </article>
       </div>
-      <p className="reports-footnote"><ArrowRight size={13} aria-hidden="true" /> Son las cifras que llena la plantilla del informe para {brand.brandName}.</p>
     </div>
   );
 }
