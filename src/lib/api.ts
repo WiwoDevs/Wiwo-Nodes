@@ -30,6 +30,7 @@ import type {
   BrandResourceKind,
   ConversationMessage,
   InboxSyncStatus,
+  SacMonthlyReport,
 } from "../types";
 
 export type RunResult = {
@@ -1550,6 +1551,13 @@ export async function setAccountAutomation(
     autoReplyAccountIds,
     confirmAutoReply: true,
   });
+}
+
+/** Cifras del informe SAC del mes (AAAA-MM) para cada marca activa. */
+export async function loadSacMonthlyReport(month: string, volumen: "gestionado" | "bruto" = "gestionado"): Promise<SacMonthlyReport> {
+  const query = new URLSearchParams({ month, volumen });
+  const response = await fetchJson<{ data: SacMonthlyReport }>(`/reports/sac?${query}`, { cache: "no-store" });
+  return response.data;
 }
 
 /** Descarga el Excel de interacciones; acepta período (ISO) y marca. */

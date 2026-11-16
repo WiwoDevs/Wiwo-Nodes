@@ -181,6 +181,48 @@ export function esMensajeGestionado(item: Interaction): boolean {
   return texto.split(" ").filter((palabra) => /\p{L}/u.test(palabra)).length >= 4;
 }
 
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+export interface MonthPeriod {
+  month: string;
+  label: string;
+  /** YYYY-MM-DD inclusive, en días UTC como el resto del reporte. */
+  from: string;
+  to: string;
+  previous: { from: string; to: string };
+}
+
+/** "2026-08" → días del mes, etiqueta "Agosto 2026" y el mes anterior para la variación. */
+export function monthPeriod(month: string): MonthPeriod {
+  const [year, monthNumber] = month.split("-").map(Number) as [number, number];
+  const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const previousYear = monthNumber === 1 ? year - 1 : year;
+  const previousMonth = monthNumber === 1 ? 12 : monthNumber - 1;
+  const previousKey = `${previousYear}-${String(previousMonth).padStart(2, "0")}`;
+  return {
+    month,
+    label: `${MESES[monthNumber - 1]} ${year}`,
+    from: `${month}-01`,
+    to: `${month}-${String(lastDay(year, monthNumber)).padStart(2, "0")}`,
+    previous: { from: `${previousKey}-01`, to: `${previousKey}-${String(lastDay(previousYear, previousMonth)).padStart(2, "0")}` },
+  };
+}
+
+/**
+ * Cuentas activas que apuntan al mismo usuario de red social: sus mensajes se cuentan dos
+ * veces en los totales. El sufijo "-<marca>" lo agrega la vinculación cuando el usuario ya
+ * estaba tomado, así que se descuenta para comparar.
+ */
+export function duplicateAccountGroups(brands: Brand[]): string[][] {
+  const groups = new Map<string, string[]>();
+  for (const brand of brands) {
+    const handle = brand.account.handle.trim().toLowerCase().replace(/^@/, "").replace(new RegExp(`-${brand.id.toLowerCase()}$`), "");
+    if (!handle) continue;
+    groups.set(handle, [...(groups.get(handle) ?? []), brand.name]);
+  }
+  return [...groups.values()].filter((names) => names.length > 1);
+}
+
 export function buildSacReport(
   brand: Brand,
   interactions: Interaction[],

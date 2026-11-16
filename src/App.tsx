@@ -5,6 +5,7 @@ import {
   Buildings,
   CaretDown,
   ChartLineUp,
+  PresentationChart,
   ChatCircleDots,
   ChatCircleText,
   ChatsCircle,
@@ -29,6 +30,7 @@ import {
 } from "@phosphor-icons/react";
 import { AccountsView } from "./components/AccountsView";
 import { DashboardView } from "./components/DashboardView";
+import { ReportsView } from "./components/ReportsView";
 import { InteractionDetailPanel } from "./components/InteractionDetailPanel";
 import { InteractionsView } from "./components/InteractionsView";
 import { ManualManagementView } from "./components/ManualManagementView";
@@ -95,7 +97,7 @@ const AutomationPlatform = lazy(() =>
   import("./components/AutomationPlatform").then((module) => ({ default: module.AutomationPlatform })),
 );
 
-type ViewId = "platform-home" | "automations" | "automation-executions" | "templates" | "credentials" | "workflow" | "dashboard" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "users" | "settings";
+type ViewId = "platform-home" | "automations" | "automation-executions" | "templates" | "credentials" | "workflow" | "dashboard" | "reports" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "users" | "settings";
 type EditorTab = "editor" | "executions" | "evaluations";
 
 /** Vistas de respuesta por cuenta. Comparten componente y difieren solo en la superficie. */
@@ -115,6 +117,7 @@ const navigation = [
   { id: "manual-dms" as const, label: "Gestión DMs", icon: ChatsCircle, group: "Operación SAC" },
   { id: "manual-comments" as const, label: "Gestión comentarios", icon: ChatCircleText, group: "Operación SAC" },
   { id: "dashboard" as const, label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
+  { id: "reports" as const, label: "Reportes", icon: PresentationChart, group: "Operación SAC" },
   { id: "workflow" as const, label: "Flujo SAC", icon: GitBranch, group: "Operación SAC" },
   { id: "accounts" as const, label: "Cuentas", icon: Buildings, badge: "0", group: "Operación SAC" },
   // railLabel: guiones suaves (\\u00AD) donde partir las palabras más anchas que el riel; no
@@ -134,6 +137,7 @@ const navigation = [
  */
 const VIEW_PERMISSIONS: Partial<Record<ViewId, Permission[]>> = {
   dashboard: ["metrics.read"],
+  reports: ["metrics.read"],
   workflow: ["workflow.edit", "workflow.publish"],
   accounts: ["brands.manage", "metrics.read"],
   automations: ["automations.edit"],
@@ -176,6 +180,10 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
   dashboard: {
     title: "Resumen operativo",
     description: "Rendimiento de todas las marcas en un solo lugar",
+  },
+  reports: {
+    title: "Reportes",
+    description: "Cifras del informe SAC mensual por marca",
   },
   interactions: {
     title: "Bandeja SAC",
@@ -1892,6 +1900,11 @@ export function App({ onSignOut, sessionActor }: {
               onSelectBrand={() => { if (canSeeView("accounts")) setView("accounts"); }}
               onOpenInteraction={openInteractionDetail}
             />
+          </div>
+        ) : null}
+        {view === "reports" ? (
+          <div className="content-page">
+            <ReportsView canExport={canExport} inboxSync={visibleData.inboxSync} onToast={setToast} />
           </div>
         ) : null}
         {view === "interactions" ? (

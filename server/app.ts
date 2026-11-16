@@ -77,7 +77,9 @@ import {
   workflowRollbackSchema,
   workflowRunSchema,
   workflowUpdateSchema,
+  sacMonthlyReportQuerySchema,
 } from "./schemas.js";
+import { buildSacReport, duplicateAccountGroups, monthPeriod } from "./sac-report.js";
 import type {
   ActorContext,
   ActorRole,
@@ -2972,6 +2974,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         returned: messages.length,
         hasHistory: allMessages.length > 1,
       },
+    };
+  });
+
+  /**
+   * Cifras del reporte SAC mensual de cada marca activa (las mismas que llena la plantilla
+   * del informe), con advertencias de datos para revisar antes de presentar. Solo lectura.
+   */
+  app.get("/api/reports/sac", async (request) => {
+    const actor = requirePermission(config, request, "metrics.read");
+    const query = sacMonthlyReportQuerySchema.parse(request.query);
+    const period = monthPeriod(query.month);
+    const snapshot = await repository.snapshotCatalog();
+    const brands = filterBrandsForActor(actor, snapshot.brands).filter((brand) => brand.active && brand.account.active);
+    const interactions = await repository.listInteractions(scopedInteractionFilters(actor, snapshot.brands, {}));
+    const reports = brands
+      .map((brand) => ({
+        brandId: brand.id,
+        brandName: brand.name,
+        accountHandle: brand.account.handle,
+        figures: buildSacReport(brand, interactions, {
+          from: period.from,
+          to: period.to,
+          previous: period.previous,
+          label: period.label,
+          volumen: query.volumen,
+        }),
+      }))
+      .sort((left, right) => right.figures.casosSac - left.figures.casosSac || left.brandName.localeCompare(right.brandName, "es"));
+    const warnings = duplicateAccountGroups(brands).map((names) =>
+      `Cuentas con el mismo usuario: ${names.join(", ")}. Sus mensajes se cuentan dos veces; desactiva la duplicada en Cuentas.`);
+    return {
+      data: { ...period, volumen: query.volumen, brands: reports, warnings, generatedAt: new Date().toISOString() },
+      meta: apiMeta(config),
     };
   });
 

@@ -860,6 +860,25 @@ Campos relevantes para la UI:
 
 Si el ID no existe, responde `404 INTERACTION_NOT_FOUND`.
 
+### `GET /api/reports/sac`
+
+Cifras del informe SAC mensual de cada marca activa dentro del alcance del actor (permiso `metrics.read`; con los permisos por defecto, Supervisor y Admin). Solo lectura. Query: `month=AAAA-MM` (obligatorio) y `volumen=gestionado|bruto` (por defecto `gestionado`). Usa los mismos días UTC y el mismo cálculo que `scripts/generate-sac-report.mjs` (`buildSacReport`), con el mes anterior para la variación.
+
+```json
+{
+  "data": {
+    "month": "2026-10", "label": "Octubre 2026", "from": "2026-10-01", "to": "2026-10-31",
+    "previous": { "from": "2026-09-01", "to": "2026-09-30" },
+    "volumen": "gestionado",
+    "brands": [{ "brandId": "...", "brandName": "...", "accountHandle": "@...", "figures": { "casosSac": 0, "volumenBruto": 0, "mensajesGestionados": 0, "ilegibles": 0, "derivados": 0, "respondidos": 0, "coberturaPct": 0, "canales": {}, "privados": 0, "publicos": 0, "motivos": [], "tono": { "positivo": 0, "neutro": 0, "negativo": 0 }, "variacion": { "anterior": 0, "deltaPct": 0, "comparable": true }, "advertencias": [] } }],
+    "warnings": ["Cuentas con el mismo usuario: ..."],
+    "generatedAt": "2026-11-16T..."
+  }
+}
+```
+
+`brands` viene ordenado por casos SAC de mayor a menor. `warnings` avisa de cuentas activas que apuntan al mismo usuario de red social (sus mensajes se contarían dos veces). `400 VALIDATION_ERROR` con un mes inválido o ausente; `403` sin `metrics.read`. El Excel del mes se descarga con `GET /api/export/xlsx` usando `from=<mes>-01T00:00:00.000Z` y `to=<último día>T23:59:59.999Z`.
+
 ### `GET /api/stats/summary`
 
 Acepta los mismos filtros de interacción salvo `page` y `pageSize`.

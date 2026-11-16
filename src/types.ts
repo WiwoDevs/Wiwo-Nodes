@@ -478,6 +478,46 @@ export interface AutomationSettings {
 
 export type InboxSyncRunStatus = "success" | "partial" | "failed" | "never";
 
+/** Cifras del informe SAC mensual de una marca (server/sac-report.ts → SacReportFigures). */
+export interface SacReportFigures {
+  brandKey: string;
+  brandLabel: string;
+  period: string;
+  volumenBruto: number;
+  mensajesGestionados: number;
+  ilegibles: number;
+  casosSac: number;
+  derivados: number;
+  respondidos: number;
+  coberturaPct: number;
+  canales: Record<string, number>;
+  privados: number;
+  publicos: number;
+  motivos: Array<{ motivo: string; casos: number; pct: number }>;
+  tono: { positivo: number; neutro: number; negativo: number };
+  variacion?: { anterior: number; deltaPct: number; comparable: boolean };
+  advertencias: string[];
+}
+
+export interface SacReportBrand {
+  brandId: string;
+  brandName: string;
+  accountHandle: string;
+  figures: SacReportFigures;
+}
+
+export interface SacMonthlyReport {
+  month: string;
+  label: string;
+  from: string;
+  to: string;
+  previous: { from: string; to: string };
+  volumen: "gestionado" | "bruto";
+  brands: SacReportBrand[];
+  warnings: string[];
+  generatedAt: string;
+}
+
 export interface InboxSyncStatus {
   enabled: boolean;
   intervalMinutes: number;

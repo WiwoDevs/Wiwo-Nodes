@@ -26,6 +26,12 @@ export const interactionFiltersSchema = z.object({
   to: optionalDate,
 }).strict();
 
+/** Reporte mensual: mes YYYY-MM y qué cuenta como volumen. */
+export const sacMonthlyReportQuerySchema = z.object({
+  month: z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Usa el formato AAAA-MM."),
+  volumen: z.enum(["gestionado", "bruto"]).default("gestionado"),
+}).strict();
+
 export const interactionListQuerySchema = interactionFiltersSchema.extend({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
