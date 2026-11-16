@@ -596,8 +596,9 @@ export function AccountsView({
                       </td>
                       <td>
                         <span className="manager-cell">{account.manager}</span>
-                        <small className="cell-detail">Referencia {account.metricoolBlogId}</small>
-                        <small className="cell-detail">Fuente {metricoolSourceLabel(account)}</small>
+                        <small className="cell-detail" title={`Referencia Metricool: ${metricoolSourceLabel(account)}`}>
+                          {account.metricoolSource && account.metricoolSource !== "none" ? "Vinculada a Metricool" : "Sin vincular a Metricool"}
+                        </small>
                       </td>
                       <td>
                         <button

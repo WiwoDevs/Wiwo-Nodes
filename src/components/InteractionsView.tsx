@@ -130,6 +130,11 @@ function StatusMark({ status }: { status: InteractionStatus }) {
   return <WarningCircle {...props} />;
 }
 
+/** Una conversación requiere acción si su caso está sin responder o derivado a revisión humana. */
+function needsAction(interaction: { status: string }): boolean {
+  return interaction.status === "pending" || interaction.status === "needs_review";
+}
+
 export function InteractionsView({
   interactions,
   accounts,
@@ -181,7 +186,12 @@ export function InteractionsView({
         || (assignmentFilter === "assigned" ? Boolean(interaction.assignedTo) : !interaction.assignedTo);
 
       return matchesQuery && matchesAccount && matchesPlatform && matchesKind && matchesStatus && matchesAssignment;
-    });
+    })
+      // Primero lo que requiere acción (sin responder o en revisión humana); dentro de cada
+      // grupo se mantiene el orden del servidor (actividad más reciente primero).
+      .map((interaction, index) => ({ interaction, index, actionable: needsAction(interaction) }))
+      .sort((left, right) => Number(right.actionable) - Number(left.actionable) || left.index - right.index)
+      .map(({ interaction }) => interaction);
   }, [accountFilter, assignmentFilter, interactions, kindFilter, platformFilter, query, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInteractions.length / PAGE_SIZE));

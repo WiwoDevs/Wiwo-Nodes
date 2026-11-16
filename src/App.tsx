@@ -55,6 +55,7 @@ import {
   downloadExport,
   evaluateSacProtocol,
   loadInboxData,
+  loadInboxRevision,
   loadInteractionDetail,
   loadManualAccountPosts,
   loadManualPostComments,
@@ -101,6 +102,9 @@ function isManualView(value: ViewId): value is ManualViewId {
   return (MANUAL_VIEWS as readonly string[]).includes(value);
 }
 
+/** Red de seguridad: descarga completa de la bandeja al menos cada 5 minutos. */
+const INBOX_FULL_RELOAD_MS = 5 * 60_000;
+
 const navigation = [
   { id: "platform-home" as const, label: "Inicio", icon: House, group: "Operación SAC" },
   { id: "interactions" as const, label: "Bandeja SAC", icon: ChatCircleDots, badge: "0", group: "Operación SAC" },
@@ -109,12 +113,14 @@ const navigation = [
   { id: "dashboard" as const, label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
   { id: "workflow" as const, label: "Flujo SAC", icon: GitBranch, group: "Operación SAC" },
   { id: "accounts" as const, label: "Cuentas", icon: Buildings, badge: "0", group: "Operación SAC" },
-  { id: "automations" as const, label: "Automatización", icon: Lightning, group: "Automatización" },
+  // railLabel: guiones suaves (\\u00AD) donde partir las palabras más anchas que el riel; no
+  // depende del diccionario de guionado del navegador.
+  { id: "automations" as const, label: "Automatización", railLabel: "Automati\u00ADzación", icon: Lightning, group: "Automatización" },
   { id: "automation-executions" as const, label: "Ejecuciones", icon: ClockCounterClockwise, group: "Automatización" },
   { id: "templates" as const, label: "Plantillas", icon: SquaresFour, group: "Automatización" },
-  { id: "credentials" as const, label: "Credenciales", icon: Key, group: "Automatización", adminOnly: true },
+  { id: "credentials" as const, label: "Credenciales", railLabel: "Creden\u00ADciales", icon: Key, group: "Automatización", adminOnly: true },
   { id: "users" as const, label: "Usuarios", icon: UsersThree, group: "Sistema", adminOnly: true },
-  { id: "settings" as const, label: "Configuración", icon: GearSix, group: "Sistema" },
+  { id: "settings" as const, label: "Configuración", railLabel: "Configu\u00ADración", icon: GearSix, group: "Sistema" },
 ];
 
 const editorTabs: { id: EditorTab; label: string }[] = [
@@ -153,7 +159,7 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
     description: "Rendimiento de todas las marcas en un solo lugar",
   },
   interactions: {
-    title: "Conversaciones",
+    title: "Bandeja SAC",
     description: "Una bandeja por persona con todo su contexto",
   },
   "manual-dms": {
@@ -365,6 +371,11 @@ export function App({ onSignOut, sessionActor }: {
   const [isLoadingData, setLoadingData] = useState(true);
   const [isRefreshingInbox, setRefreshingInbox] = useState(false);
   const [lastInboxRefreshAt, setLastInboxRefreshAt] = useState<string | undefined>();
+  // Última vez que la vista confirmó estar al día (con o sin descarga nueva).
+  const [inboxCheckedAt, setInboxCheckedAt] = useState<string | undefined>();
+  // Revisión del servidor con la que se descargó la bandeja y cuándo fue la descarga completa.
+  const inboxRevisionRef = useRef<string | null>(null);
+  const lastFullInboxLoadRef = useRef(0);
   const [inboxRefreshIssue, setInboxRefreshIssue] = useState<string | null>(null);
   const [connectionIssue, setConnectionIssue] = useState<string | null>(null);
   const [accessKey, setAccessKey] = useState("");
@@ -461,6 +472,9 @@ export function App({ onSignOut, sessionActor }: {
     setRefreshingInbox(true);
     const request = (async () => {
       try {
+        // La revisión se lee antes que los datos: si algo cambia durante la descarga, la
+        // próxima consulta verá otra revisión y volverá a cargar (nunca se pierde un cambio).
+        const revision = await loadInboxRevision().catch(() => null);
         const data = await loadInboxData();
         setOperationalData((current) => current ? {
           ...current,
@@ -474,6 +488,9 @@ export function App({ onSignOut, sessionActor }: {
           inboxSync: data.inboxSync,
         } : current);
         setLastInboxRefreshAt(data.loadedAt);
+        setInboxCheckedAt(data.loadedAt);
+        inboxRevisionRef.current = revision;
+        lastFullInboxLoadRef.current = Date.now();
         setInboxRefreshIssue(null);
         return true;
       } catch (error) {
@@ -491,6 +508,26 @@ export function App({ onSignOut, sessionActor }: {
     inboxRefreshPromise.current = request;
     return request;
   }, []);
+
+  /**
+   * Consulta barata cada 30 s: solo descarga marcas y contactos si la revisión del servidor
+   * cambió (sincronización, respuesta, asignación…) o si pasaron 5 minutos (red de seguridad
+   * para cambios hechos fuera de la API, como el despachador de respuestas automáticas).
+   */
+  const checkInboxForChanges = useCallback(async () => {
+    const stale = Date.now() - lastFullInboxLoadRef.current > INBOX_FULL_RELOAD_MS;
+    if (!stale && inboxRevisionRef.current) {
+      try {
+        if (await loadInboxRevision() === inboxRevisionRef.current) {
+          setInboxCheckedAt(new Date().toISOString());
+          return;
+        }
+      } catch {
+        // Sin revisión no hay cómo saber si cambió: se descarga completa.
+      }
+    }
+    await refreshInboxData(false);
+  }, [refreshInboxData]);
 
   useEffect(() => {
     if (!toast) return;
@@ -516,7 +553,7 @@ export function App({ onSignOut, sessionActor }: {
         && !isRunning
         && !isMutatingInteraction
       ) {
-        void refreshInboxData(false);
+        void checkInboxForChanges();
       }
     };
     const handleVisibility = () => {
@@ -534,7 +571,7 @@ export function App({ onSignOut, sessionActor }: {
       window.removeEventListener("focus", refreshWhenAvailable);
       window.removeEventListener("online", refreshWhenAvailable);
     };
-  }, [connectionIssue, isLoadingData, isMutatingInteraction, isRunning, refreshInboxData, view]);
+  }, [checkInboxForChanges, connectionIssue, isLoadingData, isMutatingInteraction, isRunning, view]);
 
   useEffect(() => {
     if (view !== "manual-comments" || !manualAccountId || !selectedManualAccount || connectionIssue) return;
@@ -671,9 +708,14 @@ export function App({ onSignOut, sessionActor }: {
   async function refreshOperationalData() {
     setLoadingData(true);
     try {
+      const revision = await loadInboxRevision().catch(() => null);
       const data = await loadOperationalData();
       setOperationalData(data);
-      setLastInboxRefreshAt(new Date().toISOString());
+      const loadedAt = new Date().toISOString();
+      setLastInboxRefreshAt(loadedAt);
+      setInboxCheckedAt(loadedAt);
+      inboxRevisionRef.current = revision;
+      lastFullInboxLoadRef.current = Date.now();
       setInboxRefreshIssue(null);
       setConnectionIssue(null);
     } catch (error) {
@@ -1501,7 +1543,7 @@ export function App({ onSignOut, sessionActor }: {
                 return (
                   <button key={item.id} className={view === item.id ? "is-active" : ""} aria-current={view === item.id ? "page" : undefined} onClick={() => navigateToView(item.id)} title={item.label}>
                     <Icon size={19} weight={view === item.id ? "fill" : "regular"} />
-                    <span>{item.label}</span>
+                    <span>{"railLabel" in item ? item.railLabel : item.label}</span>
                     {item.badge ? <small>{item.badge}</small> : null}
                   </button>
                 );
@@ -1689,7 +1731,7 @@ export function App({ onSignOut, sessionActor }: {
               canSync={canSync}
               canExport={canExport}
               isRefreshing={isRunning || isMutatingInteraction || isRefreshingInbox}
-              lastUpdatedAt={lastInboxRefreshAt}
+              lastUpdatedAt={inboxCheckedAt ?? lastInboxRefreshAt}
               refreshIssue={inboxRefreshIssue}
               inboxSync={visibleData.inboxSync}
               onRefresh={refreshInboxNow}
@@ -1726,7 +1768,7 @@ export function App({ onSignOut, sessionActor }: {
               postCommentsError={manualCommentsIssue}
               canWrite={canOperate}
               canRefresh={canSync}
-              lastUpdatedAt={lastInboxRefreshAt}
+              lastUpdatedAt={inboxCheckedAt ?? lastInboxRefreshAt}
               refreshIssue={manualCommentsIssue || inboxRefreshIssue}
               statusReasons={visibleData.statusReasons}
               onSelectAccount={(account) => {

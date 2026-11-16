@@ -792,8 +792,9 @@ export function ManualManagementView({
                         : `${countLabel(entries.length, "conversación", "conversaciones")} visibles`}
                   </small>
                 </div>
-                <span className={`manual-inbox-health manual-inbox-health--${selectedAccount.health}`}>
-                  {selectedAccount.healthDetail}
+                {/* Etiqueta corta (cabe en la columna); el detalle completo queda en el tooltip. */}
+                <span className={`manual-inbox-health manual-inbox-health--${selectedAccount.health}`} title={selectedAccount.healthDetail}>
+                  {selectedAccount.health === "healthy" ? "Operativa" : selectedAccount.health === "attention" ? "Requiere atención" : "Desconectada"}
                 </span>
               </header>
 

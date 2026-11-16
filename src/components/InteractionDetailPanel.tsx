@@ -329,9 +329,25 @@ export function InteractionDetailPanel({
           <span>Detalle de caso</span>
           <h2>{detail ? detail.customerName : "Cargando interacción"}</h2>
         </div>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar detalle">
-          <X size={17} weight="bold" aria-hidden="true" />
-        </button>
+        <span className="case-detail-panel__header-actions">
+          {detail && canWrite && !caseClosed ? (
+            <button
+              className="button button--secondary case-detail-panel__jump"
+              type="button"
+              onClick={() => {
+                const composer = document.getElementById("case-draft-text");
+                composer?.scrollIntoView({ behavior: "smooth", block: "center" });
+                composer?.focus({ preventScroll: true });
+              }}
+            >
+              <PaperPlaneTilt size={14} weight="bold" aria-hidden="true" />
+              Responder
+            </button>
+          ) : null}
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar detalle">
+            <X size={17} weight="bold" aria-hidden="true" />
+          </button>
+        </span>
       </header>
 
       {isLoading || !detail ? (
@@ -475,36 +491,6 @@ export function InteractionDetailPanel({
               </ol>
             </section>
           ) : null}
-
-          <section className="case-automation-card">
-            <header>
-              <span className="case-automation-card__icon">
-                {detail.automation ? <ShieldCheck size={18} weight="duotone" /> : <Robot size={18} weight="duotone" />}
-              </span>
-              <div>
-                <strong>Protocolo de respuesta SAC</strong>
-                <small>{detail.automation ? "Evaluación trazable sac-v1" : "Pendiente de evaluación"}</small>
-              </div>
-            </header>
-            {detail.automation ? (
-              <>
-                <dl>
-                  <div><dt>Ruta</dt><dd>{routeLabel(detail.automation.effectiveRoute)}</dd></div>
-                  <div><dt>Intención</dt><dd>{detail.automation.intent.replaceAll("_", " ")}</dd></div>
-                  <div><dt>Riesgo</dt><dd>{detail.automation.risk}</dd></div>
-                  <div><dt>Conocimiento</dt><dd>{knowledgeLabel(detail.automation.knowledge.status)}</dd></div>
-                  <div><dt>Contexto</dt><dd>{detail.automation.conversation.messageCount} mensaje(s)</dd></div>
-                  <div>
-                    <dt>Plazo automático</dt>
-                    <dd>{providerReplyWindowMs === undefined ? "Según proveedor" : providerReplyWindowExpired ? "Fuera del plazo" : "Dentro del plazo"}</dd>
-                  </div>
-                </dl>
-                <p>{detail.automation.reasonCodes.map(automationReasonLabel).join(" · ")}</p>
-              </>
-            ) : (
-              <p>Ejecuta “Protocolo SAC” desde la bandeja para clasificar, proponer y enrutar este caso sin escribir en Metricool.</p>
-            )}
-          </section>
 
           {latestDelivery ? (
             <section className={`case-delivery-card case-delivery-card--${latestDelivery.status}`}>
@@ -693,6 +679,36 @@ export function InteractionDetailPanel({
               </button>
             </div>
           </form>
+
+          <section className="case-automation-card">
+            <header>
+              <span className="case-automation-card__icon">
+                {detail.automation ? <ShieldCheck size={18} weight="duotone" /> : <Robot size={18} weight="duotone" />}
+              </span>
+              <div>
+                <strong>Protocolo de respuesta SAC</strong>
+                <small>{detail.automation ? "Evaluación trazable sac-v1" : "Pendiente de evaluación"}</small>
+              </div>
+            </header>
+            {detail.automation ? (
+              <>
+                <dl>
+                  <div><dt>Ruta</dt><dd>{routeLabel(detail.automation.effectiveRoute)}</dd></div>
+                  <div><dt>Intención</dt><dd>{detail.automation.intent.replaceAll("_", " ")}</dd></div>
+                  <div><dt>Riesgo</dt><dd>{detail.automation.risk}</dd></div>
+                  <div><dt>Conocimiento</dt><dd>{knowledgeLabel(detail.automation.knowledge.status)}</dd></div>
+                  <div><dt>Contexto</dt><dd>{detail.automation.conversation.messageCount} mensaje(s)</dd></div>
+                  <div>
+                    <dt>Plazo automático</dt>
+                    <dd>{providerReplyWindowMs === undefined ? "Según proveedor" : providerReplyWindowExpired ? "Fuera del plazo" : "Dentro del plazo"}</dd>
+                  </div>
+                </dl>
+                <p>{detail.automation.reasonCodes.map(automationReasonLabel).join(" · ")}</p>
+              </>
+            ) : (
+              <p>Ejecuta “Protocolo SAC” desde la bandeja para clasificar, proponer y enrutar este caso sin escribir en Metricool.</p>
+            )}
+          </section>
 
           {statusIntent ? (
             <form

@@ -706,6 +706,10 @@ En cada sincronización live, la API intenta leer `GET /v2/settings/brands/{blog
 }
 ```
 
+### `GET /api/inbox/revision`
+
+Rol `viewer`. Responde `{ data: { revision } }`, una cadena opaca que cambia con cada escritura exitosa en la API (sincronización, borrador, respuesta, asignación, estado, marcas…) y nunca con lecturas ni con rutas de sesión. El prefijo cambia en cada arranque de la API. La UI la consulta cada 30 s con la bandeja visible y solo descarga `/api/brands` e `/api/inbox/contacts` si cambió; además hace una descarga completa al menos cada 5 minutos para cubrir cambios hechos fuera de la API (despachador de respuestas automáticas).
+
 ### `GET /api/inbox/contacts`
 
 Contrato optimizado de la bandeja. Aplica el scope de marca del actor antes de agrupar y pagina después de construir contactos. Una fila representa una persona dentro de la misma cuenta y plataforma; nunca fusiona marcas o redes. La identidad pública `contactKey` es un SHA-256 opaco y no revela el ID social.

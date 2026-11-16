@@ -1535,12 +1535,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     }
     return contacts;
   };
-  // Cualquier escritura exitosa (borrador, respuesta, asignación, estado, marcas…) invalida la
-  // lista para que la siguiente lectura refleje el cambio de inmediato.
-  app.addHook("onResponse", async (request, reply) => {
-    if (inboxContactsCache.size && request.method !== "GET" && request.method !== "HEAD" && reply.statusCode < 400) {
+  /**
+   * Revisión de la bandeja: cambia con cada escritura exitosa (sincronización, borrador,
+   * respuesta, asignación, estado, marcas…). El navegador la consulta cada 30 s (una
+   * respuesta mínima) y solo vuelve a descargar marcas y contactos cuando cambió. El prefijo
+   * aleatorio evita que un reinicio de la API repita una revisión anterior.
+   */
+  const inboxRevisionPrefix = randomUUID().slice(0, 8);
+  let inboxRevisionCounter = 0;
+  const inboxRevision = () => `${inboxRevisionPrefix}-${inboxRevisionCounter}`;
+  const REVISION_NEUTRAL_PATHS = /^\/api\/(auth\/|session(\?|$))/;
+  // Cualquier escritura exitosa invalida la lista cacheada y avanza la revisión antes de
+  // responder, para que el navegador que la pidió ya vea la revisión nueva.
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (
+      request.method !== "GET"
+      && request.method !== "HEAD"
+      && reply.statusCode < 400
+      && request.url.startsWith("/api/")
+      && !REVISION_NEUTRAL_PATHS.test(request.url)
+    ) {
       inboxContactsCache.clear();
+      inboxRevisionCounter += 1;
     }
+    return payload;
   });
   app.sacFlow = { config, repository };
   app.addHook("onClose", async () => {
@@ -2702,6 +2720,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           : undefined,
       },
     };
+  });
+
+  /** Revisión de la bandeja: barata de consultar; cambia cuando hay algo nuevo que recargar. */
+  app.get("/api/inbox/revision", async (request) => {
+    requireRole(config, request, "viewer");
+    return { data: { revision: inboxRevision() }, meta: apiMeta(config) };
   });
 
   app.get("/api/inbox/contacts", async (request) => {

@@ -124,14 +124,17 @@ export function DashboardView({
               <span className="kpi-card__icon">
                 <KpiIcon id={kpi.id} />
               </span>
-              <span className={`trend trend--${kpi.trend}`}>
-                {kpi.trend === "up" ? (
-                  <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
-                ) : kpi.trend === "down" ? (
-                  <ArrowDownRight size={14} weight="bold" aria-hidden="true" />
-                ) : null}
-                {kpi.change}
-              </span>
+              {/* Solo con una comparación real (p. ej. contra el período anterior) se muestra tendencia. */}
+              {kpi.change ? (
+                <span className={`trend trend--${kpi.trend}`}>
+                  {kpi.trend === "up" ? (
+                    <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
+                  ) : kpi.trend === "down" ? (
+                    <ArrowDownRight size={14} weight="bold" aria-hidden="true" />
+                  ) : null}
+                  {kpi.change}
+                </span>
+              ) : null}
             </div>
             <p className="kpi-card__value">{kpi.value}</p>
             <h2 className="kpi-card__label">{kpi.label}</h2>

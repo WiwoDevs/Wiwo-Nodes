@@ -788,7 +788,7 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
       label: "Interacciones registradas",
       value: new Intl.NumberFormat("es-CL").format(stats.total),
       detail: `${stats.dms} DMs · ${stats.comments} comentarios · ${stats.reviews} reseñas`,
-      change: "Dato servidor",
+      change: "",
       trend: "neutral",
     },
     {
@@ -796,7 +796,7 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
       label: "Pendientes de respuesta",
       value: new Intl.NumberFormat("es-CL").format(stats.pending),
       detail: `${stats.escalated} derivadas a revisión`,
-      change: "Dato servidor",
+      change: "",
       trend: stats.pending ? "down" : "neutral",
     },
     {
@@ -805,7 +805,7 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
       // Sin interacciones evaluables no hay cobertura que medir: 0% simularía una medición.
       value: stats.automationScope ? `${protocolCoverage}%` : "Sin datos",
       detail: `${stats.autoReplyCandidates} candidatas · ${stats.knowledgeBlocked} bloqueadas por conocimiento`,
-      change: "Dato servidor",
+      change: "",
       trend: "neutral",
     },
     {
@@ -817,7 +817,7 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
       detail: stats.medianResponseMinutes === null
         ? "Aún no hay casos respondidos"
         : `${stats.responseRate}% respondidas · promedio ${formatMinutes(stats.averageResponseMinutes)}`,
-      change: "Dato servidor",
+      change: "",
       trend: "neutral",
     },
   ];
@@ -942,6 +942,14 @@ export async function loadManualPostComments(postKey: string, brandName: string)
   return mapRawInteractions(interactions, brandName).sort((left, right) =>
     Date.parse(left.receivedAt) - Date.parse(right.receivedAt)
     || left.id.localeCompare(right.id));
+}
+
+/** Revisión de la bandeja en el servidor; cambia solo cuando hubo una escritura. */
+export async function loadInboxRevision(): Promise<string> {
+  const response = await fetch(`${API_BASE}/inbox/revision`);
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: { revision: string } };
+  return payload.data.revision;
 }
 
 export async function loadInboxData(): Promise<InboxData> {

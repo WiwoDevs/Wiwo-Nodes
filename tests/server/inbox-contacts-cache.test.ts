@@ -69,3 +69,37 @@ describe("Caché de la lista de contactos de la bandeja", () => {
     expect(listInteractions).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Revisión de la bandeja", () => {
+  it("no cambia con lecturas y avanza con cada escritura exitosa", async () => {
+    const app = await makeApp();
+    const revision = async () => (await app.inject({ method: "GET", url: "/api/inbox/revision" })).json().data.revision as string;
+    const initial = await revision();
+    expect(initial).toMatch(/^[0-9a-f]{8}-\d+$/);
+
+    await app.inject({ method: "GET", url: "/api/inbox/contacts?page=1&pageSize=10" });
+    await app.inject({ method: "GET", url: "/api/brands" });
+    expect(await revision()).toBe(initial);
+
+    const list = await app.inject({ method: "GET", url: "/api/interactions?pageSize=1" });
+    const interactionId = list.json().data[0].id as string;
+    const detail = await app.inject({ method: "GET", url: `/api/interactions/${interactionId}` });
+    const draft = await app.inject({
+      method: "POST",
+      url: `/api/interactions/${interactionId}/reply`,
+      payload: { text: "Borrador para la revisión", mode: "draft", expectedVersion: detail.json().data.version },
+    });
+    expect(draft.statusCode).toBe(200);
+    const afterWrite = await revision();
+    expect(afterWrite).not.toBe(initial);
+
+    // Una escritura rechazada no cambia la revisión.
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/interactions/${interactionId}/reply`,
+      payload: { text: "Versión vieja", mode: "draft", expectedVersion: 0 },
+    });
+    expect(rejected.statusCode).toBeGreaterThanOrEqual(400);
+    expect(await revision()).toBe(afterWrite);
+  });
+});
