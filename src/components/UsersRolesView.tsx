@@ -25,6 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import { createAccessRole, deleteAccessRole, listUserAccess, setUserAccessRole, setUserPermissions, updateAccessRole } from "../lib/api";
 import type { AccessControlListing, AccessRole, RoleView, UserAccessView } from "../types";
+import { confirmAction } from "../lib/confirm";
 
 type Toast = { tone: "success" | "warning"; title: string; detail: string };
 type Tab = "people" | "roles";
@@ -111,8 +112,17 @@ export function UsersRolesView({ onToast }: UsersRolesViewProps) {
 
   async function applyRole(target: { email: string; name?: string | null }, role: AccessRole | null): Promise<boolean> {
     const who = target.name ? `${target.name} (${target.email})` : target.email;
-    if (role === "admin" && !window.confirm(`¿Dar rol Admin a ${who}? Podrá cambiar marcas, credenciales, el envío automático y los roles de otras personas.`)) return false;
-    if (role === NO_ACCESS && !window.confirm(`¿Quitar el acceso de ${who}? Su sesión se corta en su siguiente acción.`)) return false;
+    if (role === "admin" && !(await confirmAction({
+      title: `¿Dar rol Admin a ${who}?`,
+      message: "Podrá cambiar marcas, credenciales, el envío automático y los roles de otras personas.",
+      confirmLabel: "Dar rol Admin",
+    }))) return false;
+    if (role === NO_ACCESS && !(await confirmAction({
+      title: `¿Quitar el acceso de ${who}?`,
+      message: "Su sesión se corta en su siguiente acción.",
+      confirmLabel: "Quitar acceso",
+      tone: "danger",
+    }))) return false;
     const result = await run(`user:${target.email}`, () => setUserAccessRole(target.email, role), (listing) => ({
       tone: "success",
       title: role === null ? "Rol restablecido" : "Rol actualizado",
@@ -644,10 +654,10 @@ function RolesTab({ data, busy, onSave, onCreate, onRemove }: RolesTabProps) {
 
   async function remove() {
     if (!selected) return;
-    const question = selected.builtIn
-      ? `¿Restablecer ${selected.name} a sus permisos por defecto?`
-      : `¿Borrar el rol ${selected.name}? No se puede deshacer.`;
-    if (!window.confirm(question)) return;
+    const confirmed = await confirmAction(selected.builtIn
+      ? { title: `¿Restablecer ${selected.name} a sus permisos por defecto?`, confirmLabel: "Restablecer" }
+      : { title: `¿Borrar el rol ${selected.name}?`, message: "No se puede deshacer.", confirmLabel: "Borrar rol", tone: "danger" });
+    if (!confirmed) return;
     await onRemove(selected);
     if (!selected.builtIn) setSelectedId("supervisor");
   }

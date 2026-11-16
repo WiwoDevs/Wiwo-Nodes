@@ -31,6 +31,7 @@ import type {
 } from "../types";
 import { interactionKindLabel, platformLabel, SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
+import { confirmAction } from "../lib/confirm";
 
 export interface InteractionDetailPanelProps {
   detail: InteractionDetail | null;
@@ -718,8 +719,13 @@ export function InteractionDetailPanel({
                 className="button button--danger-ghost"
                 type="button"
                 disabled={isSaving || !canWrite || caseClosed || !detail.responseText}
-                onClick={() => {
-                  const confirmed = window.confirm("¿Borrar el borrador guardado? El mensaje original del cliente no se modificará.");
+                onClick={async () => {
+                  const confirmed = await confirmAction({
+                    title: "¿Borrar el borrador guardado?",
+                    message: "El mensaje original del cliente no se modificará.",
+                    confirmLabel: "Borrar borrador",
+                    tone: "danger",
+                  });
                   if (confirmed) void onDeleteDraft(detail);
                 }}
               >
@@ -741,13 +747,20 @@ export function InteractionDetailPanel({
               <button
                 className="button button--primary button--send"
                 type="button"
-                onClick={() => {
-                  const confirmed = window.confirm(
-                    providerReplyWindowExpired
-                      ? "El plazo recomendado de Meta ya venció y la plataforma puede rechazar esta respuesta. ¿Quieres intentar enviarla de todos modos?"
-                      : "¿Enviar esta respuesta ahora? En modo live se publicará mediante Metricool y la acción quedará auditada.",
-                  );
-                  if (confirmed) void onSendReply(detail, draftText.trim());
+                onClick={async () => {
+                  const text = draftText.trim();
+                  const confirmed = await confirmAction(providerReplyWindowExpired
+                    ? {
+                      title: "¿Intentar enviar fuera de plazo?",
+                      message: "El plazo recomendado de Meta ya venció y la plataforma puede rechazar esta respuesta.",
+                      confirmLabel: "Intentar enviar",
+                    }
+                    : {
+                      title: "¿Enviar esta respuesta ahora?",
+                      message: "En modo live se publicará mediante Metricool y la acción quedará auditada.",
+                      confirmLabel: "Enviar respuesta",
+                    });
+                  if (confirmed) void onSendReply(detail, text);
                 }}
                 disabled={isSaving || !canWrite || caseClosed || deliveryBlocksSend || draftText.trim().length === 0 || detail.direction !== "inbound"}
                 aria-describedby={!caseClosed && detail.direction === "inbound" ? "reply-provider-notice" : undefined}

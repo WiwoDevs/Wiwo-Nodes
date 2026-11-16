@@ -36,6 +36,7 @@ import {
   SOCIAL_PLATFORM_OPTIONS,
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
+import { confirmAction } from "../lib/confirm";
 
 type HealthFilter = AccountHealth | "all" | "inactive";
 
@@ -330,9 +331,13 @@ export function AccountsView({
 
   const deactivateBrandAccount = async () => {
     if (!brandDialogAccount) return;
-    const confirmed = window.confirm(
-      `Desactivar ${brandDialogAccount.name} en SAC Flow? No se borra historial: deja de sincronizar y se quita de automatización. Se conserva su vínculo con Metricool para que no vuelva a importarse sola.`,
-    );
+    const confirmed = await confirmAction({
+      title: `¿Desactivar ${brandDialogAccount.name}?`,
+      message: "No se borra el historial: deja de sincronizar, sus conversaciones salen de la operación y se quita de la automatización."
+        + "\n\nSe conserva su vínculo con Metricool para que no vuelva a importarse sola. Puedes reactivarla cuando quieras.",
+      confirmLabel: "Desactivar",
+      tone: "danger",
+    });
     if (!confirmed) return;
     try {
       await onDeactivateBrand?.(brandDialogAccount);

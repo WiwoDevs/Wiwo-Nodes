@@ -13,6 +13,7 @@ import {
   type MetricoolImportResult,
 } from "../lib/api";
 import type { BrandAccount, MetricoolInstagramProvider } from "../types";
+import { confirmAction } from "../lib/confirm";
 
 const CHANNEL_LABEL: Record<string, string> = {
   instagram: "Instagram",
@@ -107,9 +108,12 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
   async function handleRetire() {
     const targets = unlinked.filter((account) => toRetire.has(account.id));
     if (!targets.length || retiring) return;
-    const confirmed = window.confirm(
-      `¿Desactivar ${targets.length} marca(s) sin conexión a Metricool? No se borra su historial; dejan de aparecer en la operación y en la sincronización.`,
-    );
+    const confirmed = await confirmAction({
+      title: `¿Desactivar ${targets.length} marca(s) sin conexión a Metricool?`,
+      message: "No se borra su historial: dejan de aparecer en la operación y en la sincronización.",
+      confirmLabel: "Desactivar",
+      tone: "danger",
+    });
     if (!confirmed) return;
     setRetiring(true);
     try {

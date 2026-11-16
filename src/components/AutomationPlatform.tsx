@@ -82,6 +82,7 @@ import { interactionKindLabel, SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
 import { greetingNameOf, salutationFor } from "../lib/greeting";
 import { deadlineLabel, isExpired, needsAction, replyDeadline } from "../lib/reply-window";
+import { confirmAction } from "../lib/confirm";
 
 export type AutomationSection = "home" | "workflows" | "executions" | "templates" | "credentials";
 export type AutomationHomeDestination = "platform-home" | "automations" | "automation-executions" | "workflow" | "dashboard" | "interactions" | "accounts";
@@ -676,7 +677,11 @@ export function AutomationPlatform({
 
   async function retryOperational(job: OperationalJob) {
     if (!canAdmin || retryingJobId) return;
-    const confirmed = window.confirm("¿Programar otro intento ahora? El contador de intentos se reiniciará. Confirma que la causa del fallo ya fue corregida.");
+    const confirmed = await confirmAction({
+      title: "¿Programar otro intento ahora?",
+      message: "El contador de intentos se reiniciará. Hazlo solo si la causa del fallo ya fue corregida.",
+      confirmLabel: "Reintentar",
+    });
     if (!confirmed) return;
     setRetryingJobId(job.id);
     try {

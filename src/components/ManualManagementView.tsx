@@ -35,6 +35,7 @@ import {
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
+import { confirmAction } from "../lib/confirm";
 
 type ManualSurfaceId = "all" | `${SocialPlatform}:${InteractionKind}`;
 type StatusAction = "resolved" | "escalated";
@@ -615,28 +616,34 @@ export function ManualManagementView({
     activeDetailIdRef.current = nextId;
   }, [aiRecommendation, visibleDetail?.id, visibleDetail?.responseText, visibleDetail?.version]);
 
-  const confirmDiscardDraft = (): boolean => {
+  const confirmDiscardDraft = async (): Promise<boolean> => {
     if (!draftDirtyRef.current) return true;
-    return window.confirm("Hay una respuesta sin guardar. ¿Descartarla y cambiar de selección?");
+    return confirmAction({
+      title: "¿Descartar la respuesta sin guardar?",
+      message: "Hay una respuesta sin guardar. Si cambias de selección, se descarta.",
+      confirmLabel: "Descartar y cambiar",
+      cancelLabel: "Seguir editando",
+      tone: "danger",
+    });
   };
 
-  const requestAccountChange = (accountId: string) => {
+  const requestAccountChange = async (accountId: string) => {
     const account = accounts.find((item) => item.id === accountId);
-    if (!account || account.id === selectedAccountId || !confirmDiscardDraft()) return;
+    if (!account || account.id === selectedAccountId || !(await confirmDiscardDraft())) return;
     setDirty(false);
     void onSelectAccount(account);
   };
 
-  const requestInteractionChange = (interaction: Interaction) => {
-    if (interaction.id === selectedInteractionId || isSaving || !confirmDiscardDraft()) return;
+  const requestInteractionChange = async (interaction: Interaction) => {
+    if (interaction.id === selectedInteractionId || isSaving || !(await confirmDiscardDraft())) return;
     setDirty(false);
     void onSelectInteraction(interaction);
   };
 
-  const requestEntryChange = (entry: ManualInboxEntry) => {
+  const requestEntryChange = async (entry: ManualInboxEntry) => {
     if (entry.postKey && entry.postKey === selectedPostKey) return;
     if (!entry.postKey && entry.target.id === selectedInteractionId) return;
-    if (isSaving || !confirmDiscardDraft()) return;
+    if (isSaving || !(await confirmDiscardDraft())) return;
     setDirty(false);
     if (entry.postSummary && onSelectPost) {
       void onSelectPost(entry.postSummary);
@@ -645,14 +652,14 @@ export function ManualManagementView({
     void onSelectInteraction(entry.target);
   };
 
-  const requestSurfaceChange = (surfaceId: ManualSurfaceId) => {
-    if (surfaceId === activeSurfaceId || !confirmDiscardDraft()) return;
+  const requestSurfaceChange = async (surfaceId: ManualSurfaceId) => {
+    if (surfaceId === activeSurfaceId || !(await confirmDiscardDraft())) return;
     setDirty(false);
     setActiveSurfaceId(surfaceId);
   };
 
-  const requestClearSelection = () => {
-    if (!onClearSelection || isSaving || !confirmDiscardDraft()) return;
+  const requestClearSelection = async () => {
+    if (!onClearSelection || isSaving || !(await confirmDiscardDraft())) return;
     setDirty(false);
     onClearSelection();
   };
@@ -962,8 +969,8 @@ export function ManualManagementView({
                       {onOpenFullDetail ? (
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!confirmDiscardDraft()) return;
+                          onClick={async () => {
+                            if (!(await confirmDiscardDraft())) return;
                             setDirty(false);
                             void onOpenFullDetail(visibleDetail);
                           }}
@@ -1162,9 +1169,11 @@ export function ManualManagementView({
                         onClick={async () => {
                           const text = draftText.trim();
                           if (!text) return;
-                          const confirmed = window.confirm(
-                            `¿Enviar esta respuesta manual a ${visibleDetail.customerName}? La acción se realizará sobre el caso exacto seleccionado.`,
-                          );
+                          const confirmed = await confirmAction({
+                            title: `¿Enviar esta respuesta a ${visibleDetail.customerName}?`,
+                            message: "La acción se realizará sobre el caso exacto seleccionado y quedará auditada.",
+                            confirmLabel: "Enviar respuesta",
+                          });
                           if (!confirmed) return;
                           const sent = await onSendReply(visibleDetail, text);
                           if (sent) setDirty(false);
@@ -1182,7 +1191,13 @@ export function ManualManagementView({
                         onSubmit={async (event) => {
                           event.preventDefault();
                           if (!reasonCode || (selectedReason?.noteRequired && !reasonNote.trim())) return;
-                          if (draftDirtyRef.current && !window.confirm("La respuesta local no está guardada. ¿Continuar con el cambio de estado?")) return;
+                          if (draftDirtyRef.current && !(await confirmAction({
+                            title: "¿Cambiar el estado sin guardar la respuesta?",
+                            message: "La respuesta local no está guardada y se descartará.",
+                            confirmLabel: "Continuar",
+                            cancelLabel: "Seguir editando",
+                            tone: "danger",
+                          }))) return;
                           const succeeded = statusAction === "resolved"
                             ? await onResolve(visibleDetail, reasonCode, reasonNote.trim() || undefined)
                             : await onEscalate(visibleDetail, reasonCode, reasonNote.trim() || undefined);

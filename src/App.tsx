@@ -85,6 +85,8 @@ import {
 } from "./lib/api";
 import { useTheme } from "./lib/theme";
 import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor } from "./types";
+import { confirmAction } from "./lib/confirm";
+import { ConfirmHost } from "./components/ConfirmHost";
 
 const WorkflowCanvas = lazy(() =>
   import("./components/WorkflowCanvas").then((module) => ({ default: module.WorkflowCanvas })),
@@ -772,12 +774,13 @@ export function App({ onSignOut, sessionActor }: {
         return;
       }
       const format = new Intl.NumberFormat("es-CL").format;
-      const confirmed = window.confirm(
-        `¿Archivar ${format(preview.eligible)} casos fuera de plazo como histórico?\n\n`
-        + "Se cierran en Nodes con el motivo «Fuera de plazo de respuesta». No se borra ni se envía nada a Metricool, "
-        + "y se pueden reabrir cambiando su estado."
-        + (preview.skippedSensitive ? `\n\n${format(preview.skippedSensitive)} casos sensibles quedan sin archivar para revisión humana.` : ""),
-      );
+      const confirmed = await confirmAction({
+        title: `¿Archivar ${format(preview.eligible)} casos fuera de plazo como histórico?`,
+        message: "Se cierran en Nodes con el motivo «Fuera de plazo de respuesta». No se borra ni se envía nada a Metricool, "
+          + "y se pueden reabrir cambiando su estado."
+          + (preview.skippedSensitive ? `\n\n${format(preview.skippedSensitive)} casos sensibles quedan sin archivar para revisión humana.` : ""),
+        confirmLabel: "Archivar",
+      });
       if (!confirmed) return;
       const result = await archiveExpiredInteractions({ ...scope, dryRun: false });
       setToast({
@@ -1632,12 +1635,18 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
-  function navigateToView(destination: ViewId) {
+  async function navigateToView(destination: ViewId) {
     if (
       isManualView(view)
       && destination !== view
       && manualDraftDirty
-      && !window.confirm("Hay una respuesta manual sin guardar. ¿Salir y descartar esos cambios locales?")
+      && !(await confirmAction({
+        title: "¿Salir sin guardar la respuesta?",
+        message: "Hay una respuesta manual sin guardar. Si sales, se descartan esos cambios locales.",
+        confirmLabel: "Salir y descartar",
+        cancelLabel: "Seguir editando",
+        tone: "danger",
+      }))
     ) {
       return;
     }
@@ -2042,6 +2051,8 @@ export function App({ onSignOut, sessionActor }: {
           } : undefined}
         />
       ) : null}
+
+      <ConfirmHost />
 
       {toast ? (
         <div className={`app-toast ${toast.tone}`} role="status">
