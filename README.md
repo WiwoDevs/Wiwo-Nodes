@@ -43,7 +43,7 @@ Detalle completo: [docs/PUESTA_EN_MARCHA_REAL.md](docs/PUESTA_EN_MARCHA_REAL.md)
 
 ## Cómo fluye un caso
 
-1. **Lectura:** un worker lee Metricool cada cierto intervalo, solo lectura (`SAC_FLOW_INBOX_SYNC_ENABLED`). La web consulta cada 30 s si hubo cambios y ofrece **Actualizar ahora**.
+1. **Lectura:** un worker lee Metricool cada cierto intervalo, solo lectura (`SAC_FLOW_INBOX_SYNC_ENABLED`). La web es **en vivo**: la API avisa cada cambio (respuestas, asignaciones, estados, sincronización) y cada navegador baja solo lo que cambió, así contadores como "Por atender en plazo" se actualizan en un segundo sin recargar. También ofrece **Actualizar ahora**.
 2. **Clasificación:** el protocolo `sac-v1` clasifica intención y riesgo y propone una respuesta basada en las preguntas y respuestas aprobadas de la marca. Los casos sensibles o negativos van siempre a revisión humana.
 3. **Atención:** una persona toma el caso, revisa la recomendación, redacta y **confirma** el envío. Cada envío queda auditado y se protege contra duplicados.
 4. **Plazos de Meta:** 7 días para DMs y 24 horas para comentarios, contados desde el último mensaje del cliente. Fuera de plazo se puede intentar responder igual (Meta decide). Esos casos se ocultan por defecto y un Supervisor puede archivarlos como histórico sin tocar Metricool.

@@ -710,7 +710,15 @@ En cada sincronización live, la API intenta leer `GET /v2/settings/brands/{blog
 
 ### `GET /api/inbox/revision`
 
-Rol `viewer`. Responde `{ data: { revision } }`, una cadena opaca que cambia con cada escritura exitosa en la API (sincronización, borrador, respuesta, asignación, estado, marcas…) y nunca con lecturas ni con rutas de sesión. El prefijo cambia en cada arranque de la API. La UI la consulta cada 30 s con la bandeja visible y solo descarga `/api/brands` e `/api/inbox/contacts` si cambió; además hace una descarga completa al menos cada 5 minutos para cubrir cambios hechos fuera de la API (despachador de respuestas automáticas).
+Rol `viewer`. Responde `{ data: { revision } }`, una cadena opaca que cambia con cada escritura exitosa en la API (sincronización, borrador, respuesta, asignación, estado, marcas…) y nunca con lecturas ni con rutas de sesión. El prefijo cambia en cada arranque de la API. La UI la usa como punto de partida para los cambios en vivo (abajo).
+
+### `GET /api/inbox/changes?since=<revision>`
+
+Rol `viewer`. Bandeja en vivo: responde `{ data: { revision, full, contacts } }` con solo los contactos (mismo formato que `/api/inbox/contacts`) de las personas cuyos casos cambiaron después de `since`, dentro del alcance de marcas del actor. Cada escritura de casos en la API (respuesta, borrador, estado, asignación, nota, marca para el reporte, sincronización con Metricool, archivado) queda anotada por revisión. `full: true` (sin contactos) pide descargar la bandeja completa: revisión de otro arranque o demasiado antigua (se recuerdan las últimas 1.000), más de 2.000 casos cambiados, o un cambio de catálogo (marcas, flujo) que no dice qué casos tocó. La lectura de origen se comparte entre todos los navegadores que piden la misma revisión.
+
+### `GET /api/inbox/stream`
+
+Rol `viewer` (exige sesión). Server-Sent Events (`text/event-stream`, sin caché, `X-Accel-Buffering: no`): al conectar envía `event: revision` con la revisión actual, luego un `event: revision` en cada cambio y un `event: ping` cada 25 s. Solo lleva el número de revisión; el navegador pide el detalle a `/api/inbox/changes` con su sesión, así nadie recibe casos fuera de su alcance. Máximo 300 conexiones simultáneas por proceso (`503 LIVE_CAPACITY_REACHED` por encima). La UI mantiene la conexión con la pestaña visible, en todas las vistas, y si no llegan avisos (proxy que retiene el stream) pregunta a `/api/inbox/changes` cada 10 s. Además hace una descarga completa cada 10 minutos para cubrir cambios hechos fuera de la API (despachador automático del worker).
 
 ### Plazos de respuesta y `POST /api/interactions/archive-expired`
 

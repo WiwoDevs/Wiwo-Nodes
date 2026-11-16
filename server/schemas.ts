@@ -26,6 +26,11 @@ export const interactionFiltersSchema = z.object({
   to: optionalDate,
 }).strict();
 
+/** Bandeja en vivo: contactos que cambiaron desde una revisión. */
+export const inboxChangesQuerySchema = z.object({
+  since: z.string().trim().min(3).max(64),
+}).strict();
+
 /** Reporte mensual: mes YYYY-MM y qué cuenta como volumen. */
 export const sacMonthlyReportQuerySchema = z.object({
   month: z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Usa el formato AAAA-MM."),

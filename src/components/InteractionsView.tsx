@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { deadlineLabel, isExpired, needsAction, replyDeadline } from "../lib/reply-window";
 import { AccountFilter } from "./AccountFilter";
+import { useMinuteTick } from "../lib/use-minute-tick";
 import {
   ArrowClockwise,
   Check,
@@ -249,7 +250,9 @@ export function InteractionsView({
   }, [accountFilter, accounts]);
   const [selectedContactKeys, setSelectedContactKeys] = useState<Set<string>>(() => new Set());
   // Referencia de tiempo para los plazos; se renueva con cada actualización de la bandeja.
-  const now = useMemo(() => Date.now(), [interactions]);
+  // Los plazos vencen solos: se recalcula con cada cambio y cada minuto.
+  const minuteTick = useMinuteTick();
+  const now = useMemo(() => Date.now(), [interactions, minuteTick]);
   const [page, setPage] = useState(1);
   const availablePlatforms = useMemo(() => {
     const connected = new Set([

@@ -958,6 +958,27 @@ export async function loadInboxRevision(): Promise<string> {
   return payload.data.revision;
 }
 
+/** Marcas de la última carga: los cambios en vivo traen contactos que se muestran con ellas. */
+let lastApiBrands: ApiBrand[] = [];
+
+export type InboxChanges = { revision: string; full: boolean; interactions: Interaction[] };
+
+/** Contactos de la bandeja que cambiaron desde una revisión (`full`: hay que recargar todo). */
+export async function loadInboxChanges(since: string): Promise<InboxChanges> {
+  const response = await fetchJson<{ data: { revision: string; full: boolean; contacts: ApiInboxContact[] } }>(
+    `/inbox/changes?since=${encodeURIComponent(since)}`,
+    { cache: "no-store" },
+  );
+  return {
+    revision: response.data.revision,
+    full: response.data.full,
+    interactions: mapInboxContacts(response.data.contacts, lastApiBrands),
+  };
+}
+
+/** URL de los avisos en vivo de la bandeja (Server-Sent Events). */
+export const INBOX_STREAM_URL = `${API_BASE}/inbox/stream`;
+
 export async function loadInboxData(): Promise<InboxData> {
   const noStore: RequestInit = { cache: "no-store" };
   const activityFrom = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
@@ -969,6 +990,7 @@ export async function loadInboxData(): Promise<InboxData> {
     fetchJson<{ data: ApiWorkflow }>("/workflow", noStore),
     fetchJson<ApiReadiness>("/ready", noStore),
   ]);
+  lastApiBrands = brandsResponse.data;
   const inboxSync = mapInboxSyncStatus(readiness, workflowResponse.data) ?? {
     enabled: workflowResponse.data.enabled,
     intervalMinutes: workflowResponse.data.pollIntervalMinutes,
@@ -998,6 +1020,7 @@ export async function loadOperationalData(): Promise<OperationalData> {
     fetchJson<ApiHealth>("/health"),
     fetchJson<ApiReadiness>("/ready"),
   ]);
+  lastApiBrands = brandsResponse.data;
 
   const inboxSync = mapInboxSyncStatus(readiness, workflowResponse.data) ?? {
     enabled: workflowResponse.data.enabled,

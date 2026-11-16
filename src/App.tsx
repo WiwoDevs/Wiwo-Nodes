@@ -45,6 +45,8 @@ import wiwoNodesLogo from "./assets/wiwo-nodes-logo.png";
 import type { AutomationSection } from "./components/AutomationPlatform";
 import {
   addInteractionInternalNote,
+  INBOX_STREAM_URL,
+  loadInboxChanges,
   markContactsTriage,
   setInteractionTriage,
   addBrandResource,
@@ -90,6 +92,7 @@ import {
 import { useTheme } from "./lib/theme";
 import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor } from "./types";
 import { confirmAction } from "./lib/confirm";
+import { useMinuteTick } from "./lib/use-minute-tick";
 import { ConfirmHost } from "./components/ConfirmHost";
 
 const WorkflowCanvas = lazy(() =>
@@ -110,8 +113,25 @@ function isManualView(value: ViewId): value is ManualViewId {
   return (MANUAL_VIEWS as readonly string[]).includes(value);
 }
 
-/** Red de seguridad: descarga completa de la bandeja al menos cada 5 minutos. */
-const INBOX_FULL_RELOAD_MS = 5 * 60_000;
+/**
+ * Red de seguridad: descarga completa cada 10 minutos (cambios hechos fuera de la API, como
+ * el despachador automático del worker). Lo demás llega en vivo.
+ */
+const INBOX_FULL_RELOAD_MS = 10 * 60_000;
+/** Sin avisos en vivo (proxy que los retiene), se pregunta por cambios cada 10 s. */
+const INBOX_FALLBACK_POLL_MS = 10_000;
+
+/** Reemplaza las filas que cambiaron (por persona) y agrega las nuevas al principio. */
+function mergeInboxRows(current: Interaction[], changed: Interaction[]): Interaction[] {
+  const byKey = new Map(changed.map((row) => [row.contactKey, row]));
+  const merged = current.map((row) => {
+    const next = row.contactKey ? byKey.get(row.contactKey) : undefined;
+    if (!next) return row;
+    byKey.delete(row.contactKey!);
+    return next;
+  });
+  return byKey.size ? [...byKey.values(), ...merged] : merged;
+}
 
 const navigation = [
   { id: "platform-home" as const, label: "Inicio", icon: House, group: "Operación SAC" },
@@ -508,6 +528,9 @@ export function App({ onSignOut, sessionActor }: {
   const selectedContactKey = selectedInteractionDetail?.contactKey
     ?? visibleData.interactions.find((interaction) => interaction.id === selectedInteractionId)?.contactKey
     ?? null;
+  // Persona del caso abierto: si cambia en vivo, se refresca su detalle.
+  const selectedContactKeyRef = useRef<string | null>(null);
+  selectedContactKeyRef.current = selectedContactKey;
   // Los controles siguen los permisos del rol; el servidor vuelve a validar cada acción.
   const allowed = (permission: Permission) => !connectionIssue && can(visibleData.actor, permission);
   const canOperate = allowed("inbox.reply");
@@ -576,20 +599,64 @@ export function App({ onSignOut, sessionActor }: {
    * cambió (sincronización, respuesta, asignación…) o si pasaron 5 minutos (red de seguridad
    * para cambios hechos fuera de la API, como el despachador de respuestas automáticas).
    */
-  const checkInboxForChanges = useCallback(async () => {
-    const stale = Date.now() - lastFullInboxLoadRef.current > INBOX_FULL_RELOAD_MS;
-    if (!stale && inboxRevisionRef.current) {
+  /**
+   * Aplica solo lo que cambió desde la última revisión vista: las filas de esas personas se
+   * reemplazan y todos los contadores (Inicio, Bandeja, Gestión) se recalculan al instante.
+   * Si el servidor no puede decir qué cambió, o pasó la red de seguridad, se recarga completa.
+   */
+  const inboxChangesRun = useRef<Promise<void> | null>(null);
+  const inboxChangesAgain = useRef(false);
+  const syncInboxChanges = useCallback(async (): Promise<void> => {
+    if (inboxChangesRun.current) {
+      inboxChangesAgain.current = true;
+      return inboxChangesRun.current;
+    }
+    const run = (async () => {
+      const since = inboxRevisionRef.current;
+      const stale = Date.now() - lastFullInboxLoadRef.current > INBOX_FULL_RELOAD_MS;
+      if (!since || stale) {
+        await refreshInboxData(false);
+        return;
+      }
       try {
-        if (await loadInboxRevision() === inboxRevisionRef.current) {
-          setInboxCheckedAt(new Date().toISOString());
+        const changes = await loadInboxChanges(since);
+        if (changes.full) {
+          await refreshInboxData(false);
           return;
         }
+        const at = new Date().toISOString();
+        if (changes.interactions.length) {
+          setOperationalData((current) => current ? {
+            ...current,
+            interactions: mergeInboxRows(current.interactions, changes.interactions),
+          } : current);
+          setLastInboxRefreshAt(at);
+          const openKey = selectedContactKeyRef.current;
+          const openId = selectedInteractionIdRef.current;
+          if (openId && openKey && changes.interactions.some((row) => row.contactKey === openKey)) {
+            void refreshInteractionDetail(openId);
+          }
+        }
+        inboxRevisionRef.current = changes.revision;
+        setInboxCheckedAt(at);
+        setInboxRefreshIssue(null);
       } catch {
-        // Sin revisión no hay cómo saber si cambió: se descarga completa.
+        // Sin red o API ocupada: el próximo aviso (o la consulta de respaldo) vuelve a intentar.
+      }
+    })();
+    inboxChangesRun.current = run;
+    try {
+      await run;
+    } finally {
+      inboxChangesRun.current = null;
+      if (inboxChangesAgain.current) {
+        inboxChangesAgain.current = false;
+        void syncInboxChangesRef.current();
       }
     }
-    await refreshInboxData(false);
   }, [refreshInboxData]);
+  const syncInboxChangesRef = useRef(syncInboxChanges);
+  syncInboxChangesRef.current = syncInboxChanges;
 
   useEffect(() => {
     if (!toast) return;
@@ -623,35 +690,69 @@ export function App({ onSignOut, sessionActor }: {
     void refreshOperationalData();
   }, []);
 
+  /**
+   * Bandeja en vivo, en todas las vistas: el servidor avisa cada cambio por una conexión
+   * abierta y se piden solo esos contactos. Si la conexión no llega (un proxy la retiene), se
+   * pregunta cada 10 s. Con la pestaña oculta se cierra todo y al volver se pone al día.
+   */
+  const hasOperationalData = Boolean(operationalData);
   useEffect(() => {
-    if (!(view === "interactions" || isManualView(view)) || isLoadingData || connectionIssue) return;
+    if (!hasOperationalData || connectionIssue) return;
+    let source: EventSource | null = null;
+    let lastEventAt = 0;
+    let pollId: number | undefined;
 
-    const refreshWhenAvailable = () => {
-      if (
-        document.visibilityState === "visible"
-        && navigator.onLine
-        && !isRunning
-        && !isMutatingInteraction
-      ) {
-        void checkInboxForChanges();
+    const syncIfVisible = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) void syncInboxChangesRef.current();
+    };
+    const open = () => {
+      if (source || typeof EventSource === "undefined" || document.visibilityState !== "visible") return;
+      source = new EventSource(INBOX_STREAM_URL);
+      source.addEventListener("revision", (event) => {
+        lastEventAt = Date.now();
+        try {
+          const { revision } = JSON.parse((event as MessageEvent<string>).data) as { revision?: string };
+          if (revision && revision !== inboxRevisionRef.current) void syncInboxChangesRef.current();
+        } catch {
+          syncIfVisible();
+        }
+      });
+      // Latido del servidor cada 25 s: la conexión sigue viva aunque no haya cambios.
+      source.addEventListener("ping", () => { lastEventAt = Date.now(); });
+      source.onopen = () => { lastEventAt = Date.now(); };
+    };
+    const close = () => {
+      source?.close();
+      source = null;
+    };
+    // Respaldo: si no hay conexión en vivo abierta y reciente, se pregunta por cambios.
+    pollId = window.setInterval(() => {
+      const liveOk = source?.readyState === 1 && Date.now() - lastEventAt < 60_000;
+      if (!liveOk) syncIfVisible();
+    }, INBOX_FALLBACK_POLL_MS);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        open();
+        syncIfVisible();
+      } else {
+        close();
       }
     };
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") refreshWhenAvailable();
-    };
 
-    refreshWhenAvailable();
-    const intervalId = window.setInterval(refreshWhenAvailable, 30_000);
+    open();
+    syncIfVisible();
     document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("focus", refreshWhenAvailable);
-    window.addEventListener("online", refreshWhenAvailable);
+    window.addEventListener("online", syncIfVisible);
     return () => {
-      window.clearInterval(intervalId);
+      close();
+      window.clearInterval(pollId);
       document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("focus", refreshWhenAvailable);
-      window.removeEventListener("online", refreshWhenAvailable);
+      window.removeEventListener("online", syncIfVisible);
     };
-  }, [checkInboxForChanges, connectionIssue, isLoadingData, isMutatingInteraction, isRunning, view]);
+  }, [connectionIssue, hasOperationalData]);
+
+  // Los plazos de Meta vencen solos: un reloj por minuto recalcula los contadores "en plazo".
+  useMinuteTick();
 
   useEffect(() => {
     if (view !== "manual-comments" || !manualAccountId || !selectedManualAccount || connectionIssue) return;
@@ -997,7 +1098,7 @@ export function App({ onSignOut, sessionActor }: {
     setMutatingInteraction(true);
     try {
       await saveInteractionReply(interaction.id, suggestedDraft(interaction), "draft", interaction.version ?? 1);
-      await refreshOperationalData();
+      await syncInboxChanges();
       if (selectedInteractionIdRef.current === interaction.id) await refreshInteractionDetail(interaction.id);
       setToast({
         tone: "success",
@@ -1024,7 +1125,7 @@ export function App({ onSignOut, sessionActor }: {
           saveInteractionReply(interaction.id, suggestedDraft(interaction), "draft", interaction.version ?? 1),
         ),
       );
-      await refreshOperationalData();
+      await syncInboxChanges();
       const selectedId = selectedInteractionIdRef.current;
       if (selectedId && interactions.some((interaction) => interaction.id === selectedId)) {
         await refreshInteractionDetail(selectedId);
@@ -1050,7 +1151,7 @@ export function App({ onSignOut, sessionActor }: {
     setMutatingInteraction(true);
     try {
       const result = await evaluateSacProtocol(interactions?.map((interaction) => interaction.id));
-      await refreshOperationalData();
+      await syncInboxChanges();
       if (selectedInteractionIdRef.current) await refreshInteractionDetail(selectedInteractionIdRef.current);
       setToast({
         tone: result.queueSkippedCapacity ? "warning" : "success",
@@ -1079,7 +1180,7 @@ export function App({ onSignOut, sessionActor }: {
         reasonNote,
         interaction.version ?? 1,
       );
-      await refreshOperationalData();
+      await syncInboxChanges();
       if (selectedInteractionIdRef.current === interaction.id) await refreshInteractionDetail(interaction.id);
       setToast({
         tone: "success",
@@ -1104,7 +1205,7 @@ export function App({ onSignOut, sessionActor }: {
     setMutatingInteraction(true);
     try {
       await saveInteractionReply(detail.id, text, "draft", detail.version);
-      await refreshOperationalData();
+      await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",
@@ -1128,7 +1229,7 @@ export function App({ onSignOut, sessionActor }: {
     setMutatingInteraction(true);
     try {
       await deleteInteractionDraft(detail.id, detail.version);
-      await refreshOperationalData();
+      await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",
@@ -1152,7 +1253,7 @@ export function App({ onSignOut, sessionActor }: {
     setMutatingInteraction(true);
     try {
       await saveInteractionReply(detail.id, text, "send", detail.version);
-      await refreshOperationalData();
+      await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",
@@ -1183,7 +1284,7 @@ export function App({ onSignOut, sessionActor }: {
     setMutatingInteraction(true);
     try {
       await reconcileReplyDelivery(delivery.id, outcome, delivery.version, note);
-      await refreshOperationalData();
+      await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",
@@ -1215,7 +1316,7 @@ export function App({ onSignOut, sessionActor }: {
         reasonNote,
         detail.version,
       );
-      await refreshOperationalData();
+      await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",
@@ -1243,14 +1344,14 @@ export function App({ onSignOut, sessionActor }: {
       await updateInteractionAssignment(interaction.id, interaction.version, "claim");
       setToast({ tone: "success", title: "Caso tomado", detail: `${interaction.customerName} quedó asignado a ti.` });
       void openInteractionDetail(interaction);
-      void refreshInboxData(false);
+      void syncInboxChanges();
     } catch (error) {
       setToast({
         tone: "warning",
         title: "No se pudo tomar el caso",
         detail: error instanceof Error ? `${error.message} Actualiza la bandeja e intenta con el siguiente.` : "Actualiza la bandeja e intenta nuevamente.",
       });
-      void refreshInboxData(false);
+      void syncInboxChanges();
     } finally {
       setMutatingInteraction(false);
     }
@@ -1280,7 +1381,7 @@ export function App({ onSignOut, sessionActor }: {
     const action = detail.assignedTo ? "release" : "claim";
     try {
       await updateInteractionAssignment(detail.id, detail.version, action);
-      await refreshOperationalData();
+      await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",
@@ -1342,7 +1443,7 @@ export function App({ onSignOut, sessionActor }: {
     setMutatingInteraction(true);
     try {
       await addInteractionInternalNote(detail.id, text, detail.version);
-      await refreshOperationalData();
+      await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",

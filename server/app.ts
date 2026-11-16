@@ -78,10 +78,12 @@ import {
   workflowRunSchema,
   workflowUpdateSchema,
   sacMonthlyReportQuerySchema,
+  inboxChangesQuerySchema,
   interactionTriageSchema,
   interactionBulkTriageSchema,
 } from "./schemas.js";
 import { buildSacReport, duplicateAccountGroups, esCasoSac, esTriajeManual, monthPeriod } from "./sac-report.js";
+import { InboxChangeLog, MAX_LIVE_CLIENTS, trackInteractionChanges } from "./inbox-live.js";
 import type {
   ActorContext,
   ActorRole,
@@ -1585,8 +1587,11 @@ async function registerFrontend(app: FastifyInstance, config: AppConfig): Promis
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowApp> {
   const config = options.config || loadConfig();
-  const repository = options.repository || createRepository(config);
-  await repository.initialize();
+  const baseRepository = options.repository || createRepository(config);
+  await baseRepository.initialize();
+  // Bandeja en vivo: cada escritura de casos queda anotada para avisar a los navegadores.
+  const inboxChanges = new InboxChangeLog();
+  const repository = trackInteractionChanges(baseRepository, inboxChanges);
   await repository.recoverStaleReplyDeliveries();
   // En live, las marcas de ejemplo no deben verse ni contar como cuentas sin conectar.
   const retiredDemoBrands = await retireDemoSeedBrands(config, repository);
@@ -1653,9 +1658,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    * respuesta mínima) y solo vuelve a descargar marcas y contactos cuando cambió. El prefijo
    * aleatorio evita que un reinicio de la API repita una revisión anterior.
    */
-  const inboxRevisionPrefix = randomUUID().slice(0, 8);
-  let inboxRevisionCounter = 0;
-  const inboxRevision = () => `${inboxRevisionPrefix}-${inboxRevisionCounter}`;
+  const inboxRevision = () => inboxChanges.revision();
+  inboxChanges.onBump(() => inboxContactsCache.clear());
   const REVISION_NEUTRAL_PATHS = /^\/api\/(auth\/|session(\?|$))/;
   // Cualquier escritura exitosa invalida la lista cacheada y avanza la revisión antes de
   // responder, para que el navegador que la pidió ya vea la revisión nueva.
@@ -1667,8 +1671,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       && request.url.startsWith("/api/")
       && !REVISION_NEUTRAL_PATHS.test(request.url)
     ) {
-      inboxContactsCache.clear();
-      inboxRevisionCounter += 1;
+      inboxChanges.bump();
     }
     return payload;
   });
@@ -2927,6 +2930,86 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   app.get("/api/inbox/revision", async (request) => {
     requireRole(config, request, "viewer");
     return { data: { revision: inboxRevision() }, meta: apiMeta(config) };
+  });
+
+  /**
+   * Bandeja en vivo: los contactos que cambiaron desde `since` (una revisión anterior). Si la
+   * revisión es de otro arranque, muy antigua o el cambio no dice qué casos tocó, responde
+   * `full: true` y el navegador descarga la bandeja completa.
+   */
+  let deltaSource: { revision: string; interactions: Promise<Interaction[]> } | undefined;
+  app.get("/api/inbox/changes", async (request) => {
+    const actor = requireRole(config, request, "viewer");
+    const { since } = inboxChangesQuerySchema.parse(request.query);
+    const changes = inboxChanges.changesSince(since);
+    if (changes.full || !changes.interactionIds.length) {
+      return {
+        data: { revision: changes.revision, full: changes.full, contacts: [] },
+        meta: apiMeta(config),
+      };
+    }
+    // Una sola lectura por revisión, compartida por todos los navegadores que piden el cambio.
+    if (!deltaSource || deltaSource.revision !== changes.revision) {
+      const interactions = repository.listInteractions({});
+      deltaSource = { revision: changes.revision, interactions };
+      interactions.catch(() => { if (deltaSource?.interactions === interactions) deltaSource = undefined; });
+    }
+    const all = await deltaSource.interactions;
+    const visible = actor.brandIds === "all" ? all : all.filter((item) => actor.brandIds.includes(item.brandId));
+    const byId = new Map(visible.map((item) => [item.id, item]));
+    const keys = new Set<string>();
+    for (const id of changes.interactionIds) {
+      const item = byId.get(id);
+      if (item) keys.add(contactKeyFor(item));
+    }
+    const contacts = keys.size ? groupInboxContacts(visible.filter((item) => keys.has(contactKeyFor(item)))) : [];
+    return {
+      data: { revision: changes.revision, full: false, contacts },
+      meta: apiMeta(config),
+    };
+  });
+
+  /**
+   * Avisos en vivo (Server-Sent Events): manda la revisión actual al conectar y cada vez que
+   * cambia; el navegador pide el detalle a /api/inbox/changes con su sesión. Un latido
+   * cada 25 s mantiene la conexión abierta a través de proxies.
+   */
+  const liveClients = new Set<import("node:http").ServerResponse>();
+  inboxChanges.onBump((revision) => {
+    const chunk = `event: revision\ndata: ${JSON.stringify({ revision })}\n\n`;
+    for (const client of liveClients) client.write(chunk);
+  });
+  app.get("/api/inbox/stream", async (request, reply) => {
+    requireRole(config, request, "viewer");
+    if (liveClients.size >= MAX_LIVE_CLIENTS) {
+      throw new ApiError(503, "LIVE_CAPACITY_REACHED", "Demasiadas conexiones en vivo; la bandeja seguirá actualizándose cada pocos segundos.");
+    }
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      "X-Content-Type-Options": "nosniff",
+      "X-Request-Id": request.id,
+    });
+    raw.write(`retry: 5000\nevent: revision\ndata: ${JSON.stringify({ revision: inboxRevision() })}\n\n`);
+    liveClients.add(raw);
+    // Latido como evento (no comentario): el navegador lo ve y sabe que la conexión sigue viva.
+    const heartbeat = setInterval(() => raw.write("event: ping\ndata: {}\n\n"), 25_000);
+    heartbeat.unref?.();
+    const close = () => {
+      clearInterval(heartbeat);
+      liveClients.delete(raw);
+    };
+    request.raw.on("close", close);
+    raw.on("close", close);
+  });
+  app.addHook("onClose", async () => {
+    for (const client of liveClients) client.end();
+    liveClients.clear();
+    inboxChanges.close();
   });
 
   app.get("/api/inbox/contacts", async (request) => {
@@ -4391,5 +4474,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     });
   });
 
+  // Las escrituras de arranque (marcas de ejemplo retiradas, entregas recuperadas) cierran
+  // en una revisión propia: ningún navegador conectado después las verá como cambio pendiente.
+  inboxChanges.bump();
   return app;
 }
