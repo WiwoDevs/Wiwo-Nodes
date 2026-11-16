@@ -6530,7 +6530,9 @@ button.users-roles-person:hover strong { color: var(--accent-text); }
   background: var(--surface-overlay);
 }
 
-/* Detalle de caso: atajo "Responder" junto a cerrar. */
+/* Detalle de caso: atajo "Responder" junto a cerrar. La segunda columna del encabezado se
+   ajusta a las acciones (antes era fija de 34px y el botón cerrar quedaba fuera de pantalla). */
+.case-detail-panel__header { grid-template-columns: minmax(0, 1fr) auto; }
 .case-detail-panel__header-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .case-detail-panel__jump { height: 32px; gap: 6px; padding: 0 12px; font-size: 12px; }
 

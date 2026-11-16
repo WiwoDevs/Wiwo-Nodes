@@ -1,0 +1,185 @@
+/*
+ * Estilos de la escena ilustrada del inicio de sesión (src/assets/login-escena-primavera.html).
+ * Viven aquí y no como <style> dentro del HTML porque la CSP de producción (style-src 'self')
+ * bloquea los estilos en línea: un <style> inyectado no se aplicaría y la escena se vería gris.
+ * Generado a partir de los bloques <style> originales de la escena; no editar a mano sin
+ * revisar también el HTML.
+ */
+
+@property --pr-colina-1 { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-colina-1b { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-colina-2 { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-colina-2b { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-colina-3 { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-colina-3b { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-arbol { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-arbol-claro { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-copa { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-copa-luz { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-copa-sombra { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-pasto-claro { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-pasto-oscuro { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-pasto { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-pasto-fondo { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-camino { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-camino-sombra { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-f-blanca { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-f-rosa { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-f-amarilla { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-f-lila { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-f-coral { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-f-centro { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-tronco { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-tronco-luz { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-tronco-sombra { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-madera-casa { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-madera-casa-oscura { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-madera-poste { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-puerta { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-marco { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-marco-blanco { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-hueco { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-papel { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-techo-casa { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-techo-luz { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-techo-borde { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-piedra { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-piedra-luz { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-chimenea { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-farol { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-humo { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-gato { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-gato-claro { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-tierra { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-hueco-conejo { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-conejo { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-conejo-oreja { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-nube { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-nube-sombra { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --pr-sol-color { syntax: '<color>'; inherits: true; initial-value: transparent; }
+.escena-primavera {
+  --velo-noche: #1b1850;
+  contain: strict;
+  --pr-colina-1: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), color-mix(in srgb, var(--cielo-abajo) 30%, #bfe4a8)));
+  --pr-colina-1b: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), color-mix(in srgb, var(--cielo-abajo) 16%, #a8d98f)));
+  --pr-colina-2: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #9ed67f));
+  --pr-colina-2b: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #86c86b));
+  --pr-colina-3: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #7bc85c));
+  --pr-colina-3b: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #5cac47));
+  --pr-arbol: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #5fae52));
+  --pr-arbol-claro: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #88cd70));
+  --pr-copa: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #63b656));
+  --pr-copa-luz: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #8dd16f));
+  --pr-copa-sombra: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #4a9a44));
+  --pr-pasto-claro: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #a8dc8a));
+  --pr-pasto-oscuro: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #4f9a48));
+  --pr-pasto: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #5fae4e));
+  --pr-pasto-fondo: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #86c86b));
+  --pr-camino: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #f1e2bf));
+  --pr-camino-sombra: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #cdb48a));
+  --pr-f-blanca: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #ffffff));
+  --pr-f-rosa: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #f58fb4));
+  --pr-f-amarilla: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #ffd34e));
+  --pr-f-lila: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #b79ceb));
+  --pr-f-coral: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #ff9272));
+  --pr-f-centro: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #ffc93c));
+  --pr-tronco: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #8a5a44));
+  --pr-tronco-luz: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #a8745a));
+  --pr-tronco-sombra: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #5f3f34));
+  --pr-madera-casa: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #f4d58a));
+  --pr-madera-casa-oscura: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #e2b968));
+  --pr-madera-poste: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #c99a52));
+  --pr-puerta: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #e8869f));
+  --pr-marco: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #5a3e36));
+  --pr-marco-blanco: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #fff8ea));
+  --pr-hueco: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #3a2a35));
+  --pr-papel: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #e8f4fa));
+  --pr-techo-casa: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #9fd2e8));
+  --pr-techo-luz: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #c6e6f4));
+  --pr-techo-borde: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #6fa9c6));
+  --pr-piedra: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #a6a3b3));
+  --pr-piedra-luz: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #c6c3d0));
+  --pr-chimenea: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #c77d68));
+  --pr-farol: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #f08c9e));
+  --pr-humo: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #ffffff));
+  --pr-gato: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #7d7788));
+  --pr-gato-claro: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #ddd6cb));
+  --pr-tierra: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #8b6a58));
+  --pr-hueco-conejo: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #35272c));
+  --pr-conejo: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #fbf3ee));
+  --pr-conejo-oreja: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #f6b9c8));
+  --pr-nube: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #ffffff));
+  --pr-nube-sombra: color-mix(in srgb, var(--velo-noche) calc(var(--oscuridad, 0) * 58%), color-mix(in srgb, #ff9a6b calc(var(--calidez, 0) * 16%), #e4eef8));
+  --pr-sol-color: color-mix(in srgb, #ffa05a calc(var(--calidez, 0) * 100%), #fff0b0);
+}
+.escena-primavera .pr-capa { position: absolute; inset: 0; pointer-events: none; }
+.escena-primavera svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; }
+.escena-primavera svg.pr-viva { will-change: transform; }
+.escena-primavera svg.pr-franja { inset: auto -2% -1px; width: 104%; height: clamp(34px, 5vh, 60px); }
+.escena-primavera .pr-caja {
+  position: absolute; bottom: 0; left: 50%; aspect-ratio: 16 / 9; container-type: inline-size; pointer-events: none;
+  width: max(100%, 177.78vh); margin-left: calc(max(100%, 177.78vh) / -2);
+}
+.escena-primavera svg.pr-nube { inset: auto; left: var(--x); height: auto; opacity: calc(0.92 - var(--oscuridad, 0) * 0.4); }
+.escena-primavera .pr-humo { position: absolute; left: 74.19%; top: 52.89%; width: 0; height: 0; }
+.escena-primavera .pr-bocanada {
+  position: absolute; left: 0; top: 0; translate: -50% -50%; aspect-ratio: 1; border-radius: 50%;
+  background: var(--pr-humo); opacity: 0;
+}
+.escena-primavera .pr-arbol-mece { transform-origin: 38.75% 57.78%; will-change: transform; }
+@media (prefers-reduced-motion: no-preference) {
+  .escena-primavera svg.pr-nube { left: 0; animation: pr-deriva linear infinite; will-change: transform; }
+  .escena-primavera .pr-bocanada { animation: pr-sube 7s linear infinite; will-change: transform, opacity; }
+  /* La caja del arbol mide toda la escena: con pasos (~4 cuadros por segundo, 0.3 px cada uno) el compositor no mezcla esa capa a 60 Hz. */
+  .escena-primavera .pr-arbol-mece { animation: pr-mece 5.2s steps(20, jump-none) infinite alternate; }
+}
+/* Solo porcentajes: las unidades cqw en los fotogramas impiden que la animacion corra en el compositor. */
+@keyframes pr-deriva { from { transform: translateX(var(--de)); } to { transform: translateX(var(--a)); } }
+@keyframes pr-sube {
+  0% { transform: translate3d(0, 0, 0) scale(0.55); opacity: 0; }
+  12% { opacity: 0.6; }
+  33% { transform: translate3d(calc(0.4 * var(--u) * var(--lado, 1)), calc(-2.1 * var(--u)), 0) scale(1); }
+  66% { transform: translate3d(calc(-0.25 * var(--u) * var(--lado, 1)), calc(-5 * var(--u)), 0) scale(1.5); opacity: 0.32; }
+  100% { transform: translate3d(calc(0.9 * var(--u) * var(--lado, 1)), calc(-8 * var(--u)), 0) scale(2.1); opacity: 0; }
+}
+@keyframes pr-mece {
+  from { transform: rotate(-0.45deg) translate3d(-0.08%, 0, 0); }
+  to { transform: rotate(0.45deg) translate3d(0.08%, 0.25%, 0); }
+}
+.escena-primavera [data-huevo] { pointer-events: auto; cursor: pointer; }
+.escena-primavera [data-astro="sol"] { transform: translate(calc(var(--sol-x, 0.5) * 1360px + 120px), calc(var(--sol-y, 0.2) * 370px + 230px)); }
+.escena-primavera [data-astro="luna"] { transform: translate(calc(var(--luna-x, 0.5) * 1360px + 120px), calc(var(--luna-y, 1) * 370px + 230px)); }
+.escena-primavera[data-listo] { transition: --pr-colina-1 1.6s ease, --pr-colina-1b 1.6s ease, --pr-colina-2 1.6s ease, --pr-colina-2b 1.6s ease, --pr-colina-3 1.6s ease, --pr-colina-3b 1.6s ease, --pr-arbol 1.6s ease, --pr-arbol-claro 1.6s ease, --pr-copa 1.6s ease, --pr-copa-luz 1.6s ease, --pr-copa-sombra 1.6s ease, --pr-pasto-claro 1.6s ease, --pr-pasto-oscuro 1.6s ease, --pr-pasto 1.6s ease, --pr-pasto-fondo 1.6s ease, --pr-camino 1.6s ease, --pr-camino-sombra 1.6s ease, --pr-f-blanca 1.6s ease, --pr-f-rosa 1.6s ease, --pr-f-amarilla 1.6s ease, --pr-f-lila 1.6s ease, --pr-f-coral 1.6s ease, --pr-f-centro 1.6s ease, --pr-tronco 1.6s ease, --pr-tronco-luz 1.6s ease, --pr-tronco-sombra 1.6s ease, --pr-madera-casa 1.6s ease, --pr-madera-casa-oscura 1.6s ease, --pr-madera-poste 1.6s ease, --pr-puerta 1.6s ease, --pr-marco 1.6s ease, --pr-marco-blanco 1.6s ease, --pr-hueco 1.6s ease, --pr-papel 1.6s ease, --pr-techo-casa 1.6s ease, --pr-techo-luz 1.6s ease, --pr-techo-borde 1.6s ease, --pr-piedra 1.6s ease, --pr-piedra-luz 1.6s ease, --pr-chimenea 1.6s ease, --pr-farol 1.6s ease, --pr-humo 1.6s ease, --pr-gato 1.6s ease, --pr-gato-claro 1.6s ease, --pr-tierra 1.6s ease, --pr-hueco-conejo 1.6s ease, --pr-conejo 1.6s ease, --pr-conejo-oreja 1.6s ease, --pr-nube 1.6s ease, --pr-nube-sombra 1.6s ease, --pr-sol-color 1.6s ease; }
+.escena-primavera[data-listo] stop { transition: stop-color 1.6s ease; }
+.escena-primavera[data-listo] :is(#estrellas, #cielo-horizonte, #ventana-luz, #casita-farol-luz, .pr-nube) { transition: opacity 1.6s ease; }
+.escena-primavera[data-listo] svg [data-astro] { transition: transform 4s linear, opacity 1.6s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .escena-primavera, .escena-primavera stop, .escena-primavera svg [data-astro] { transition: none !important; }
+}
+
+.escena-primavera [data-capa] { transition: transform 1.1s cubic-bezier(0.215, 0.61, 0.355, 1); }
+@media (prefers-reduced-motion: no-preference) {
+  .escena-primavera:not([data-fase="dia"]) #estrellas > path { animation: pr-titila 3.2s steps(3, jump-none) infinite alternate; }
+  .escena-primavera:not([data-fase="dia"]) #estrellas > path:nth-of-type(2n) { animation-duration: 4.4s; animation-delay: -1.3s; }
+  .escena-primavera:not([data-fase="dia"]) #estrellas > path:nth-of-type(3n) { animation-duration: 2.6s; animation-delay: -2.1s; }
+  .escena-primavera [data-oreja="izq"].pr-oreja-sacude { animation: pr-oreja-izq 0.6s steps(2, jump-end); }
+  .escena-primavera [data-oreja="der"].pr-oreja-sacude { animation: pr-oreja-der 0.6s steps(2, jump-end); }
+}
+@keyframes pr-titila { from { opacity: 0.9; } to { opacity: 0.2; } }
+@keyframes pr-oreja-izq { 0% { rotate: 0deg; } 18% { rotate: -13deg; } 42% { rotate: 4deg; } 100% { rotate: 0deg; } }
+@keyframes pr-oreja-der { 0% { rotate: 0deg; } 18% { rotate: 13deg; } 42% { rotate: -4deg; } 100% { rotate: 0deg; } }
+
+.pa-caja { position: absolute; left: 50%; bottom: 0; width: 1600px; height: 900px; transform-origin: 50% 100%; transform: translateX(-50%) scale(var(--pa-escala, 1)); pointer-events: none; }
+.pa-pieza { position: absolute; left: 0; top: 0; visibility: hidden; translate: -50% -50%; will-change: transform; }
+.pa-pieza svg { display: block; width: 100%; height: 100%; }
+@media (prefers-reduced-motion: no-preference) {
+  .pa-activo[data-animal="mariposa"] svg { animation: pa-bate 0.3s ease-in-out infinite alternate; will-change: transform; }
+  .pa-activo.pa-posada[data-animal="mariposa"] svg { animation-duration: 0.9s; }
+  .pa-activo [data-zumbido] { animation: pa-zumba 0.12s steps(1) infinite; }
+  .pa-activo[data-animal="pajaro"] svg { animation: pa-cola 0.34s ease-in-out infinite alternate; will-change: transform; }
+}
+@keyframes pa-bate { from { scale: 1 1; } to { scale: 0.5 1; } }
+@keyframes pa-cola { from { rotate: -3deg; } to { rotate: 3deg; } }
+@keyframes pa-zumba {
+  0% { translate: 0 0; } 25% { translate: 1.4px -1.2px; } 50% { translate: -1.2px 1.4px; } 75% { translate: 1px 1px; }
+}
