@@ -109,3 +109,81 @@ describe("GET /api/reports/sac", () => {
     expect(missing.statusCode).toBe(400);
   });
 });
+
+describe("Marcado manual de caso o ruido", () => {
+  async function inboundOpen(app: SacFlowApp) {
+    const store = await app.sacFlow.repository.snapshot();
+    return store.interactions.find((item) => item.direction === "inbound" && ["new", "pending"].includes(item.status))!;
+  }
+
+  it("una persona marca un mensaje como ruido, el detalle y el reporte lo reflejan, y puede volver a automático", async () => {
+    const app = await makeApp();
+    const interaction = await inboundOpen(app);
+    const month = interaction.createdAt.slice(0, 7);
+    const before = (await app.inject({ method: "GET", url: `/api/interactions/${interaction.id}`, headers: actor("agent") })).json().data;
+    expect(before.reportTriage.source).not.toBe("manual");
+    const reportBefore = (await app.inject({ method: "GET", url: `/api/reports/sac?month=${month}`, headers: actor("supervisor") })).json().data;
+    const brandBefore = reportBefore.brands.find((brand: { brandId: string }) => brand.brandId === interaction.brandId);
+
+    const marked = await app.inject({
+      method: "PUT",
+      url: `/api/interactions/${interaction.id}/triage`,
+      headers: actor("agent"),
+      payload: { esCasoSac: false, expectedVersion: before.version },
+    });
+    expect(marked.statusCode).toBe(200);
+    expect(marked.json().data.reportTriage).toMatchObject({ esCasoSac: false, source: "manual", marcadoPor: "Usuario agent" });
+
+    const reportAfter = (await app.inject({ method: "GET", url: `/api/reports/sac?month=${month}`, headers: actor("supervisor") })).json().data;
+    const brandAfter = reportAfter.brands.find((brand: { brandId: string }) => brand.brandId === interaction.brandId);
+    expect(brandAfter.figures.clasificacion.manual).toBe((brandBefore?.figures.clasificacion.manual ?? 0) + 1);
+    if (before.reportTriage.esCasoSac) expect(brandAfter.figures.casosSac).toBe(brandBefore.figures.casosSac - 1);
+
+    const detail = (await app.inject({ method: "GET", url: `/api/interactions/${interaction.id}`, headers: actor("agent") })).json().data;
+    const reset = await app.inject({
+      method: "PUT",
+      url: `/api/interactions/${interaction.id}/triage`,
+      headers: actor("agent"),
+      payload: { esCasoSac: null, expectedVersion: detail.version },
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json().data.reportTriage.source).not.toBe("manual");
+  });
+
+  it("exige el permiso de notas y estados", async () => {
+    const app = await makeApp();
+    const interaction = await inboundOpen(app);
+    const response = await app.inject({
+      method: "PUT",
+      url: `/api/interactions/${interaction.id}/triage`,
+      headers: { ...actor("agent"), "x-sac-role": "viewer" },
+      payload: { esCasoSac: false, expectedVersion: interaction.version },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("marca en lote las conversaciones elegidas sin pisar una marca manual previa", async () => {
+    const app = await makeApp();
+    const contacts = (await app.inject({ method: "GET", url: "/api/inbox/contacts?page=1&pageSize=5", headers: actor("agent") })).json().data;
+    const contact = (contacts as Array<{ contactKey: string; replyTarget?: { id: string }; latest: { id?: string } }>).find((item) => item.replyTarget)!;
+    const targetId = contact.replyTarget!.id;
+    const detail = (await app.inject({ method: "GET", url: `/api/interactions/${targetId}`, headers: actor("agent") })).json().data;
+    // Marca manual previa como caso: el lote como ruido no la cambia.
+    await app.inject({
+      method: "PUT",
+      url: `/api/interactions/${targetId}/triage`,
+      headers: actor("agent"),
+      payload: { esCasoSac: true, expectedVersion: detail.version },
+    });
+    const bulk = await app.inject({
+      method: "POST",
+      url: "/api/interactions/triage",
+      headers: actor("agent"),
+      payload: { contactKeys: [contact.contactKey], esCasoSac: false },
+    });
+    expect(bulk.statusCode).toBe(200);
+    expect(bulk.json().data.contacts).toBe(1);
+    const after = (await app.inject({ method: "GET", url: `/api/interactions/${targetId}`, headers: actor("agent") })).json().data;
+    expect(after.reportTriage).toMatchObject({ esCasoSac: true, source: "manual" });
+  });
+});

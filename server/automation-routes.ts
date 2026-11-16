@@ -489,6 +489,11 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.all("/api/webhooks/:path", async (request, reply) => {
+    // Un enlace o redirección desde otro sitio no puede disparar un webhook con la sesión de
+    // quien hace clic (CSRF): los navegadores marcan esas solicitudes como cross-site.
+    if (String(request.headers["sec-fetch-site"] || "").toLowerCase() === "cross-site") {
+      throw new AutomationServiceError(403, "CROSS_SITE_WEBHOOK", "Este webhook no se puede disparar desde otro sitio.");
+    }
     const actor = dependencies.requirePermission(request, "automations.run");
     const { path } = webhookParams.parse(request.params);
     const state = await repository.snapshotAutomation();

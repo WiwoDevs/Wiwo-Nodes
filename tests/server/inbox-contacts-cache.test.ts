@@ -47,7 +47,7 @@ describe("Caché de la lista de contactos de la bandeja", () => {
     const app = await makeApp();
     const first = await app.inject({ method: "GET", url: "/api/inbox/contacts?page=1&pageSize=10" });
     expect(first.statusCode).toBe(200);
-    const list = await app.inject({ method: "GET", url: "/api/interactions?pageSize=1" });
+    const list = await app.inject({ method: "GET", url: "/api/interactions?pageSize=1&status=pending" });
     const interactionId = list.json().data[0].id as string;
     const listInteractions = vi.spyOn(app.sacFlow.repository, "listInteractions");
 
@@ -81,7 +81,7 @@ describe("Revisión de la bandeja", () => {
     await app.inject({ method: "GET", url: "/api/brands" });
     expect(await revision()).toBe(initial);
 
-    const list = await app.inject({ method: "GET", url: "/api/interactions?pageSize=1" });
+    const list = await app.inject({ method: "GET", url: "/api/interactions?pageSize=1&status=pending" });
     const interactionId = list.json().data[0].id as string;
     const detail = await app.inject({ method: "GET", url: `/api/interactions/${interactionId}` });
     const draft = await app.inject({

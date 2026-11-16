@@ -61,6 +61,8 @@ export interface SacReportFigures {
   variacion?: { anterior: number; deltaPct: number; comparable: boolean };
   /** Advertencias que el operador debe leer antes de presentar el informe. */
   advertencias: string[];
+  /** De dónde salió la decisión "es caso / es ruido" de cada mensaje entrante del mes. */
+  clasificacion: { manual: number; ia: number; reglas: number };
 }
 
 /**
@@ -223,6 +225,27 @@ export function duplicateAccountGroups(brands: Brand[]): string[][] {
   return [...groups.values()].filter((names) => names.length > 1);
 }
 
+/** Marcado a mano por una persona (manda sobre la IA y las reglas). */
+export function esTriajeManual(item: Interaction): boolean {
+  return item.sacTriage?.modelo === "manual";
+}
+
+/**
+ * ¿Es un caso SAC? Manda lo marcado a mano o por la IA; sin eso, las reglas sin IA de
+ * `esMensajeGestionado`: reacciones, menciones en historias, emojis sueltos, textos de menos
+ * de cuatro palabras e ilegibles no son casos. Así el informe no cuenta ruido social como
+ * casos aunque nadie haya clasificado el mes.
+ */
+export function esCasoSac(item: Interaction): boolean {
+  return item.sacTriage ? item.sacTriage.esCasoSac : esMensajeGestionado(item);
+}
+
+function origenes(items: Interaction[]): { manual: number; ia: number; reglas: number } {
+  const manual = items.filter(esTriajeManual).length;
+  const reglas = items.filter((item) => !item.sacTriage).length;
+  return { manual, ia: items.length - manual - reglas, reglas };
+}
+
 export function buildSacReport(
   brand: Brand,
   interactions: Interaction[],
@@ -235,17 +258,17 @@ export function buildSacReport(
     && item.direction === "inbound"
     && dentro(item, options.from, options.to));
 
-  const sinClasificar = entrantes.filter((item) => !item.sacTriage).length;
-  if (sinClasificar) {
+  const clasificacion = origenes(entrantes);
+  if (clasificacion.reglas) {
     advertencias.push(
-      `${sinClasificar} de ${entrantes.length} mensajes sin clasificar: los totales por motivo `
-      + "y el filtro de casos quedan incompletos.",
+      `${clasificacion.reglas} de ${entrantes.length} mensajes se decidieron por reglas (sin IA): se `
+      + "descuentan reacciones, menciones, emojis y textos muy cortos. Revisa a mano los dudosos; "
+      + "los derivados solo cuentan lo marcado.",
     );
   }
 
-  // Sin triaje no se puede distinguir un caso de una reacción social; se cuenta como caso
-  // para no perderlo, y la advertencia deja explícito que el número está inflado.
-  const casos = entrantes.filter((item) => item.sacTriage?.esCasoSac ?? true);
+  // Lo marcado (a mano o por IA) manda; lo demás se decide por reglas de contenido.
+  const casos = entrantes.filter(esCasoSac);
   const derivados = entrantes.filter((item) => item.sacTriage?.requiereDerivacion).length;
   const respondidos = casos.filter((item) => item.status === "replied").length;
 
@@ -322,7 +345,7 @@ export function buildSacReport(
       item.brandId === brand.id
       && item.direction === "inbound"
       && dentro(item, options.previous!.from, options.previous!.to));
-    const anterior = previos.filter((item) => item.sacTriage?.esCasoSac ?? true).length;
+    const anterior = previos.filter(esCasoSac).length;
 
     // El inbox de Metricool solo conserva las conversaciones privadas recientes, así que un
     // mes anterior puede estar truncado en mensajes y completo en comentarios. Comparar eso
@@ -331,12 +354,12 @@ export function buildSacReport(
     const dmActuales = casos.filter((item) => item.type === "dm").length;
     const privadosTruncados = dmPrevios * 3 < dmActuales;
 
-    // Y si el mes anterior no pasó por el clasificador, sus mensajes se cuentan todos como
-    // casos mientras que los del mes actual vienen filtrados. Eso compara volumen bruto
-    // contra casos reales: el número resultante no significa nada, y de los dos sesgos es
-    // el más fácil de pasar por alto porque no deja ningún hueco a la vista.
-    const sinTriagePrevios = previos.filter((item) => !item.sacTriage).length;
-    const baseSinFiltrar = previos.length > 0 && sinTriagePrevios > previos.length * 0.2;
+    // Si un mes se decidió casi todo por reglas y el otro a mano o por IA, los dos filtros
+    // no miden lo mismo: la variación saldría del cambio de método, no del volumen.
+    const reglasPrevias = previos.filter((item) => !item.sacTriage).length;
+    const proporcion = (parte: number, total: number) => (total ? parte / total : 0);
+    const baseSinFiltrar = previos.length > 0
+      && Math.abs(proporcion(reglasPrevias, previos.length) - proporcion(clasificacion.reglas, entrantes.length)) > 0.2;
 
     const comparable = !privadosTruncados && !baseSinFiltrar;
     variacion = {
@@ -353,8 +376,8 @@ export function buildSacReport(
     }
     if (baseSinFiltrar) {
       advertencias.push(
-        `${sinTriagePrevios} de ${previos.length} mensajes del período anterior están sin clasificar: `
-        + "se cuentan todos como casos y el mes actual no. La variación no es comparable.",
+        `${reglasPrevias} de ${previos.length} mensajes del período anterior se decidieron por reglas `
+        + `y ${clasificacion.reglas} de ${entrantes.length} en el actual: los dos meses se filtraron distinto. La variación no es comparable.`,
       );
     }
   }
@@ -381,6 +404,7 @@ export function buildSacReport(
     tono,
     variacion,
     advertencias,
+    clasificacion,
   };
 }
 

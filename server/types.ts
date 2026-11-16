@@ -188,7 +188,10 @@ export interface SacTriage {
   requiereDerivacion: boolean;
   confianza: number;
   clasificadoEn: string;
+  /** "manual" cuando lo marcó una persona; si no, el modelo de IA que lo clasificó. */
   modelo: string;
+  /** Persona que lo marcó a mano. */
+  marcadoPor?: string;
 }
 
 export interface MetricoolAccountReference {

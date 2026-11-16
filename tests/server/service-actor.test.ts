@@ -54,7 +54,7 @@ async function makeApp(): Promise<SacFlowApp> {
 async function firstInteraction(app: SacFlowApp): Promise<{ id: string; version: number }> {
   const list = await app.inject({
     method: "GET",
-    url: "/api/interactions?pageSize=1",
+    url: "/api/interactions?pageSize=1&status=pending",
     headers: { cookie: `wiwo_nodes_session=${PERSON_COOKIE}` },
   });
   expect(list.statusCode).toBe(200);

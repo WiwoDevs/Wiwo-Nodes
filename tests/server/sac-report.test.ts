@@ -174,9 +174,30 @@ describe("buildSacReport", () => {
     expect(cifras.coberturaPct).toBe(50);
   });
 
-  it("advierte cuando hay mensajes sin clasificar", () => {
+  it("avisa cuando los mensajes se decidieron por reglas", () => {
     const cifras = buildSacReport(brand, [caso({ sacTriage: undefined })], AGOSTO);
-    expect(cifras.advertencias.some((a) => a.includes("sin clasificar"))).toBe(true);
+    expect(cifras.advertencias.some((a) => a.includes("por reglas"))).toBe(true);
+    expect(cifras.clasificacion).toEqual({ manual: 0, ia: 0, reglas: 1 });
+  });
+
+  it("sin clasificación, las reglas no cuentan el ruido social como caso", () => {
+    const cifras = buildSacReport(brand, [
+      caso({ sacTriage: undefined, text: "😍😍" }),
+      caso({ sacTriage: undefined, text: "@amiga mira" }),
+      caso({ sacTriage: undefined, text: "hola, ¿cuándo llega mi pedido número 123?" }),
+    ], AGOSTO);
+    expect(cifras.casosSac).toBe(1);
+  });
+
+  it("lo marcado a mano manda sobre las reglas", () => {
+    const cifras = buildSacReport(brand, [
+      caso({ text: "😍", triage: { esCasoSac: true, modelo: "manual" } }),
+      caso({ text: "hola, ¿cuándo llega mi pedido número 123?", triage: { esCasoSac: false, modelo: "manual" } }),
+      caso({ text: "necesito ayuda con mi compra de ayer", triage: { requiereDerivacion: true, modelo: "manual" } }),
+    ], AGOSTO);
+    expect(cifras.casosSac).toBe(2);
+    expect(cifras.derivados).toBe(1);
+    expect(cifras.clasificacion).toEqual({ manual: 3, ia: 0, reglas: 0 });
   });
 
   it("advierte cuando el período anterior no es comparable", () => {
@@ -205,7 +226,7 @@ describe("buildSacReport", () => {
       previous: { from: "2026-07-01", to: "2026-07-31" },
     });
     expect(cifras.variacion?.comparable).toBe(false);
-    expect(cifras.advertencias.some((a) => a.includes("sin clasificar"))).toBe(true);
+    expect(cifras.advertencias.some((a) => a.includes("por reglas"))).toBe(true);
     expect(reportPlaceholders(cifras).sac_variacion_texto).not.toContain("%");
   });
 

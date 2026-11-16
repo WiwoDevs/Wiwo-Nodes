@@ -78,6 +78,14 @@ export interface AppConfig {
     requireApiKey: boolean;
     corsOrigins: boolean | string[];
     securityHeaders: boolean;
+    /**
+     * Proxies cuya cabecera X-Forwarded-* se acepta (IP real del cliente y protocolo). El
+     * puerto se publica solo en 127.0.0.1, así que por defecto se confía en direcciones locales
+     * y privadas (Apache en el host llega por el puente de Docker).
+     */
+    trustProxy: string | boolean;
+    /** Detrás de un proxy, una solicitud que llegó por HTTP se redirige a HTTPS y se envía HSTS. */
+    forceHttps: boolean;
     enforceOriginCheck: boolean;
     rateLimit: {
       enabled: boolean;
@@ -200,6 +208,11 @@ export function loadConfig(
     production || requestedMode === "live" ? false : true,
   );
   const securityHeaders = parseBoolean(env.SAC_FLOW_SECURITY_HEADERS, production || requestedMode === "live");
+  const trustProxyRaw = env.SAC_FLOW_TRUST_PROXY?.trim();
+  const trustProxy: string | boolean = !trustProxyRaw
+    ? "loopback,linklocal,uniquelocal"
+    : ["false", "0", "no", "off"].includes(trustProxyRaw.toLowerCase()) ? false : trustProxyRaw;
+  const forceHttps = parseBoolean(env.SAC_FLOW_FORCE_HTTPS, production || requestedMode === "live");
   const enforceOriginCheck = parseBoolean(
     env.SAC_FLOW_ENFORCE_ORIGIN_CHECK,
     production || requestedMode === "live",
@@ -358,6 +371,8 @@ export function loadConfig(
       requireApiKey,
       corsOrigins,
       securityHeaders,
+      trustProxy,
+      forceHttps,
       enforceOriginCheck,
       rateLimit: {
         enabled: rateLimitEnabled,

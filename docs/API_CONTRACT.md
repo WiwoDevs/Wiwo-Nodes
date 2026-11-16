@@ -113,7 +113,7 @@ Las respuestas del módulo general usan `{ data, meta }`. `meta` incluye `extern
 
 ### Webhooks
 
-`GET|POST|PUT|PATCH /api/webhooks/:path` busca un workflow activo y publicado con `core.webhook` o `core.formTrigger`, ruta y método coincidentes. Acepta JSON y formularios `application/x-www-form-urlencoded`. En la beta hereda API key, actor context, origin check y rate limit globales. La respuesta incluye la salida terminal y `meta.executionId`, o el campo `response` configurado por el workflow.
+`GET|POST|PUT|PATCH /api/webhooks/:path` busca un workflow activo y publicado con `core.webhook` o `core.formTrigger`, ruta y método coincidentes. Acepta JSON y formularios `application/x-www-form-urlencoded`. En la beta hereda API key, actor context, origin check y rate limit globales. Una solicitud del navegador marcada `Sec-Fetch-Site: cross-site` se rechaza con `403 CROSS_SITE_WEBHOOK`, para que un enlace desde otro sitio no lo dispare con la sesión de quien hace clic. La respuesta incluye la salida terminal y `meta.executionId`, o el campo `response` configurado por el workflow.
 
 Un nodo webhook puede exigir además una credencial Bearer o Header Auth cifrada. Esta comprobación usa comparación en tiempo constante y responde `401 WEBHOOK_UNAUTHORIZED` sin revelar el secreto.
 
@@ -388,7 +388,7 @@ type WorkflowRun = {
 
 ### `GET /api/health`
 
-No recibe parámetros.
+No recibe parámetros. Desde internet (solicitud que llega por el proxy, con `X-Forwarded-For`) y sin sesión válida responde solo `{ status, service, timestamp }`; el detalle (modo, Metricool, cortacorrientes, seguridad, persistencia) queda para las sondas internas sin proxy y para personas con sesión. Lo mismo aplica a `GET /api/ready`, que sin sesión desde internet conserva su código 200/503 pero no incluye `checks`.
 
 ```json
 {
@@ -645,7 +645,7 @@ Devuelve el estado seguro de configuración Metricool de una cuenta. No devuelve
 
 ### `PUT /api/accounts/:accountId/metricool`
 
-Guarda o reemplaza la referencia `userId`/`blogId` y la variante de conexión Instagram de una cuenta. No guarda el token Metricool y no contacta al proveedor.
+Guarda o reemplaza la referencia `userId`/`blogId` y la variante de conexión Instagram de una cuenta. No guarda el token Metricool y no contacta al proveedor. Exige `brands.manage` y alcance de todas las marcas (`403 FORBIDDEN` con alcance parcial), porque el token es compartido y vincular una marca permite leer sus mensajes. `409 METRICOOL_BRAND_ALREADY_LINKED` si ese `blogId` ya está vinculado a otra cuenta.
 
 ```json
 {
@@ -877,7 +877,15 @@ Cifras del informe SAC mensual de cada marca activa dentro del alcance del actor
 }
 ```
 
-`brands` viene ordenado por casos SAC de mayor a menor. `warnings` avisa de cuentas activas que apuntan al mismo usuario de red social (sus mensajes se contarían dos veces). `400 VALIDATION_ERROR` con un mes inválido o ausente; `403` sin `metrics.read`. El Excel del mes se descarga con `GET /api/export/xlsx` usando `from=<mes>-01T00:00:00.000Z` y `to=<último día>T23:59:59.999Z`.
+Cada `figures` incluye `clasificacion: { manual, ia, reglas }`: cuántos mensajes entrantes del mes se decidieron como caso o ruido a mano, con IA o por reglas sin IA (reacciones, menciones en historias, emojis sueltos, textos de menos de cuatro palabras e ilegibles no son casos). `brands` viene ordenado por casos SAC de mayor a menor. `warnings` avisa de cuentas activas que apuntan al mismo usuario de red social (sus mensajes se contarían dos veces). `400 VALIDATION_ERROR` con un mes inválido o ausente; `403` sin `metrics.read`. El Excel del mes se descarga con `GET /api/export/xlsx` usando `from=<mes>-01T00:00:00.000Z` y `to=<último día>T23:59:59.999Z`.
+
+### `PUT /api/interactions/:id/triage`
+
+Marca a mano si un mensaje entrante cuenta como caso SAC en el reporte mensual (permiso `inbox.triage`, alcance de marca). Cuerpo `{ esCasoSac: boolean | null, requiereDerivacion?: boolean, expectedVersion }`; `null` quita la marca manual y vuelve a la decisión automática (IA si existe, si no reglas). La marca manual manda sobre la IA y las reglas, queda en `sacTriage` con `modelo: "manual"` y `marcadoPor`, y deja una entrada `classified` en la auditoría. No cambia el estado del caso ni escribe en Metricool. Responde el estado del caso más `reportTriage`. `GET /api/interactions/:id` también incluye `reportTriage: { esCasoSac, requiereDerivacion, source: "manual" | "ia" | "reglas", marcadoPor?, clasificadoEn? }`.
+
+### `POST /api/interactions/triage`
+
+Marca en lote, como caso o ruido, todos los mensajes entrantes de las conversaciones elegidas en la Bandeja: `{ contactKeys: string[] (1-200), esCasoSac: boolean }`, permiso `inbox.triage` y alcance de marcas del actor. Los mensajes que alguien ya marcó a mano no se cambian. Responde `{ data: { updated, contacts } }`.
 
 ### `GET /api/stats/summary`
 
@@ -1188,7 +1196,11 @@ El worker reclama jobs en PostgreSQL con lease y `FOR UPDATE SKIP LOCKED`, recup
 | 409 | `AUTO_REPLY_CONFIRMATION_REQUIRED` | Activación live sin confirmación/allowlist |
 | 409 | `WORKFLOW_INVALID` | Publicación bloqueada por errores de validación |
 | 409 | `INVALID_DIRECTION` | Intento de responder un item saliente |
-| 409 | `CASE_ALREADY_CLOSED` | El caso ya fue respondido o resuelto |
+| 409 | `CASE_ALREADY_CLOSED` | El caso ya fue respondido o resuelto (también al intentar guardar un borrador sobre él) |
+| 403 | `HUMAN_APPROVAL_REQUIRED` | La clave interna de servicio intentó enviar con `approvedByHuman: true` |
+| 403 | `ADMIN_REQUIRED` | Un cambio, publicación o vuelta a una versión anterior del flujo activa o amplía el envío automático (lo enciende, suma cuentas o baja la confianza mínima) sin ser admin |
+| 403 | `HTTPS_REQUIRED` | Mutación recibida por HTTP detrás del proxy con `SAC_FLOW_FORCE_HTTPS` (las lecturas GET/HEAD se redirigen con 301) |
+| 403 | `CROSS_SITE_WEBHOOK` | Webhook disparado desde otro sitio (`Sec-Fetch-Site: cross-site`) |
 | 409 | `BRAND_NOT_FOUND` | Marca asociada ya no existe |
 | 409 | `HUMAN_REVIEW_REQUIRED` | Caso sensible sin aprobación humana |
 | 409 | `SEND_NOT_ALLOWED` | Live sin aprobación ni auto-send autorizado |

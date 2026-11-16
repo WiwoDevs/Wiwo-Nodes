@@ -94,6 +94,13 @@ advertencias a revisar antes de presentar (mensajes sin clasificar, cuentas dupl
 sincronización detenida). Quien tiene *Exportar a Excel* descarga el Excel del mes o de una marca
 con los mismos días UTC del informe.
 
+Sin IA, cada mensaje se decide como **caso SAC** o **ruido** por reglas: no cuentan reacciones,
+menciones en historias, emojis sueltos, textos de menos de cuatro palabras ni mensajes ilegibles.
+El equipo corrige a mano desde el detalle de cada caso (**Para el reporte: Es caso / No es caso**,
+con **Requiere derivación**) o en lote desde la Bandeja (**No es caso (ruido)** sobre las
+conversaciones seleccionadas). Lo marcado a mano manda, no se pisa en lote y se puede devolver a
+lo automático. Reportes indica cuánto del mes se decidió a mano, con IA o por reglas.
+
 Inicio también cambia según el rol. El **Agente** ve "Mis casos en plazo", lo que vence en 24 h
 y el botón **Tomar siguiente**, con sus casos primero en la cola. El **Supervisor** (quien tiene
 *Ver métricas y cola* o *Asignar a otras personas*) ve además el panel **Equipo**: casos en plazo

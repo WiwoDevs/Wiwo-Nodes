@@ -46,6 +46,18 @@ function recentMonths(now = new Date()): Array<{ value: string; label: string }>
   });
 }
 
+/** "Caso o ruido": cuánto se decidió a mano, con IA o por reglas. */
+function clasificacionTexto(counts: { manual: number; ia: number; reglas: number }): string {
+  const total = counts.manual + counts.ia + counts.reglas;
+  if (!total) return "";
+  const parts = [
+    counts.manual ? `${formatCount(counts.manual)} a mano` : null,
+    counts.ia ? `${formatCount(counts.ia)} con IA` : null,
+    counts.reglas ? `${formatCount(counts.reglas)} por reglas` : null,
+  ].filter(Boolean);
+  return `Caso o ruido: ${parts.join(", ")}. Corrige a mano desde el detalle de cada caso o en lote desde la Bandeja.`;
+}
+
 function Variation({ figures }: { figures: SacReportBrand["figures"] }) {
   const variation = figures.variacion;
   if (!variation) return <span className="reports-muted">Sin mes anterior</span>;
@@ -89,7 +101,10 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
     recibidos: sum.recibidos + brand.figures.volumenBruto,
     gestionados: sum.gestionados + brand.figures.mensajesGestionados,
     respondidos: sum.respondidos + brand.figures.respondidos,
-  }), { casos: 0, recibidos: 0, gestionados: 0, respondidos: 0 }), [withCases]);
+    manual: sum.manual + (brand.figures.clasificacion?.manual ?? 0),
+    reglas: sum.reglas + (brand.figures.clasificacion?.reglas ?? 0),
+    ia: sum.ia + (brand.figures.clasificacion?.ia ?? 0),
+  }), { casos: 0, recibidos: 0, gestionados: 0, respondidos: 0, manual: 0, reglas: 0, ia: 0 }), [withCases]);
   const selected = report?.brands.find((brand) => brand.brandId === selectedBrandId) ?? null;
 
   // Avisos que afectan a todo el mes: cuentas duplicadas y una sincronización detenida.
@@ -244,7 +259,7 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
             {report ? (
               <footer className="panel__footer reports-footnote">
                 {report.brands.length - withCases.length ? `${report.brands.length - withCases.length} marcas activas sin casos en el mes no se listan. ` : ""}
-                Cifras calculadas por día en UTC.
+                {clasificacionTexto(totals)} Cifras calculadas por día en UTC.
               </footer>
             ) : null}
           </article>
@@ -298,6 +313,7 @@ function BrandDetail({ brand, label, volumen, onBack }: { brand: SacReportBrand;
           <p className="kpi-card__detail">{formatCount(figures.privados)} privados · {formatCount(figures.publicos)} públicos</p>
         </article>
       </div>
+      {figures.clasificacion ? <p className="reports-footnote">{clasificacionTexto(figures.clasificacion)}</p> : null}
 
       <div className="reports-detail__grid">
         <article className="panel">

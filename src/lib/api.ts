@@ -31,6 +31,7 @@ import type {
   ConversationMessage,
   InboxSyncStatus,
   SacMonthlyReport,
+  ReportTriage,
 } from "../types";
 
 export type RunResult = {
@@ -127,6 +128,7 @@ type ApiInteraction = {
   contactKey?: string;
   postContext?: InteractionPostContext;
   contentContext?: InteractionContentContext;
+  reportTriage?: ReportTriage;
 };
 
 type ApiInboxContact = {
@@ -755,6 +757,7 @@ function mapInteractionDetail(
     receivedAtLabel: relativeTimeLabel(interaction.createdAt),
     status: mapStatus(interaction),
     rawStatus: interaction.status,
+    reportTriage: interaction.reportTriage,
     priority: mapPriority(interaction),
     sentiment: interaction.sentiment,
     source: interaction.source,
@@ -1481,6 +1484,32 @@ export async function updateInteractionAssignment(
     body: JSON.stringify({ action, expectedVersion }),
   });
   if (!response.ok) await throwApiError(response);
+}
+
+/** Marca a mano si el mensaje es caso SAC para el reporte; `null` vuelve a la decisión automática. */
+export async function setInteractionTriage(
+  interactionId: string,
+  expectedVersion: number,
+  esCasoSac: boolean | null,
+  requiereDerivacion = false,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/interactions/${encodeURIComponent(interactionId)}/triage`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ esCasoSac, requiereDerivacion, expectedVersion }),
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
+/** Marca en lote los mensajes entrantes de las conversaciones elegidas (sin pisar marcas manuales). */
+export async function markContactsTriage(contactKeys: string[], esCasoSac: boolean): Promise<{ updated: number; contacts: number }> {
+  const response = await fetch(`${API_BASE}/interactions/triage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contactKeys, esCasoSac }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return ((await response.json()) as { data: { updated: number; contacts: number } }).data;
 }
 
 export async function addInteractionInternalNote(

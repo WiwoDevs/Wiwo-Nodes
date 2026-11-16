@@ -97,6 +97,10 @@ export interface InteractionsViewProps {
   onTakeNext?: (interaction: Interaction) => void | Promise<void>;
   /** Orden visible (filtros y orden aplicados), para pasar al caso siguiente desde el detalle. */
   onVisibleOrderChange?: (interactions: Interaction[]) => void;
+  /** Puede marcar mensajes como caso o ruido para el reporte (permiso inbox.triage). */
+  canTriage?: boolean;
+  /** Marca en lote las conversaciones elegidas como caso o ruido para el reporte. */
+  onBulkTriage?: (contactKeys: string[], esCasoSac: boolean) => boolean | Promise<boolean>;
 }
 
 function normalize(value: string) {
@@ -202,6 +206,8 @@ export function InteractionsView({
   canAssign = false,
   onTakeNext,
   onVisibleOrderChange,
+  canTriage = false,
+  onBulkTriage,
 }: InteractionsViewProps) {
   const [stored] = useState(readStoredFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -650,6 +656,18 @@ export function InteractionsView({
             <Robot size={17} weight="bold" aria-hidden="true" />
             Crear borradores
           </button>
+          {canTriage && onBulkTriage ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              title="No cuentan como casos en el reporte mensual (reacciones, menciones, spam)"
+              onClick={async () => {
+                if (await onBulkTriage([...selectedContactKeys], false)) setSelectedContactKeys(new Set());
+              }}
+            >
+              No es caso (ruido)
+            </button>
+          ) : null}
           <button className="button button--ghost" type="button" onClick={() => setSelectedContactKeys(new Set())}>
             Cancelar selección
           </button>

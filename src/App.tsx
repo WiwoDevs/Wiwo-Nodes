@@ -45,6 +45,8 @@ import wiwoNodesLogo from "./assets/wiwo-nodes-logo.png";
 import type { AutomationSection } from "./components/AutomationPlatform";
 import {
   addInteractionInternalNote,
+  markContactsTriage,
+  setInteractionTriage,
   addBrandResource,
   connectBrandQaWorkbook,
   connectBrandWorkbook,
@@ -1297,6 +1299,44 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
+  /** Marca a mano si el mensaje cuenta como caso SAC en el reporte mensual. */
+  async function setReportTriage(detail: InteractionDetail, esCasoSac: boolean | null, requiereDerivacion: boolean) {
+    if (isMutatingInteraction) return;
+    setMutatingInteraction(true);
+    try {
+      await setInteractionTriage(detail.id, detail.version, esCasoSac, requiereDerivacion);
+      await refreshInteractionDetail(detail.id);
+      setToast({
+        tone: "success",
+        title: esCasoSac === null ? "Vuelve a la clasificación automática" : esCasoSac ? "Marcado como caso SAC" : "Marcado como ruido",
+        detail: "Cambia cómo cuenta en el reporte mensual; el caso y Metricool no se modifican.",
+      });
+    } catch (error) {
+      await refreshInteractionDetail(detail.id).catch(() => undefined);
+      setToast({ tone: "warning", title: "No se pudo guardar la marca", detail: error instanceof Error ? error.message : "Recarga el caso e intenta nuevamente." });
+    } finally {
+      setMutatingInteraction(false);
+    }
+  }
+
+  /** Marca en lote las conversaciones elegidas en la Bandeja. */
+  async function bulkReportTriage(contactKeys: string[], esCasoSac: boolean) {
+    const confirmed = await confirmAction({
+      title: `¿Marcar ${contactKeys.length} conversaciones como ${esCasoSac ? "caso SAC" : "ruido"}?`,
+      message: `Todos sus mensajes entrantes contarán como ${esCasoSac ? "casos" : "ruido (no casos)"} en el reporte mensual. Los mensajes que alguien ya marcó a mano no se cambian. No modifica los casos ni Metricool.`,
+      confirmLabel: esCasoSac ? "Marcar como caso" : "Marcar como ruido",
+    });
+    if (!confirmed) return false;
+    try {
+      const result = await markContactsTriage(contactKeys, esCasoSac);
+      setToast({ tone: "success", title: result.updated === 1 ? "1 mensaje marcado" : `${result.updated} mensajes marcados`, detail: `De ${result.contacts} ${result.contacts === 1 ? "conversación" : "conversaciones"}, como ${esCasoSac ? "caso SAC" : "ruido"} para el reporte.` });
+      return true;
+    } catch (error) {
+      setToast({ tone: "warning", title: "No se pudo marcar en lote", detail: error instanceof Error ? error.message : "Intenta nuevamente." });
+      return false;
+    }
+  }
+
   async function addInternalNote(detail: InteractionDetail, text: string): Promise<boolean> {
     if (isMutatingInteraction) return false;
     setMutatingInteraction(true);
@@ -1932,6 +1972,8 @@ export function App({ onSignOut, sessionActor }: {
               canAssign={allowed("inbox.assign")}
               onTakeNext={takeNextCase}
               onVisibleOrderChange={rememberInboxOrder}
+              canTriage={allowed("inbox.triage")}
+              onBulkTriage={bulkReportTriage}
             />
           </div>
         ) : null}
@@ -2092,6 +2134,7 @@ export function App({ onSignOut, sessionActor }: {
           onEscalate={async (detail, reasonCode, reasonNote) => { await escalateInteraction(detail, reasonCode, reasonNote); }}
           onChangeAssignment={changeInteractionAssignment}
           onAddInternalNote={addInternalNote}
+          onSetTriage={setReportTriage}
           onNavigate={view === "interactions" ? openAdjacentCase : undefined}
           navigation={view === "interactions" ? {
             hasPrevious: Boolean(adjacentCase(selectedInteractionId, -1)),

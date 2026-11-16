@@ -139,6 +139,9 @@ export interface AccessControlListing {
 
 /** Admin principal: su correo está en SAC_FLOW_AUTH_ADMIN_EMAILS. Los demás admin son asignados. */
 export function isMasterAdmin(config: IdentityConfig, email: string | undefined): boolean {
+  // Sin inicio de sesión propio (gateway con cabeceras o modo local) no hay correos que
+  // distinguir: el admin que llega es el principal.
+  if (!config.enabled) return true;
   return Boolean(email) && (config.adminEmails ?? []).includes(normalizeEmail(email!));
 }
 

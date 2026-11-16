@@ -369,8 +369,18 @@ interface StatusReasonOption {
 
 export type StatusReasonCatalog = Record<"pending" | "escalated" | "resolved", StatusReasonOption[]>;
 
+/** Cómo cuenta el mensaje en el reporte mensual y quién lo decidió. */
+export interface ReportTriage {
+  esCasoSac: boolean;
+  requiereDerivacion: boolean;
+  source: "manual" | "ia" | "reglas";
+  marcadoPor?: string;
+  clasificadoEn?: string;
+}
+
 export interface InteractionDetail extends Interaction {
   version: number;
+  reportTriage?: ReportTriage;
   externalId: string;
   rawStatus: string;
   direction: "inbound" | "outbound";
@@ -497,6 +507,8 @@ export interface SacReportFigures {
   tono: { positivo: number; neutro: number; negativo: number };
   variacion?: { anterior: number; deltaPct: number; comparable: boolean };
   advertencias: string[];
+  /** Quién decidió caso o ruido en cada mensaje del mes. */
+  clasificacion?: { manual: number; ia: number; reglas: number };
 }
 
 export interface SacReportBrand {

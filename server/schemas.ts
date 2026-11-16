@@ -275,6 +275,19 @@ export const interactionAssignmentSchema = z.discriminatedUnion("action", [
   }).strict(),
 ]);
 
+/** Marca a mano si un mensaje es caso SAC (para el reporte). `esCasoSac: null` quita la marca manual. */
+export const interactionTriageSchema = z.object({
+  esCasoSac: z.boolean().nullable(),
+  requiereDerivacion: z.boolean().default(false),
+  expectedVersion: z.number().int().min(1),
+}).strict();
+
+/** Marca en lote las conversaciones seleccionadas en la Bandeja (todos sus mensajes entrantes). */
+export const interactionBulkTriageSchema = z.object({
+  contactKeys: z.array(z.string().trim().min(1).max(200)).min(1).max(200),
+  esCasoSac: z.boolean(),
+}).strict();
+
 export const interactionNoteCreateSchema = z.object({
   text: z.string().trim().min(1).max(2_000),
   expectedVersion: z.number().int().min(1),

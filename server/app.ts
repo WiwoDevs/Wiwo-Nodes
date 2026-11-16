@@ -78,8 +78,10 @@ import {
   workflowRunSchema,
   workflowUpdateSchema,
   sacMonthlyReportQuerySchema,
+  interactionTriageSchema,
+  interactionBulkTriageSchema,
 } from "./schemas.js";
-import { buildSacReport, duplicateAccountGroups, monthPeriod } from "./sac-report.js";
+import { buildSacReport, duplicateAccountGroups, esCasoSac, esTriajeManual, monthPeriod } from "./sac-report.js";
 import type {
   ActorContext,
   ActorRole,
@@ -561,8 +563,41 @@ function isOperationalProbePath(url: string): boolean {
   return routePath === "/api/health" || routePath === "/api/ready";
 }
 
-function rateLimitKey(requestHeaders: Record<string, unknown>, requestIp: string): string {
-  return extractApiKey(requestHeaders) || requestIp || "unknown";
+/**
+ * Cupo por persona: con sesión, la cookie de sesión (hasheada) identifica a la persona; sin
+ * ella, la IP real del cliente (trustProxy). Nunca una clave sin verificar: una clave inventada
+ * por solicitud abría un cupo nuevo cada vez.
+ */
+function rateLimitKey(requestHeaders: Record<string, unknown>, requestIp: string, cookieNames: string[]): string {
+  for (const name of cookieNames) {
+    const value = requestCookie(requestHeaders, name);
+    if (value) return `session:${createHash("sha256").update(value).digest("hex").slice(0, 32)}`;
+  }
+  return `ip:${requestIp || "unknown"}`;
+}
+
+type AutoReplyScope = Pick<import("./types.js").Workflow, "autoReplyEnabled" | "autoReplyAccountIds" | "minimumConfidence">;
+
+/**
+ * Un cambio amplía el envío automático si lo enciende, le suma cuentas o le baja la confianza
+ * mínima mientras está encendido. Activarlo es solo de admin, así que ampliarlo también: por
+ * edición, al volver a una versión anterior o al publicar.
+ */
+function widensAutoReply(before: AutoReplyScope | undefined, after: AutoReplyScope): boolean {
+  if (!after.autoReplyEnabled) return false;
+  if (!before?.autoReplyEnabled) return true;
+  return after.autoReplyAccountIds.some((id) => !before.autoReplyAccountIds.includes(id))
+    || after.minimumConfidence < before.minimumConfidence;
+}
+
+/** HTTPS según el socket o según el proxy (X-Forwarded-Proto tal como llega, sin depender de trustProxy). */
+function arrivedOverHttps(request: { protocol: string; headers: Record<string, unknown> }): boolean {
+  return request.protocol === "https" || headerString(request.headers["x-forwarded-proto"])?.split(",")[0]?.trim() === "https";
+}
+
+/** Host seguro para armar la redirección a HTTPS (sin rutas, credenciales ni caracteres raros). */
+function safeRedirectHost(hostname: string): string | undefined {
+  return /^[a-z0-9.-]+(:\d{1,5})?$/i.test(hostname) ? hostname : undefined;
 }
 
 function requestHash(value: unknown): string {
@@ -608,6 +643,51 @@ function publicSyncResult(result: { run: WorkflowRun; newInteractions: Interacti
     run: result.run,
     newInteractions: result.newInteractions.length,
   };
+}
+
+/** Cómo cuenta el mensaje en el reporte mensual y quién lo decidió. */
+function reportTriageOf(interaction: Interaction) {
+  const triage = interaction.sacTriage;
+  return {
+    esCasoSac: esCasoSac(interaction),
+    requiereDerivacion: Boolean(triage?.requiereDerivacion),
+    source: !triage ? "reglas" as const : esTriajeManual(interaction) ? "manual" as const : "ia" as const,
+    ...(triage?.marcadoPor ? { marcadoPor: triage.marcadoPor } : {}),
+    ...(triage ? { clasificadoEn: triage.clasificadoEn } : {}),
+  };
+}
+
+/** Escribe (o quita) la marca manual y deja la auditoría. */
+function applyManualTriage(
+  item: Interaction,
+  value: boolean | null,
+  requiereDerivacion: boolean,
+  actor: ActorContext,
+): void {
+  const at = new Date().toISOString();
+  if (value === null) {
+    if (item.sacTriage?.modelo === "manual") item.sacTriage = undefined;
+  } else {
+    item.sacTriage = {
+      categoria: item.sacTriage?.categoria ?? item.category ?? "no_aplica",
+      esCasoSac: value,
+      requiereDerivacion: value && requiereDerivacion,
+      confianza: 1,
+      clasificadoEn: at,
+      modelo: "manual",
+      marcadoPor: actor.displayName,
+    };
+  }
+  item.audit.push({
+    id: randomUUID(),
+    at,
+    action: "classified",
+    actor: "agent",
+    detail: value === null
+      ? `${actor.displayName} quitó la marca manual de caso SAC.`
+      : `${actor.displayName} marcó el mensaje como ${value ? "caso SAC" : "ruido (no es caso)"}${value && requiereDerivacion ? " que requiere derivación" : ""}.`,
+    metadata: { actorId: actor.userId, esCasoSac: value === null ? "auto" : value, requiereDerivacion: value === true && requiereDerivacion },
+  });
 }
 
 function publicInteractionMutationState(interaction: Interaction | undefined) {
@@ -1521,6 +1601,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     bodyLimit: 1_048_576,
     logController: new LogController({ disableRequestLogging: true }),
     genReqId: () => randomUUID(),
+    trustProxy: config.security.trustProxy,
   }) as unknown as SacFlowApp;
   const apiSessionSigningKey = randomBytes(32);
   if (retiredDemoBrands.length) {
@@ -1605,6 +1686,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
   app.addHook("onRequest", async (request, reply) => {
     reply.header("X-Request-Id", request.id);
+    // Solo detrás del proxy (trae X-Forwarded-For): las sondas internas de Docker siguen por HTTP.
+    if (config.security.forceHttps && request.headers["x-forwarded-for"] && !arrivedOverHttps(request)) {
+      const host = safeRedirectHost(request.hostname);
+      if (host && (request.method === "GET" || request.method === "HEAD")) {
+        return reply.code(301).header("Location", `https://${host}${request.url}`).send();
+      }
+      return reply.code(403).send({
+        error: { code: "HTTPS_REQUIRED", message: "Usa https:// para conectarte a WIWO.Nodes.", requestId: request.id },
+      });
+    }
     if (
       config.security.enforceOriginCheck
       && isApiPath(request.url)
@@ -1621,7 +1712,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     }
     if (config.security.rateLimit.enabled && isApiPath(request.url) && !isOperationalProbePath(request.url)) {
       const now = Date.now();
-      const key = rateLimitKey(request.headers as Record<string, unknown>, request.ip);
+      const key = rateLimitKey(request.headers as Record<string, unknown>, request.ip, [config.auth.cookieName, API_SESSION_COOKIE]);
       const current = rateLimitBuckets.get(key);
       const bucket = current && current.resetAt > now
         ? current
@@ -1930,12 +2021,45 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (!config.security.securityHeaders) return payload;
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Referrer-Policy", "no-referrer");
+    // HSTS solo cuando la solicitud llegó por HTTPS; sin includeSubDomains para no afectar otros sitios del dominio.
+    if (config.security.forceHttps && arrivedOverHttps(request)) {
+      reply.header("Strict-Transport-Security", "max-age=15552000");
+    }
     reply.header("X-Frame-Options", "SAMEORIGIN");
     reply.header(
       "Content-Security-Policy",
       "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data: https:; media-src 'self' https:; font-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'",
     );
     return payload;
+  });
+
+  /**
+   * /api/health y /api/ready son públicos para las sondas, pero su detalle (modo, conteos,
+   * cortacorrientes, última sincronización) solo lo ven las sondas internas (sin proxy: Docker,
+   * worker, desarrollo) y las personas con sesión. Desde internet sin sesión: solo el estado.
+   */
+  const minimalProbe = new WeakSet<FastifyRequest>();
+  app.addHook("onRequest", async (request) => {
+    if (!isOperationalProbePath(request.url) || !identity || !request.headers["x-forwarded-for"]) return;
+    const cookie = requestCookie(request.headers as Record<string, unknown>, config.auth.cookieName);
+    if (cookie) {
+      try {
+        await identity.resolveActor(cookie);
+        return;
+      } catch {
+        // Sesión vencida o inválida: se trata como anónima.
+      }
+    }
+    minimalProbe.add(request);
+  });
+  app.addHook("onSend", async (request, _reply, payload) => {
+    if (!minimalProbe.has(request) || typeof payload !== "string") return payload;
+    try {
+      const body = JSON.parse(payload) as { status?: unknown; service?: unknown; timestamp?: unknown };
+      return JSON.stringify({ status: body.status, service: body.service, timestamp: body.timestamp ?? new Date().toISOString() });
+    } catch {
+      return payload;
+    }
   });
 
   app.get("/api/health", async () => ({
@@ -2746,7 +2870,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const existing = await repository.findBrandByAccountId(accountId);
     if (!existing) throw new ApiError(404, "ACCOUNT_NOT_FOUND", "La cuenta no existe.");
     assertBrandAccess(actor, existing.id);
+    // El token de Metricool es compartido: vincular una marca es leer sus mensajes. Solo quien
+    // ve todas las marcas puede hacerlo, y una marca de Metricool no se vincula a dos cuentas.
+    assertPortfolioAdmin(actor);
     const body = accountMetricoolUpdateSchema.parse(request.body);
+    const catalog = await repository.snapshotCatalog();
+    const linkedElsewhere = catalog.brands.find((brand) => brand.account.id !== accountId
+      && resolveMetricoolAccount(config, brand.account.id, brand.account.metricool)?.blogId === body.blogId);
+    if (linkedElsewhere) {
+      throw new ApiError(409, "METRICOOL_BRAND_ALREADY_LINKED", `Esa marca de Metricool ya está vinculada a ${linkedElsewhere.name}. Desvincúlala allí primero.`);
+    }
     const updated = await repository.updateAccountMetricool(accountId, {
       userId: body.userId,
       blogId: body.blogId,
@@ -2910,9 +3043,63 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         brandName: brand?.name ?? interaction.brandId,
         accountHandle: brand?.account.handle ?? interaction.accountId,
         postContext: publicPostContext(interaction),
+        reportTriage: reportTriageOf(interaction),
       },
       meta: apiMeta(config),
     };
+  });
+
+  /**
+   * Marca a mano si el mensaje es un caso SAC para el reporte mensual (y si requiere derivación).
+   * Manda sobre la IA y las reglas; `esCasoSac: null` vuelve a la decisión automática. No toca
+   * el estado del caso ni escribe en Metricool.
+   */
+  app.put("/api/interactions/:id/triage", async (request) => {
+    const actor = requirePermission(config, request, "inbox.triage");
+    const { id } = interactionParamsSchema.parse(request.params);
+    const body = interactionTriageSchema.parse(request.body);
+    const interaction = await repository.findInteraction(id);
+    if (!interaction) throw new ApiError(404, "INTERACTION_NOT_FOUND", "La interacción no existe.");
+    assertBrandAccess(actor, interaction.brandId);
+    if (interaction.direction !== "inbound") {
+      throw new ApiError(409, "INVALID_DIRECTION", "Solo se clasifican mensajes entrantes.");
+    }
+    const updated = await repository.updateInteraction(id, (item) => {
+      assertInteractionVersion(item, body.expectedVersion);
+      applyManualTriage(item, body.esCasoSac, body.requiereDerivacion, actor);
+    });
+    return {
+      data: { ...publicInteractionMutationState(updated), reportTriage: updated ? reportTriageOf(updated) : undefined },
+      meta: { ...apiMeta(config), externalWrites: false },
+    };
+  });
+
+  /**
+   * Marca en lote las conversaciones elegidas en la Bandeja: todos los mensajes entrantes de
+   * esas personas que nadie haya marcado a mano antes (una decisión manual previa no se pisa).
+   */
+  app.post("/api/interactions/triage", async (request) => {
+    const actor = requirePermission(config, request, "inbox.triage");
+    const body = interactionBulkTriageSchema.parse(request.body);
+    const snapshot = await repository.snapshotCatalog();
+    const keys = new Set(body.contactKeys);
+    const targets = (await repository.listInteractions(scopedInteractionFilters(actor, snapshot.brands, {})))
+      .filter((item) => item.direction === "inbound" && keys.has(contactKeyFor(item)) && !esTriajeManual(item));
+    const ids = targets.map((item) => item.id);
+    const updated = ids.length
+      ? await repository.mutateInteractions(ids, (store) => {
+        const wanted = new Set(ids);
+        let count = 0;
+        for (const item of store.interactions) {
+          if (!wanted.has(item.id)) continue;
+          applyManualTriage(item, body.esCasoSac, false, actor);
+          count += 1;
+        }
+        return count;
+      })
+      : 0;
+    request.log.info({ event: "bulk_triage", contacts: keys.size, updated, esCasoSac: body.esCasoSac, by: actor.userId }, "Clasificación manual en lote.");
+    return { data: { updated, contacts: keys.size }, meta: { ...apiMeta(config), externalWrites: false } };
   });
 
   app.get("/api/interactions/:id/conversation", async (request) => {
@@ -3052,6 +3239,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       patch.requireHumanFor = ensureMandatoryHumanReviewCategories(patch.requireHumanFor);
     }
     const snapshot = await repository.snapshotCatalog();
+    if (actor.role !== "admin" && widensAutoReply(snapshot.workflow, { ...snapshot.workflow, ...patch })) {
+      throw new ApiError(403, "ADMIN_REQUIRED", "Solo un admin puede activar o ampliar el envío automático (cuentas o confianza mínima).");
+    }
     if (patch.autoReplyAccountIds) {
       const validIds = new Set(snapshot.brands.map((brand) => brand.account.id));
       const unknown = patch.autoReplyAccountIds.filter((id) => !validIds.has(id));
@@ -3123,6 +3313,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (!config.demoMode && current.autoReplyEnabled && !body.confirmAutoReply) {
       throw new ApiError(409, "AUTO_REPLY_CONFIRMATION_REQUIRED", "Confirme expresamente el autoenvío antes de publicar.");
     }
+    if (actor.role !== "admin") {
+      const published = (await repository.snapshotCatalog()).workflowVersions.find((item) => item.status === "published")?.snapshot;
+      if (widensAutoReply(published, current)) {
+        throw new ApiError(403, "ADMIN_REQUIRED", "Esta versión activa o amplía el envío automático: solo un admin puede publicarla.");
+      }
+    }
     const workflow = await repository.mutateCatalog((store) => {
       const now = new Date().toISOString();
       store.workflow.publishedVersion = store.workflow.version;
@@ -3150,6 +3346,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       if (!source) throw new ApiError(404, "WORKFLOW_VERSION_NOT_FOUND", "La versión solicitada no existe.");
       const now = new Date().toISOString();
       const nextVersion = store.workflow.version + 1;
+      if (actor.role !== "admin" && widensAutoReply(store.workflow, source.snapshot)) {
+        throw new ApiError(403, "ADMIN_REQUIRED", "Esa versión tenía el envío automático más amplio: solo un admin puede restaurarla.");
+      }
       const restored = {
         ...structuredClone(source.snapshot),
         version: nextVersion,
@@ -3476,8 +3675,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     }
     const answeredByDetectedTeamResponse = interaction.audit.some((entry) =>
       entry.action === "status_changed" && entry.metadata?.reason === "OUTBOUND_MESSAGE_DETECTED");
-    if (body.mode === "draft" && answeredByDetectedTeamResponse) {
+    // Un borrador sobre un caso respondido o resuelto lo devolvería a "borrador", borraría el
+    // registro de lo enviado y abriría la puerta a una segunda respuesta al cliente.
+    if (body.mode === "draft" && (answeredByDetectedTeamResponse || ["replied", "resolved"].includes(interaction.status))) {
       throw new ApiError(409, "CASE_ALREADY_CLOSED", "La interacción ya fue respondida o cerrada.");
+    }
+    // La clave interna del worker no es una persona: no puede declarar aprobación humana (que
+    // salta las reglas de casos sensibles y del protocolo automático).
+    if (body.approvedByHuman && actor.source === "service") {
+      throw new ApiError(403, "HUMAN_APPROVAL_REQUIRED", "La aprobación humana solo puede darla una persona con sesión iniciada.");
     }
     const store = await repository.snapshot();
     const brand = store.brands.find((item) => item.id === interaction.brandId);

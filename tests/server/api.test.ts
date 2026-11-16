@@ -148,6 +148,7 @@ describe("SAC Flow API", () => {
       item.createdAt = "2026-08-17T10:00:00.000Z";
       item.responseText = undefined;
       item.respondedAt = undefined;
+      item.status = "pending";
     });
     await app.sacFlow.repository.updateInteraction(second!.id, (item) => {
       item.accountId = first!.accountId;
@@ -1013,10 +1014,17 @@ describe("SAC Flow API", () => {
     expect(wrongBrand.statusCode).toBe(403);
     expect(wrongBrand.json().error.code).toBe("FORBIDDEN");
 
-    const saved = await app.inject({
+    const scopedLink = await app.inject({
       method: "PUT",
       url: "/api/accounts/account-01/metricool",
       headers: scopedActor("admin", "brand-01"),
+      payload: { userId: "scoped-user-01", blogId: "scoped-blog-01" },
+    });
+    expect(scopedLink.statusCode).toBe(403);
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/api/accounts/account-01/metricool",
+      headers: scopedActor("admin", "*"),
       payload: { userId: "scoped-user-01", blogId: "scoped-blog-01" },
     });
     expect(saved.statusCode).toBe(200);
@@ -1540,6 +1548,8 @@ describe("SAC Flow API", () => {
       url: "/api/interactions?brandId=brand-01&type=dm&sentiment=neutral&pageSize=10",
     });
     const safeInteraction = safeList.json().data[0] as { id: string; version: number };
+    // El caso de ejemplo viene respondido; un caso cerrado no admite borradores, así que se reabre.
+    safeInteraction.version = (await app.sacFlow.repository.updateInteraction(safeInteraction.id, (item) => { item.status = "pending"; }))!.version;
     const safeId = safeInteraction.id;
     const draft = await app.inject({
       method: "POST",
@@ -1804,6 +1814,8 @@ describe("SAC Flow API", () => {
       headers: authHeaders,
     });
     const safeInteraction = safeList.json().data[0] as { id: string; version: number };
+    // El caso de ejemplo viene respondido; un caso cerrado no admite borradores, así que se reabre.
+    safeInteraction.version = (await app.sacFlow.repository.updateInteraction(safeInteraction.id, (item) => { item.status = "pending"; }))!.version;
     const safeId = safeInteraction.id;
 
     const blocked = await app.inject({
