@@ -201,7 +201,11 @@ export function DashboardView({
                       </span>
                     </td>
                     <td>
-                      <span className="numeric-value">{brand.automaticResponseRate}%</span>
+                      {brand.totalInteractions ? (
+                        <span className="numeric-value">{brand.automaticResponseRate}%</span>
+                      ) : (
+                        <span className="cell-detail">Sin datos</span>
+                      )}
                     </td>
                     <td>
                       {brand.medianResponseMinutes === null ? (

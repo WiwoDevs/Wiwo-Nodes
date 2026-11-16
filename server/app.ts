@@ -35,6 +35,11 @@ import {
   apiSessionSchema,
   googleCallbackQuerySchema,
   devPasswordSessionSchema,
+  userAccessRoleSchema,
+  userPermissionsSchema,
+  accessRoleCreateSchema,
+  accessRoleIdParamsSchema,
+  accessRoleUpdateSchema,
   metricoolBrandImportSchema,
   sacRowsQuerySchema,
   brandCreateSchema,
@@ -98,6 +103,17 @@ import {
   type MetricoolInboxSurface,
   type MetricoolInstagramProvider,
 } from "./types.js";
+import { createAccessDirectory, customRoleId, listAccessControl, lockedReason } from "./user-access.js";
+import {
+  actorCan,
+  applyPermissionOverrides,
+  normalizePermissions,
+  permissionOverridesFor,
+  permissionLabel,
+  permissionsForActor,
+  type AccessRoleRecord,
+  type Permission,
+} from "./permissions.js";
 import {
   createDemoSyncInteractions,
   normalizeMetricoolComments,
@@ -112,7 +128,7 @@ import { normalizeDiscoveredBrands, type DiscoveredMetricoolBrand } from "./metr
 import { createDemoStore } from "./seed.js";
 import { buildSacRows } from "./sac-rows.js";
 import { IdentityError, type CreatedSession, type IdentityService } from "./identity.js";
-import { createGoogleIdentity } from "./google-auth.js";
+import { createGoogleIdentity, type GoogleOAuthClient } from "./google-auth.js";
 import { createDevAuth } from "./dev-auth.js";
 import {
   conversationKey,
@@ -157,6 +173,8 @@ export interface BuildAppOptions {
   serveFrontend?: boolean;
   /** Permite inyectar una identidad simulada en pruebas sin contactar a Google. */
   identity?: IdentityService;
+  /** Cliente OAuth simulado para la identidad Google que arma la app (pruebas). */
+  googleClient?: GoogleOAuthClient;
 }
 
 export interface SacFlowApp extends FastifyInstance {
@@ -407,6 +425,15 @@ function requireRole(config: AppConfig, request: FastifyRequest, minimumRole: Ac
       "FORBIDDEN",
       `Esta acción requiere rol ${minimumRole} o superior.`,
     );
+  }
+  return actor;
+}
+
+/** Exige un permiso concreto; Admin los tiene todos. */
+function requirePermission(config: AppConfig, request: FastifyRequest, permission: Permission): ActorContext {
+  const actor = requestActor(config, request);
+  if (!actorCan(actor, permission)) {
+    throw new ApiError(403, "FORBIDDEN", `Tu rol no permite: ${permissionLabel(permission)}.`);
   }
   return actor;
 }
@@ -969,10 +996,40 @@ async function autoLinkMetricoolCatalog(
     )
     : { created: [] as MetricoolLinkResult["created"] };
 
-  const hasDemoToRetire = current.brands.some((brand) => DEMO_SEED_BRAND_IDS.has(brand.id)
+  const retired = await retireDemoSeedBrands(config, repository, current);
+
+  const audit: RunAuditStep[] = [
+    auditStep(
+      "Catálogo Metricool",
+      "success",
+      `${discovered.length} marcas en el catálogo; ${created.length} vinculadas nuevas${excluded.size ? `; ${excluded.size} excluidas por configuración` : ""}.`,
+      created.length,
+    ),
+  ];
+  if (retired.length) {
+    audit.push(auditStep("Marcas de ejemplo", "success", `${retired.length} marcas de ejemplo desactivadas en live.`, retired.length));
+  }
+  return { created, retired, audit };
+}
+
+/**
+ * En live, las marcas ficticias del seed de demostración nunca son reales: se desactivan
+ * las que no tienen referencia de Metricool (una marca de ejemplo que alguien vinculó a
+ * una cuenta real se respeta). Corre al arrancar y antes de cada sincronización, sin
+ * depender de que el catálogo de Metricool responda. Solo escribe si hay algo que cambiar.
+ */
+export async function retireDemoSeedBrands(
+  config: AppConfig,
+  repository: SacFlowRepository,
+  current?: CatalogStore,
+): Promise<MetricoolAutoLinkOutcome["retired"]> {
+  if (config.demoMode) return [];
+  const catalog = current ?? await repository.snapshotCatalog();
+  const hasDemoToRetire = catalog.brands.some((brand) => DEMO_SEED_BRAND_IDS.has(brand.id)
     && brand.active
     && !resolveMetricoolAccount(config, brand.account.id, brand.account.metricool));
-  const retired = !hasDemoToRetire ? [] : await repository.mutateCatalog((store) => {
+  if (!hasDemoToRetire) return [];
+  return repository.mutateCatalog((store) => {
     const removed: MetricoolAutoLinkOutcome["retired"] = [];
     for (const brand of store.brands) {
       if (!DEMO_SEED_BRAND_IDS.has(brand.id) || !brand.active) continue;
@@ -990,19 +1047,6 @@ async function autoLinkMetricoolCatalog(
     }
     return removed;
   });
-
-  const audit: RunAuditStep[] = [
-    auditStep(
-      "Catálogo Metricool",
-      "success",
-      `${discovered.length} marcas en el catálogo; ${created.length} vinculadas nuevas${excluded.size ? `; ${excluded.size} excluidas por configuración` : ""}.`,
-      created.length,
-    ),
-  ];
-  if (retired.length) {
-    audit.push(auditStep("Marcas de ejemplo", "success", `${retired.length} marcas de ejemplo desactivadas en live.`, retired.length));
-  }
-  return { created, retired, audit };
 }
 
 async function executeSync(
@@ -1433,6 +1477,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   const repository = options.repository || createRepository(config);
   await repository.initialize();
   await repository.recoverStaleReplyDeliveries();
+  // En live, las marcas de ejemplo no deben verse ni contar como cuentas sin conectar.
+  const retiredDemoBrands = await retireDemoSeedBrands(config, repository);
 
   const metricoolClient = options.metricoolClient
     || (!config.demoMode && config.metricool.token
@@ -1446,13 +1492,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     genReqId: () => randomUUID(),
   }) as unknown as SacFlowApp;
   const apiSessionSigningKey = randomBytes(32);
+  if (retiredDemoBrands.length) {
+    app.log.info({ event: "demo_brands_retired", count: retiredDemoBrands.length }, "Marcas de ejemplo desactivadas en live.");
+  }
+  // Roles asignados desde "Usuarios y roles": la identidad los consulta en cada solicitud.
+  const accessDirectory = createAccessDirectory(repository);
+  const identityConfig = { ...config.auth, accessDirectory };
   const identity: IdentityService | undefined = options.identity ?? (
     !config.auth.enabled
       ? undefined
       : config.auth.provider === "dev" && config.auth.devUsersFile
-        ? createDevAuth(config.auth, config.auth.devUsersFile)
-        : createGoogleIdentity(config.auth)
+        ? createDevAuth(identityConfig, config.auth.devUsersFile)
+        : createGoogleIdentity(identityConfig, options.googleClient)
   );
+  /** Registra el ingreso para "Usuarios y roles"; un fallo aquí no impide entrar. */
+  const recordSignIn = async (request: FastifyRequest, created: CreatedSession) => {
+    try {
+      await repository.recordUserSignIn({ email: created.user.email, name: created.user.name, at: new Date().toISOString() });
+    } catch (error) {
+      request.log.warn({ err: error instanceof Error ? error.message : "desconocido" }, "No se pudo registrar el último ingreso.");
+    }
+  };
   let syncInProgress = false;
   /**
    * La lista de contactos de la bandeja se arma agrupando TODAS las interacciones del alcance
@@ -1588,6 +1648,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           displayName: "SAC Flow Worker",
           tenantId: config.persistence.postgresOrganizationSlug,
           role: "agent",
+          roleName: "Servicio interno",
+          permissions: ["sync.run", "inbox.reply"],
           brandIds: "all",
           source: "service",
         });
@@ -1623,6 +1685,32 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         });
       }
     }
+  });
+
+  /**
+   * Adjunta al actor los permisos de su rol según el catálogo vigente (roles de base con sus
+   * ajustes y roles propios). Si el contexto de headers es inválido se deja sin resolver y la
+   * ruta responde el mismo error de siempre.
+   */
+  app.addHook("preHandler", async (request) => {
+    if (!isProtectedApiPath(request.url)) return;
+    let actor = sessionActors.get(request);
+    if (!actor) {
+      if (config.auth.enabled) return;
+      try {
+        actor = actorContextFromHeaders(config, request.headers as Record<string, unknown>);
+      } catch {
+        return;
+      }
+    }
+    if (actor.permissions) return;
+    const resolved = permissionsForActor(actor, await accessDirectory.roles());
+    // Ajustes personales de la persona sobre los permisos de su rol (nunca para Admin).
+    if (actor.email && actor.role !== "admin") {
+      const record = await accessDirectory.find(actor.email);
+      resolved.permissions = applyPermissionOverrides(resolved.permissions, record);
+    }
+    sessionActors.set(request, { ...actor, ...resolved });
   });
 
   /**
@@ -1721,6 +1809,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const target = config.auth.postLoginRedirect;
     try {
       const created = await identity.google.complete(query, flowCookie);
+      await recordSignIn(request, created);
       reply.header("Set-Cookie", [clearFlow, sessionCookieHeader(request, created)]);
       return reply.redirect(target, 302);
     } catch (error) {
@@ -1745,6 +1834,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       if (error instanceof IdentityError) throw new ApiError(error.status, error.code, error.message);
       throw error;
     }
+    await recordSignIn(request, created);
     reply.header("Set-Cookie", sessionCookieHeader(request, created));
     return {
       data: {
@@ -1922,7 +2012,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.get("/api/metrics", async (request, reply) => {
-    requireRole(config, request, "supervisor");
+    requirePermission(config, request, "metrics.read");
     const snapshot = await repository.snapshot();
     const pendingAutoReplies = (await repository.listReplyDeliveries({
       status: "pending",
@@ -1944,6 +2034,139 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return { data: buildSecurityAudit(config, { ...catalog, automation }), meta: apiMeta(config) };
   });
 
+  /** Usuarios y roles (solo admin): personas, su rol efectivo y de dónde sale, y el catálogo de roles. */
+  app.get("/api/admin/users", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    return { data: await listAccessControl(identityConfig, repository, actor.email), meta: apiMeta(config) };
+  });
+
+  /**
+   * Asigna o quita el rol de una persona. El correo va en el cuerpo, no en la URL, para que
+   * no quede en registros de acceso. Rige en la siguiente solicitud de esa persona.
+   */
+  app.put("/api/admin/users/role", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    const body = userAccessRoleSchema.parse(request.body);
+    const reason = await lockedReason(identityConfig, body.email, actor.email);
+    if (reason) throw new ApiError(409, "ACCESS_LOCKED", reason);
+    if (body.role && body.role !== "none" && !(await accessDirectory.roles()).some((role) => role.id === body.role)) {
+      throw new ApiError(400, "ROLE_NOT_FOUND", "El rol elegido no existe.");
+    }
+    await repository.setUserAccessRole({
+      email: body.email,
+      role: body.role,
+      assignedBy: actor.displayName,
+      at: new Date().toISOString(),
+    });
+    accessDirectory.invalidate();
+    request.log.info({ event: "user_role_changed", role: body.role ?? "server_default", by: actor.userId }, "Rol de usuario actualizado.");
+    const listing = await listAccessControl(identityConfig, repository, actor.email);
+    const user = listing.users.find((item) => item.email === body.email);
+    return { data: { ...listing, user }, meta: apiMeta(config) };
+  });
+
+  /**
+   * Ajusta lo que puede hacer una persona en específico, sobre los permisos de su rol. Se
+   * guarda como permisos agregados y quitados, así un cambio posterior del rol se respeta.
+   * `permissions: null` quita los ajustes. El correo va en el cuerpo, no en la URL.
+   */
+  app.put("/api/admin/users/permissions", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    const body = userPermissionsSchema.parse(request.body);
+    const reason = await lockedReason(identityConfig, body.email, actor.email);
+    if (reason) throw new ApiError(409, "ACCESS_LOCKED", reason);
+    const before = await listAccessControl(identityConfig, repository, actor.email);
+    const person = before.users.find((user) => user.email === body.email);
+    if (!person) throw new ApiError(404, "USER_NOT_FOUND", "Esa persona no está en la lista. Asígnale un rol primero.");
+    if (person.effectiveRole === "admin") throw new ApiError(409, "ADMIN_HAS_ALL", "Admin ya tiene todos los permisos.");
+    if (person.effectiveRole === "none") throw new ApiError(409, "ACCESS_REVOKED", "Esta persona no tiene acceso; asígnale un rol primero.");
+    const overrides = body.permissions === null
+      ? { add: [], remove: [] }
+      : permissionOverridesFor(person.rolePermissions, body.permissions);
+    await repository.setUserPermissionOverrides({
+      email: body.email,
+      add: overrides.add,
+      remove: overrides.remove,
+      updatedBy: actor.displayName,
+      at: new Date().toISOString(),
+    });
+    accessDirectory.invalidate();
+    request.log.info({ event: "user_permissions_changed", added: overrides.add.length, removed: overrides.remove.length, by: actor.userId }, "Permisos personales actualizados.");
+    const listing = await listAccessControl(identityConfig, repository, actor.email);
+    return { data: { ...listing, user: listing.users.find((item) => item.email === body.email) }, meta: apiMeta(config) };
+  });
+
+  /** Crea un rol propio a partir de un rol de base. */
+  app.post("/api/admin/roles", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    const body = accessRoleCreateSchema.parse(request.body);
+    const catalog = await accessDirectory.roles();
+    const name = body.name.trim();
+    if (catalog.some((role) => role.name.toLocaleLowerCase("es") === name.toLocaleLowerCase("es"))) {
+      throw new ApiError(409, "ROLE_NAME_TAKEN", "Ya existe un rol con ese nombre.");
+    }
+    const record: AccessRoleRecord = {
+      id: customRoleId(name, new Set([...catalog.map((role) => role.id), "none"])),
+      name,
+      baseRole: body.baseRole,
+      permissions: normalizePermissions(body.permissions),
+      builtIn: false,
+      updatedBy: actor.displayName,
+      updatedAt: new Date().toISOString(),
+    };
+    await repository.saveAccessRole(record);
+    accessDirectory.invalidate();
+    request.log.info({ event: "access_role_created", roleId: record.id, by: actor.userId }, "Rol creado.");
+    return { data: { ...(await listAccessControl(identityConfig, repository, actor.email)), roleId: record.id }, meta: apiMeta(config) };
+  });
+
+  /** Cambia los permisos (y el nombre, si es propio) de un rol. Admin no se edita. */
+  app.put("/api/admin/roles/:roleId", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    const { roleId } = accessRoleIdParamsSchema.parse(request.params);
+    const body = accessRoleUpdateSchema.parse(request.body);
+    if (roleId === "admin") throw new ApiError(409, "ROLE_LOCKED", "Admin tiene siempre todos los permisos y no se edita.");
+    const catalog = await accessDirectory.roles();
+    const current = catalog.find((role) => role.id === roleId);
+    if (!current) throw new ApiError(404, "ROLE_NOT_FOUND", "El rol no existe.");
+    const name = current.builtIn ? current.name : (body.name?.trim() || current.name);
+    if (!current.builtIn && catalog.some((role) => role.id !== roleId && role.name.toLocaleLowerCase("es") === name.toLocaleLowerCase("es"))) {
+      throw new ApiError(409, "ROLE_NAME_TAKEN", "Ya existe un rol con ese nombre.");
+    }
+    await repository.saveAccessRole({
+      id: roleId,
+      name,
+      baseRole: current.baseRole,
+      permissions: normalizePermissions(body.permissions),
+      builtIn: current.builtIn,
+      updatedBy: actor.displayName,
+      updatedAt: new Date().toISOString(),
+    });
+    accessDirectory.invalidate();
+    request.log.info({ event: "access_role_updated", roleId, by: actor.userId }, "Rol actualizado.");
+    return { data: await listAccessControl(identityConfig, repository, actor.email), meta: apiMeta(config) };
+  });
+
+  /** Borra un rol propio sin personas asignadas, o restablece un rol de base. */
+  app.delete("/api/admin/roles/:roleId", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    const { roleId } = accessRoleIdParamsSchema.parse(request.params);
+    if (roleId === "admin") throw new ApiError(409, "ROLE_LOCKED", "Admin no se puede borrar ni restablecer.");
+    const catalog = await accessDirectory.roles();
+    const current = catalog.find((role) => role.id === roleId);
+    if (!current) throw new ApiError(404, "ROLE_NOT_FOUND", "El rol no existe.");
+    if (!current.builtIn) {
+      const assigned = (await repository.listUserAccess()).filter((user) => user.role === roleId).length;
+      if (assigned) {
+        throw new ApiError(409, "ROLE_IN_USE", `Hay ${assigned} persona${assigned === 1 ? "" : "s"} con este rol. Cámbiales el rol antes de borrarlo.`);
+      }
+    }
+    await repository.deleteAccessRole(roleId);
+    accessDirectory.invalidate();
+    request.log.info({ event: current.builtIn ? "access_role_reset" : "access_role_deleted", roleId, by: actor.userId }, "Rol restablecido o borrado.");
+    return { data: await listAccessControl(identityConfig, repository, actor.email), meta: apiMeta(config) };
+  });
+
   app.get("/api/me", async (request) => {
     const actor = requireRole(config, request, "viewer");
     return {
@@ -1952,6 +2175,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         displayName: actor.displayName,
         tenantId: actor.tenantId,
         role: actor.role,
+        roleId: actor.roleId ?? actor.role,
+        roleName: actor.roleName,
+        permissions: actor.role === "admin" ? undefined : actor.permissions,
         brandIds: actor.brandIds,
         source: actor.source,
         ...(actor.email ? { email: actor.email } : {}),
@@ -1977,7 +2203,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/brands", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     assertPortfolioAdmin(actor);
     const body = brandCreateSchema.parse(request.body);
     const created = await repository.mutateCatalog((store) => {
@@ -2031,7 +2257,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    * vinculación local de cada una. Solo lectura: no crea ni modifica nada.
    */
   app.get("/api/metricool/brands", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     assertPortfolioAdmin(actor);
     if (!metricoolClient?.listBrands) {
       throw new ApiError(503, "METRICOOL_NOT_CONFIGURED", "Metricool no está configurado para modo live.");
@@ -2091,7 +2317,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    * Es idempotente por `blogId`: repetir la importación no duplica marcas.
    */
   app.post("/api/metricool/brands/import", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     assertPortfolioAdmin(actor);
     if (!metricoolClient?.listBrands) {
       throw new ApiError(503, "METRICOOL_NOT_CONFIGURED", "Metricool no está configurado para modo live.");
@@ -2137,7 +2363,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.patch("/api/brands/:brandId", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const body = brandUpdateSchema.parse(request.body);
@@ -2174,7 +2400,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.delete("/api/brands/:brandId", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const updated = await repository.mutateCatalog((store) => {
@@ -2208,7 +2434,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.put("/api/brands/:brandId/workbook", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const body = brandWorkbookUpdateSchema.parse(request.body);
@@ -2297,7 +2523,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.put("/api/brands/:brandId/qa-workbook", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const body = brandQaWorkbookUpdateSchema.parse(request.body);
@@ -2374,7 +2600,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/brands/:brandId/resources", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const body = brandResourceCreateSchema.parse(request.body);
@@ -2399,7 +2625,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.delete("/api/brands/:brandId/resources/:resourceId", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { brandId, resourceId } = brandResourceParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
     const removed = await repository.mutateCatalog((store) => {
@@ -2429,7 +2655,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.put("/api/accounts/:accountId/metricool", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { accountId } = accountParamsSchema.parse(request.params);
     const existing = await repository.findBrandByAccountId(accountId);
     if (!existing) throw new ApiError(404, "ACCOUNT_NOT_FOUND", "La cuenta no existe.");
@@ -2456,7 +2682,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.delete("/api/accounts/:accountId/metricool", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "brands.manage");
     const { accountId } = accountParamsSchema.parse(request.params);
     const existing = await repository.findBrandByAccountId(accountId);
     if (!existing) throw new ApiError(404, "ACCOUNT_NOT_FOUND", "La cuenta no existe.");
@@ -2693,7 +2919,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
   app.put("/api/workflow", async (request) => {
     const parsed = workflowUpdateSchema.parse(request.body);
-    const actor = requireRole(config, request, parsed.autoReplyEnabled === true ? "admin" : "supervisor");
+    const actor = parsed.autoReplyEnabled === true
+      ? requireRole(config, request, "admin")
+      : requirePermission(config, request, "workflow.edit");
     const { confirmAutoReply: _confirmation, ...patch } = parsed;
     if (patch.requireHumanFor) {
       patch.requireHumanFor = ensureMandatoryHumanReviewCategories(patch.requireHumanFor);
@@ -2760,7 +2988,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/workflow/publish", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "workflow.publish");
     const body = workflowPublishSchema.parse(request.body ?? {});
     const current = await repository.getWorkflow();
     const validation = validateWorkflow(current);
@@ -2790,7 +3018,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/workflow/rollback", async (request) => {
-    const actor = requireRole(config, request, "admin");
+    const actor = requirePermission(config, request, "workflow.publish");
     const body = workflowRollbackSchema.parse(request.body);
     const workflow = await repository.mutateCatalog((store) => {
       const source = store.workflowVersions.find((item) => item.version === body.version);
@@ -2828,7 +3056,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/workflow/run", async (request, reply) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "automations.run");
     const body = workflowRunSchema.parse(request.body ?? {});
     const key = idempotencyKey(request.headers as Record<string, unknown>);
     const hash = requestHash(body);
@@ -2853,7 +3081,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/sac/protocol/evaluate", async (request, reply) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.triage");
     const body = sacProtocolRunSchema.parse(request.body ?? {});
     const key = config.demoMode
       ? idempotencyKey(request.headers as Record<string, unknown>)
@@ -2949,7 +3177,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/sync", async (request, reply) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "sync.run");
     const body = syncSchema.parse(request.body ?? {});
     const key = config.demoMode
       ? idempotencyKey(request.headers as Record<string, unknown>)
@@ -2970,13 +3198,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         ? await autoLinkMetricoolCatalog(config, repository, metricoolClient)
         : null;
       let syncBody = body;
-      if (autoLink && body.accountIds?.length) {
-        const retiredIds = new Set(autoLink.retired.map((brand) => brand.accountId));
+      if (!config.demoMode && body.accountIds?.length) {
+        // Una pestaña abierta desde antes puede pedir cuentas de ejemplo ya retiradas (al
+        // arrancar o en este ciclo): se quitan del pedido en vez de rechazarlo.
+        const catalog = await repository.snapshotCatalog();
+        const retiredIds = new Set([
+          ...(autoLink?.retired ?? []).map((brand) => brand.accountId),
+          ...catalog.brands
+            .filter((brand) => DEMO_SEED_BRAND_IDS.has(brand.id) && !brand.active)
+            .map((brand) => brand.account.id),
+        ]);
         syncBody = {
           ...body,
           accountIds: [
             ...body.accountIds.filter((id) => !retiredIds.has(id)),
-            ...autoLink.created.map((brand) => brand.accountId),
+            ...(autoLink?.created ?? []).map((brand) => brand.accountId),
           ],
         };
       }
@@ -3025,7 +3261,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/executions/:id/retry", async (request, reply) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "automations.run");
     const { id } = executionParamsSchema.parse(request.params);
     const key = config.demoMode
       ? idempotencyKey(request.headers as Record<string, unknown>)
@@ -3069,7 +3305,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.get("/api/jobs", async (request) => {
-    requireRole(config, request, "supervisor");
+    requirePermission(config, request, "metrics.read");
     const query = jobListQuerySchema.parse(request.query);
     const jobs = await repository.listJobs(query.status);
     return { data: jobs, meta: { ...apiMeta(config), count: jobs.length } };
@@ -3091,7 +3327,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/interactions/:id/reply", async (request, reply) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.reply");
     const { id } = interactionParamsSchema.parse(request.params);
     const body = replySchema.parse(request.body);
     const key = !config.demoMode && body.mode === "send" && !config.operations.outboundSendsDisabled
@@ -3465,7 +3701,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.delete("/api/interactions/:id/draft", async (request) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.reply");
     const { id } = interactionParamsSchema.parse(request.params);
     const body = interactionDraftDeleteSchema.parse(request.body);
     const current = await repository.findInteraction(id);
@@ -3495,7 +3731,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.get("/api/deliveries", async (request) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.reply");
     const query = replyDeliveryListQuerySchema.parse(request.query);
     const deliveries = await repository.listReplyDeliveries({
       ...query,
@@ -3505,7 +3741,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.get("/api/deliveries/:id", async (request) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.reply");
     const { id } = replyDeliveryParamsSchema.parse(request.params);
     const delivery = await repository.findReplyDelivery(id);
     if (!delivery) throw new ApiError(404, "DELIVERY_NOT_FOUND", "La entrega no existe.");
@@ -3514,7 +3750,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/deliveries/:id/reconcile", async (request) => {
-    const actor = requireRole(config, request, "supervisor");
+    const actor = requirePermission(config, request, "deliveries.reconcile");
     const { id } = replyDeliveryParamsSchema.parse(request.params);
     const body = replyDeliveryReconcileSchema.parse(request.body);
     const delivery = await repository.findReplyDelivery(id);
@@ -3546,7 +3782,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.patch("/api/interactions/:id/status", async (request) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.triage");
     const { id } = interactionParamsSchema.parse(request.params);
     const body = interactionStatusUpdateSchema.parse(request.body);
     const interaction = await repository.findInteraction(id);
@@ -3591,13 +3827,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.put("/api/interactions/:id/assignment", async (request) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.assign");
     const { id } = interactionParamsSchema.parse(request.params);
     const body = interactionAssignmentSchema.parse(request.body);
     const interaction = await repository.findInteraction(id);
     if (!interaction) throw new ApiError(404, "INTERACTION_NOT_FOUND", "La interacción no existe.");
     assertBrandAccess(actor, interaction.brandId);
-    if (body.action === "assign" && ROLE_RANK[actor.role] < ROLE_RANK.supervisor) {
+    if (body.action === "assign" && !actorCan(actor, "inbox.assign_others")) {
       throw new ApiError(403, "FORBIDDEN", "Asignar un caso a otra persona requiere rol supervisor.");
     }
 
@@ -3609,7 +3845,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         if (!item.assignedTo) {
           throw new ApiError(409, "INTERACTION_NOT_ASSIGNED", "El caso no tiene una persona asignada.");
         }
-        if (ROLE_RANK[actor.role] < ROLE_RANK.supervisor && item.assignedTo.userId !== actor.userId) {
+        if (!actorCan(actor, "inbox.assign_others") && item.assignedTo.userId !== actor.userId) {
           throw new ApiError(403, "FORBIDDEN", "Un agente solo puede liberar casos asignados a sí mismo.");
         }
         const previousAssigneeId = item.assignedTo.userId;
@@ -3650,7 +3886,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.post("/api/interactions/:id/notes", async (request) => {
-    const actor = requireRole(config, request, "agent");
+    const actor = requirePermission(config, request, "inbox.triage");
     const { id } = interactionParamsSchema.parse(request.params);
     const body = interactionNoteCreateSchema.parse(request.body);
     const interaction = await repository.findInteraction(id);
@@ -3688,7 +3924,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   app.get("/api/export/xlsx", async (request, reply) => {
-    const actor = requireRole(config, request, "supervisor");
+    const actor = requirePermission(config, request, "export.xlsx");
     const snapshot = await repository.snapshotCatalog();
     // El export honra los mismos filtros que la bandeja: sin esto, pedir "agosto de una
     // marca" devolvía el histórico completo de todas y había que recortarlo a mano.
@@ -3714,6 +3950,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     repository,
     config,
     requireRole: (request, role) => requireRole(config, request, role),
+    requirePermission: (request, permission) => requirePermission(config, request, permission),
   });
 
   app.setErrorHandler((error, request, reply) => {

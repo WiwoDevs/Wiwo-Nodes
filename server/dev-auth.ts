@@ -15,6 +15,7 @@ import {
   IdentityError,
   normalizeEmail,
   readUsersFile,
+  applyAssignedAccess,
   resolveActorFromAllowedUser,
   sameSecret,
   type AllowedUserRecord,
@@ -48,7 +49,7 @@ export function createDevAuth(config: IdentityConfig, usersFile: string): Identi
         throw new IdentityError(401, "INVALID_CREDENTIALS", "Correo o contraseña incorrectos.");
       }
       const session = sessionUser(user);
-      const actor = resolveActorFromAllowedUser(user, session, config, "dev");
+      const actor = resolveActorFromAllowedUser(await applyAssignedAccess(config, user), session, config, "dev");
       const cookie = signer.seal({ email: user.email, exp: Date.now() + config.sessionTtlMs });
       return { cookie, actor, user: session };
     },
@@ -64,7 +65,7 @@ export function createDevAuth(config: IdentityConfig, usersFile: string): Identi
       if (!user) {
         throw new IdentityError(403, "ACCOUNT_NOT_ALLOWED", `La cuenta ${session.email} ya no está autorizada.`);
       }
-      return resolveActorFromAllowedUser(user, sessionUser(user), config, "dev");
+      return resolveActorFromAllowedUser(await applyAssignedAccess(config, user), sessionUser(user), config, "dev");
     },
   };
 }

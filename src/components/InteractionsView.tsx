@@ -637,11 +637,20 @@ export function InteractionsView({
         ) : (
           <div className="empty-state empty-state--large">
             <MagnifyingGlass size={28} weight="duotone" aria-hidden="true" />
-            <strong>No encontramos conversaciones</strong>
-            <p>Prueba otra búsqueda o limpia los filtros activos.</p>
-            <button className="button button--secondary" type="button" onClick={clearFilters}>
-              Limpiar filtros
-            </button>
+            {hasActiveFilters ? (
+              <>
+                <strong>No encontramos conversaciones</strong>
+                <p>Prueba otra búsqueda o limpia los filtros activos.</p>
+                <button className="button button--secondary" type="button" onClick={clearFilters}>
+                  Limpiar filtros
+                </button>
+              </>
+            ) : (
+              <>
+                <strong>Aún no hay conversaciones</strong>
+                <p>Aparecerán aquí después de la próxima sincronización con Metricool.</p>
+              </>
+            )}
           </div>
         )}
       </article>

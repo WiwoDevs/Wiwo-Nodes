@@ -37,7 +37,11 @@ import {
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
 
-type HealthFilter = AccountHealth | "all";
+type HealthFilter = AccountHealth | "all" | "inactive";
+
+function isInactiveAccount(account: BrandAccount): boolean {
+  return account.brandActive === false || account.accountActive === false;
+}
 type BrandDialogMode = "create" | "edit";
 
 type BrandFormState = {
@@ -235,21 +239,27 @@ export function AccountsView({
   );
   const [workbookAccountId, setWorkbookAccountId] = useState<string | null>(null);
 
+  // Las marcas desactivadas (p. ej. las de ejemplo retiradas en live) no cuentan como alertas:
+  // se ven aparte, en el filtro "Desactivadas", para poder reactivarlas.
+  const activeAccounts = useMemo(() => accounts.filter((account) => !isInactiveAccount(account)), [accounts]);
+  const inactiveCount = accounts.length - activeAccounts.length;
+
   const visibleAccounts = useMemo(() => {
     const normalizedQuery = normalize(query.trim());
+    const base = healthFilter === "inactive" ? accounts.filter(isInactiveAccount) : activeAccounts;
 
-    return accounts.filter((account) => {
+    return base.filter((account) => {
       const searchableText = `${account.name} ${account.category} ${account.manager} ${account.channels
         .map((channel) => channel.username)
         .join(" ")}`;
       const matchesQuery =
         normalizedQuery.length === 0 || normalize(searchableText).includes(normalizedQuery);
-      const matchesHealth = healthFilter === "all" || account.health === healthFilter;
+      const matchesHealth = healthFilter === "all" || healthFilter === "inactive" || account.health === healthFilter;
       return matchesQuery && matchesHealth;
     });
-  }, [accounts, healthFilter, query]);
+  }, [accounts, activeAccounts, healthFilter, query]);
 
-  const healthCounts = accounts.reduce(
+  const healthCounts = activeAccounts.reduce(
     (counts, account) => {
       counts[account.health] += 1;
       return counts;
@@ -506,10 +516,13 @@ export function AccountsView({
             <option value="healthy">Operativas</option>
             <option value="attention">Con atención</option>
             <option value="disconnected">Desconectadas</option>
+            {inactiveCount > 0 || healthFilter === "inactive" ? <option value="inactive">Desactivadas ({inactiveCount})</option> : null}
           </select>
         </label>
         <p className="accounts-toolbar__count" aria-live="polite">
-          {visibleAccounts.length} de {accounts.length} cuentas
+          {healthFilter === "inactive"
+            ? `${visibleAccounts.length} desactivada${visibleAccounts.length === 1 ? "" : "s"}`
+            : `${visibleAccounts.length} de ${activeAccounts.length} cuentas activas`}
         </p>
       </div>
 

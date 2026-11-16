@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { createDemoStore } from "./seed.js";
 import { createDemoAutomationState } from "./automation-seed.js";
-import type { SacFlowRepository } from "./repository-contract.js";
+import type { SacFlowRepository, SetUserAccessRoleInput, SetUserPermissionOverridesInput } from "./repository-contract.js";
 import type {
   Brand,
   CatalogStore,
@@ -29,6 +29,8 @@ import type {
   WorkflowVersion,
 } from "./types.js";
 import { CHANNELS } from "./types.js";
+import type { UserAccessRecord } from "./types.js";
+import type { AccessRoleRecord } from "./permissions.js";
 import { ensureMetricoolInboxCoverage } from "./workflow-coverage.js";
 import { mergeMissingMetricoolRef } from "./workflow-service.js";
 import {
@@ -186,6 +188,8 @@ export class JsonRepository implements SacFlowRepository {
       store.deliveries = Array.isArray(store.deliveries) ? store.deliveries : [];
       store.jobs = Array.isArray(store.jobs) ? store.jobs : [];
       store.automation = store.automation || createDemoAutomationState(new Date(store.createdAt));
+      store.userAccess = Array.isArray(store.userAccess) ? store.userAccess : [];
+      store.accessRoles = Array.isArray(store.accessRoles) ? store.accessRoles : [];
       return store;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -798,6 +802,100 @@ export class JsonRepository implements SacFlowRepository {
     });
   }
 
+  async listUserAccess(): Promise<UserAccessRecord[]> {
+    return this.exclusive(async () => clone((await this.readUnlocked()).userAccess ?? [])
+      .sort((left, right) => left.email.localeCompare(right.email)));
+  }
+
+  async setUserAccessRole(input: SetUserAccessRoleInput): Promise<UserAccessRecord | undefined> {
+    return this.mutate((store) => {
+      const records = store.userAccess ?? [];
+      const index = records.findIndex((record) => record.email === input.email);
+      const current = index >= 0 ? records[index] : undefined;
+      const next: UserAccessRecord = {
+        ...overridesOf(current),
+        email: input.email,
+        name: input.name ?? current?.name ?? null,
+        ...(current?.lastSignInAt ? { lastSignInAt: current.lastSignInAt } : {}),
+        ...(input.role ? { role: input.role, assignedBy: input.assignedBy, assignedAt: input.at } : {}),
+      };
+      const keep = keepUserAccess(next);
+      if (index >= 0) {
+        if (keep) records[index] = next;
+        else records.splice(index, 1);
+      } else if (keep) {
+        records.push(next);
+      }
+      store.userAccess = records;
+      return keep ? next : undefined;
+    });
+  }
+
+  async setUserPermissionOverrides(input: SetUserPermissionOverridesInput): Promise<UserAccessRecord | undefined> {
+    return this.mutate((store) => {
+      const records = store.userAccess ?? [];
+      const index = records.findIndex((record) => record.email === input.email);
+      const current = index >= 0 ? records[index] : undefined;
+      const hasOverrides = input.add.length > 0 || input.remove.length > 0;
+      const next: UserAccessRecord = {
+        email: input.email,
+        name: input.name ?? current?.name ?? null,
+        ...(current?.role ? { role: current.role, assignedBy: current.assignedBy, assignedAt: current.assignedAt } : {}),
+        ...(current?.lastSignInAt ? { lastSignInAt: current.lastSignInAt } : {}),
+        ...(hasOverrides
+          ? { permissionsAdd: input.add, permissionsRemove: input.remove, permissionsUpdatedBy: input.updatedBy, permissionsUpdatedAt: input.at }
+          : {}),
+      };
+      const keep = keepUserAccess(next);
+      if (index >= 0) {
+        if (keep) records[index] = next;
+        else records.splice(index, 1);
+      } else if (keep) {
+        records.push(next);
+      }
+      store.userAccess = records;
+      return keep ? next : undefined;
+    });
+  }
+
+  async recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void> {
+    await this.mutate((store) => {
+      const records = store.userAccess ?? [];
+      const current = records.find((record) => record.email === input.email);
+      if (current) {
+        current.lastSignInAt = input.at;
+        if (input.name) current.name = input.name;
+      } else {
+        records.push({ email: input.email, name: input.name, lastSignInAt: input.at });
+      }
+      store.userAccess = records;
+    });
+  }
+
+  async listAccessRoles(): Promise<AccessRoleRecord[]> {
+    return this.exclusive(async () => clone((await this.readUnlocked()).accessRoles ?? []));
+  }
+
+  async saveAccessRole(record: AccessRoleRecord): Promise<AccessRoleRecord> {
+    return this.mutate((store) => {
+      const roles = store.accessRoles ?? [];
+      const index = roles.findIndex((role) => role.id === record.id);
+      if (index >= 0) roles[index] = record;
+      else roles.push(record);
+      store.accessRoles = roles;
+      return record;
+    });
+  }
+
+  async deleteAccessRole(id: string): Promise<boolean> {
+    return this.mutate((store) => {
+      const roles = store.accessRoles ?? [];
+      const next = roles.filter((role) => role.id !== id);
+      store.accessRoles = next;
+      return next.length !== roles.length;
+    });
+  }
+
   async stats(filters: InteractionFilters = {}): Promise<InteractionStats> {
     const store = await this.snapshot();
     const items = fromActiveBrands(store.interactions, store)
@@ -874,4 +972,20 @@ export class JsonRepository implements SacFlowRepository {
       byBrand,
     };
   }
+}
+
+/** Ajustes personales de permisos de un registro, para conservarlos al cambiar su rol. */
+function overridesOf(record: UserAccessRecord | undefined): Partial<UserAccessRecord> {
+  if (!record?.permissionsAdd?.length && !record?.permissionsRemove?.length) return {};
+  return {
+    permissionsAdd: record.permissionsAdd ?? [],
+    permissionsRemove: record.permissionsRemove ?? [],
+    ...(record.permissionsUpdatedBy ? { permissionsUpdatedBy: record.permissionsUpdatedBy } : {}),
+    ...(record.permissionsUpdatedAt ? { permissionsUpdatedAt: record.permissionsUpdatedAt } : {}),
+  };
+}
+
+/** Un registro se conserva mientras tenga rol asignado, ingreso o ajustes personales. */
+function keepUserAccess(record: UserAccessRecord): boolean {
+  return Boolean(record.role || record.lastSignInAt || record.permissionsAdd?.length || record.permissionsRemove?.length);
 }

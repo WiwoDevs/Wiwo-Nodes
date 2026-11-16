@@ -5,12 +5,13 @@
  * - "google": inicio de sesión con Google (OAuth 2.0 / OpenID Connect) — ver google-auth.ts.
  * - "dev": prueba local con correo y contraseña de usuarios ficticios — ver dev-auth.ts.
  *
- * La autorización sale EXCLUSIVAMENTE de la allowlist (archivo JSON local y, opcionalmente,
- * dominios de correo permitidos). Un correo verificado que no esté autorizado no entra.
+ * La autorización sale EXCLUSIVAMENTE del backend: archivo JSON local, listas del entorno,
+ * roles asignados por un admin desde "Usuarios y roles" y, opcionalmente, dominios de correo
+ * permitidos. Un correo verificado que no esté autorizado no entra.
  */
 import { createHmac, randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import type { ActorContext, ActorRole } from "./types.js";
+import type { ActorContext, ActorRole, UserAccessRecord } from "./types.js";
 import { ACTOR_ROLES } from "./types.js";
 
 export type IdentityProvider = "google" | "dev";
@@ -19,6 +20,13 @@ export interface GoogleOAuthConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+}
+
+/** Roles asignados desde la app; se consulta en cada inicio de sesión y solicitud. */
+export interface AccessDirectory {
+  find(email: string): Promise<UserAccessRecord | undefined>;
+  /** Rol de base de un rol propio, o undefined si no existe. */
+  customRoleBase?(roleId: string): Promise<Exclude<ActorRole, "admin"> | undefined>;
 }
 
 export interface IdentityConfig {
@@ -38,6 +46,8 @@ export interface IdentityConfig {
   allowedEmails?: string[];
   /** Dominios cuyo correo verificado entra con `defaultRole` aunque no esté en el archivo. */
   allowedDomains: string[];
+  /** Roles asignados por un admin desde la app (tabla `user_access`). */
+  accessDirectory?: AccessDirectory;
   /** Usuarios ficticios con contraseña (proveedor dev). */
   devUsersFile?: string;
   google?: GoogleOAuthConfig;
@@ -59,6 +69,8 @@ export interface AllowedUserRecord {
   permissions: string[];
   /** Override opcional del rol dentro de Nodes; si falta se deriva de `permissions`. */
   nodesRole?: ActorRole;
+  /** Rol propio asignado desde la app; `nodesRole` lleva su rol de base. */
+  nodesRoleId?: string;
   /** Override opcional del alcance de marcas; `"*"` o lista de brandIds. */
   nodesBrandIds?: string[] | "all";
 }
@@ -184,20 +196,86 @@ export async function readUsersFile(file: string | undefined): Promise<Array<Rec
 }
 
 /**
+ * Entradas válidas del archivo de usuarios: la allowlist (`SAC_FLOW_AUTH_ALLOWED_USERS_FILE`)
+ * o, con el proveedor dev, los usuarios ficticios.
+ */
+export async function readAllowlistRecords(config: IdentityConfig): Promise<AllowedUserRecord[]> {
+  const file = config.provider === "dev" && config.devUsersFile ? config.devUsersFile : config.allowedUsersFile;
+  return (await readUsersFile(file))
+    .map(allowedUserFromRecord)
+    .filter((record): record is AllowedUserRecord => Boolean(record));
+}
+
+/** Origen de la regla de acceso que el servidor aplica a un correo sin rol asignado en la app. */
+export type ServerAccessSource = "allowlist_file" | "server_admin" | "server_supervisor" | "server_allowed" | "domain";
+
+export interface ServerAccessRule {
+  role: ActorRole | null;
+  source: ServerAccessSource;
+  /** El archivo y la lista de admins del entorno no se pueden cambiar desde la app. */
+  locked: boolean;
+}
+
+/**
+ * Regla del servidor para un correo, ignorando lo asignado desde la app. Sirve para mostrar
+ * en "Usuarios y roles" qué rol tendría la persona si se quita la asignación.
+ */
+export function serverAccessRule(config: IdentityConfig, email: string, fileRecords: AllowedUserRecord[]): ServerAccessRule | undefined {
+  const normalized = normalizeEmail(email);
+  const listed = fileRecords.find((record) => record.email === normalized);
+  // Con el proveedor dev el archivo es el de usuarios ficticios, y la app sí puede cambiarles el rol.
+  const devUsers = config.provider === "dev";
+  if (listed && !(devUsers && config.adminEmails?.includes(normalized))) {
+    const permissions = listed.permissions.map((permission) => permission.trim().toLowerCase());
+    const isAdmin = permissions.includes(config.adminPermission);
+    const hasAccess = isAdmin || permissions.includes(config.requiredPermission);
+    const role = !hasAccess ? null : listed.nodesRole ?? (isAdmin ? "admin" : config.defaultRole);
+    return { role, source: "allowlist_file", locked: !devUsers };
+  }
+  if (config.adminEmails?.includes(normalized)) return { role: "admin", source: "server_admin", locked: true };
+  if (config.supervisorEmails?.includes(normalized)) return { role: "supervisor", source: "server_supervisor", locked: false };
+  if (config.allowedEmails?.includes(normalized)) return { role: config.defaultRole, source: "server_allowed", locked: false };
+  const domain = normalized.split("@")[1] ?? "";
+  if (domain && config.allowedDomains.includes(domain)) return { role: config.defaultRole, source: "domain", locked: false };
+  return undefined;
+}
+
+/**
+ * Convierte un rol asignado desde la app en una entrada de allowlist, o niega el acceso.
+ * Un rol propio que ya no existe se ignora y rige la regla del servidor.
+ */
+async function assignedAccessRecord(config: IdentityConfig, email: string, name: string | null, assigned: UserAccessRecord): Promise<AllowedUserRecord | undefined> {
+  const role = assigned.role;
+  if (!role) return undefined;
+  if (role === "none") {
+    throw new IdentityError(403, "ACCESS_REVOKED", "Un administrador quitó el acceso de esta cuenta a Wiwo Nodes.");
+  }
+  if (role === "admin") return { email, name, permissions: [config.adminPermission] };
+  if ((ACTOR_ROLES as readonly string[]).includes(role)) {
+    return { email, name, permissions: [config.requiredPermission], nodesRole: role as ActorRole };
+  }
+  const base = await config.accessDirectory?.customRoleBase?.(role);
+  if (!base) return undefined;
+  return { email, name, permissions: [config.requiredPermission], nodesRole: base, nodesRoleId: role };
+}
+
+/**
  * Busca el correo en la allowlist del archivo (que permite afinar rol y marcas); si no está,
- * en las listas del entorno (admins, supervisores y permitidos) y por último en los dominios permitidos.
+ * en la lista de admins del entorno, luego en los roles asignados desde la app, después en
+ * las listas de supervisores y permitidos y por último en los dominios permitidos.
  * Lanza 403 cuando no hay autorización.
  */
 export async function findAllowedUser(config: IdentityConfig, email: string, name: string | null): Promise<AllowedUserRecord> {
   const normalized = normalizeEmail(email);
-  const records = (await readUsersFile(config.allowedUsersFile))
-    .map(allowedUserFromRecord)
-    .filter((record): record is AllowedUserRecord => Boolean(record));
+  const records = await readAllowlistRecords(config);
   const listed = records.find((record) => record.email === normalized);
   if (listed) return { ...listed, name: listed.name ?? name };
   if (config.adminEmails?.includes(normalized)) {
     return { email: normalized, name, permissions: [config.adminPermission] };
   }
+  const assigned = await config.accessDirectory?.find(normalized);
+  const fromApp = assigned ? await assignedAccessRecord(config, normalized, name, assigned) : undefined;
+  if (fromApp) return fromApp;
   if (config.supervisorEmails?.includes(normalized)) {
     return { email: normalized, name, permissions: [config.requiredPermission], nodesRole: "supervisor" };
   }
@@ -209,6 +287,17 @@ export async function findAllowedUser(config: IdentityConfig, email: string, nam
     return { email: normalized, name, permissions: [config.requiredPermission] };
   }
   throw new IdentityError(403, "ACCOUNT_NOT_ALLOWED", `La cuenta ${normalized} no está autorizada. Pide a un administrador que te agregue.`);
+}
+
+/**
+ * Proveedor dev: aplica sobre un usuario ficticio el rol asignado desde la app, salvo que su
+ * correo esté en la lista de admins del entorno.
+ */
+export async function applyAssignedAccess(config: IdentityConfig, user: AllowedUserRecord): Promise<AllowedUserRecord> {
+  if (config.adminEmails?.includes(user.email)) return user;
+  const assigned = await config.accessDirectory?.find(user.email);
+  const fromApp = assigned ? await assignedAccessRecord(config, user.email, user.name, assigned) : undefined;
+  return fromApp ? { ...user, permissions: fromApp.permissions, nodesRole: fromApp.nodesRole, nodesRoleId: fromApp.nodesRoleId } : user;
 }
 
 /**
@@ -249,6 +338,7 @@ export function resolveActorFromAllowedUser(
     displayName: user.name || session.name || user.email,
     tenantId: config.tenantId,
     role,
+    ...(user.nodesRoleId && role !== "admin" ? { roleId: user.nodesRoleId } : {}),
     // Un admin siempre ve el portafolio completo; el override solo restringe a no-admins.
     brandIds: role === "admin" ? "all" : brandIds,
     source,

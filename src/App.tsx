@@ -22,6 +22,7 @@ import {
   Play,
   SidebarSimple,
   SquaresFour,
+  UsersThree,
   Sun,
   TestTube,
   WarningCircle,
@@ -32,6 +33,8 @@ import { InteractionDetailPanel } from "./components/InteractionDetailPanel";
 import { InteractionsView } from "./components/InteractionsView";
 import { ManualManagementView } from "./components/ManualManagementView";
 import { SettingsView } from "./components/SettingsView";
+import { UsersRolesView } from "./components/UsersRolesView";
+import { can, type Permission } from "./lib/permissions";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { ExportDialog, type ExportFilters } from "./components/ExportDialog";
 import type { WorkflowEditorStatus } from "./components/WorkflowCanvas";
@@ -87,7 +90,7 @@ const AutomationPlatform = lazy(() =>
   import("./components/AutomationPlatform").then((module) => ({ default: module.AutomationPlatform })),
 );
 
-type ViewId = "platform-home" | "automations" | "automation-executions" | "templates" | "credentials" | "workflow" | "dashboard" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "settings";
+type ViewId = "platform-home" | "automations" | "automation-executions" | "templates" | "credentials" | "workflow" | "dashboard" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "users" | "settings";
 type EditorTab = "editor" | "executions" | "evaluations";
 
 /** Vistas de respuesta por cuenta. Comparten componente y difieren solo en la superficie. */
@@ -110,6 +113,7 @@ const navigation = [
   { id: "automation-executions" as const, label: "Ejecuciones", icon: ClockCounterClockwise, group: "Automatización" },
   { id: "templates" as const, label: "Plantillas", icon: SquaresFour, group: "Automatización" },
   { id: "credentials" as const, label: "Credenciales", icon: Key, group: "Automatización", adminOnly: true },
+  { id: "users" as const, label: "Usuarios", icon: UsersThree, group: "Sistema", adminOnly: true },
   { id: "settings" as const, label: "Configuración", icon: GearSix, group: "Sistema" },
 ];
 
@@ -146,7 +150,7 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
   },
   dashboard: {
     title: "Resumen operativo",
-    description: "Rendimiento de las 20 marcas en un solo lugar",
+    description: "Rendimiento de todas las marcas en un solo lugar",
   },
   interactions: {
     title: "Conversaciones",
@@ -163,6 +167,10 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
   accounts: {
     title: "Cuentas conectadas",
     description: "Marcas, canales y estado de sincronización",
+  },
+  users: {
+    title: "Usuarios y roles",
+    description: "Quién entra a Nodes y qué puede hacer",
   },
   settings: {
     title: "Configuración",
@@ -400,7 +408,8 @@ export function App({ onSignOut, sessionActor }: {
           return { ...item, badge: operationalData ? String(pending) : "…" };
         }
         if (item.id === "accounts") {
-          const withAlerts = operationalData?.accounts.filter((account) => account.health !== "healthy").length;
+          const withAlerts = operationalData?.accounts.filter((account) =>
+            account.brandActive !== false && account.accountActive !== false && account.health !== "healthy").length;
           return { ...item, badge: operationalData ? String(withAlerts) : "…" };
         }
         return item;
@@ -412,6 +421,12 @@ export function App({ onSignOut, sessionActor }: {
   // del marcador "API no conectada".
   const visibleData = operationalData
     ?? (sessionActor ? { ...emptyOperationalData, actor: sessionActor } : emptyOperationalData);
+  // Solo marcas operativas: las desactivadas (p. ej. las de ejemplo retiradas en live) no son
+  // alertas ni se seleccionan para operar; siguen en Cuentas para poder reactivarlas.
+  const operationalAccounts = useMemo(
+    () => visibleData.accounts.filter((account) => account.brandActive !== false && account.accountActive !== false),
+    [visibleData.accounts],
+  );
   const selectedManualAccount = visibleData.accounts.find((account) => account.id === manualAccountId);
   const manualInteractions = useMemo(() => {
     if (!manualAccountId) return [];
@@ -420,11 +435,17 @@ export function App({ onSignOut, sessionActor }: {
   const selectedContactKey = selectedInteractionDetail?.contactKey
     ?? visibleData.interactions.find((interaction) => interaction.id === selectedInteractionId)?.contactKey
     ?? null;
-  const roleRank = { viewer: 0, agent: 1, supervisor: 2, admin: 3 } as const;
-  const actorRank = roleRank[visibleData.actor.role];
-  const canOperate = !connectionIssue && actorRank >= roleRank.agent;
-  const canSupervise = !connectionIssue && actorRank >= roleRank.supervisor;
-  const canAdmin = !connectionIssue && actorRank >= roleRank.admin;
+  // Los controles siguen los permisos del rol; el servidor vuelve a validar cada acción.
+  const allowed = (permission: Permission) => !connectionIssue && can(visibleData.actor, permission);
+  const canOperate = allowed("inbox.reply");
+  const canSync = allowed("sync.run");
+  const canExport = allowed("export.xlsx");
+  const canEditWorkflow = allowed("workflow.edit");
+  const canRunAutomations = allowed("automations.run");
+  const canEditAutomations = allowed("automations.edit");
+  const canReadMetrics = allowed("metrics.read");
+  const canManageBrands = allowed("brands.manage");
+  const canAdmin = !connectionIssue && visibleData.actor.role === "admin";
   const isActive = visibleData.workflow.enabled;
   const platformSection = ({
     "platform-home": "home",
@@ -585,7 +606,8 @@ export function App({ onSignOut, sessionActor }: {
   }, [view, editorTab]);
 
   useEffect(() => {
-    const accounts = operationalData?.accounts ?? [];
+    const accounts = (operationalData?.accounts ?? []).filter((account) =>
+      account.brandActive !== false && account.accountActive !== false);
     if (accounts.length === 0) {
       if (manualAccountId !== null) setManualAccountId(null);
       return;
@@ -1492,7 +1514,7 @@ export function App({ onSignOut, sessionActor }: {
           <span className="nav-section-label">Proyecto</span>
           <button>
             <span className="project-avatar">M</span>
-            <span><strong>MGC · Operaciones</strong><small>{isLoadingData ? "Cargando espacio" : `${visibleData.accounts.length} marcas · SAC principal`}</small></span>
+            <span><strong>MGC · Operaciones</strong><small>{isLoadingData ? "Cargando espacio" : `${operationalAccounts.length} marcas · SAC principal`}</small></span>
             <CaretDown size={14} />
           </button>
         </div>
@@ -1523,15 +1545,15 @@ export function App({ onSignOut, sessionActor }: {
                     className={`switch ${isActive ? "is-on" : ""}`}
                     aria-pressed={isActive}
                     onClick={() => void toggleWorkflowActive()}
-                    disabled={!canSupervise || isSavingSettings}
+                    disabled={!canEditWorkflow || isSavingSettings}
                     aria-label={isActive ? "Pausar workflow SAC" : "Activar workflow SAC"}
-                    title={!canSupervise ? "Requiere rol supervisor o administrador" : undefined}
+                    title={!canEditWorkflow ? "Tu rol no permite ajustar el flujo SAC" : undefined}
                   ><span /></button>
                 </div>
-                <button className="button secondary test-button" onClick={() => execute("sync")} disabled={isRunning || !canOperate} title={!canOperate ? "Requiere rol agente o superior" : undefined}>
+                <button className="button secondary test-button" onClick={() => execute("sync")} disabled={isRunning || !canSync} title={!canSync ? "Tu rol no permite actualizar desde Metricool" : undefined}>
                   <TestTube size={17} /> Probar
                 </button>
-                <button className="button primary" onClick={() => execute("run")} disabled={isRunning || !canOperate} title={!canOperate ? "Requiere rol agente o superior" : undefined}>
+                <button className="button primary" onClick={() => execute("run")} disabled={isRunning || !canRunAutomations} title={!canRunAutomations ? "Tu rol no permite ejecutar el flujo" : undefined}>
                   {isRunning ? <ArrowsClockwise className="spin" size={17} /> : <Play size={17} weight="fill" />}
                   {isRunning ? "Ejecutando" : "Ejecutar flujo"}
                 </button>
@@ -1603,7 +1625,7 @@ export function App({ onSignOut, sessionActor }: {
                 <Suspense fallback={<WorkflowLoading />}>
                   <WorkflowCanvas
                     workflow={visibleData.workflow}
-                    canEdit={canSupervise}
+                    canEdit={canEditWorkflow}
                     onSaveGraph={handleSaveWorkflowGraph}
                     onStatusChange={setWorkflowEditorStatus}
                   />
@@ -1625,10 +1647,10 @@ export function App({ onSignOut, sessionActor }: {
           <Suspense fallback={<section className="platform-loading"><ArrowsClockwise className="spin" size={24} /><strong>Cargando Automation Studio</strong></section>}>
             <AutomationPlatform
               section={platformSection}
-              canAdmin={canAdmin}
-              canOperate={canOperate}
-              canSupervise={canSupervise}
-              accounts={visibleData.accounts}
+              canAdmin={canEditAutomations}
+              canOperate={canRunAutomations}
+              canSupervise={canReadMetrics}
+              accounts={operationalAccounts}
               interactions={visibleData.interactions}
               sacWorkflow={visibleData.workflow}
               isOperationalLoading={isLoadingData}
@@ -1647,8 +1669,8 @@ export function App({ onSignOut, sessionActor }: {
               brandPerformance={visibleData.brandPerformance}
               recentInteractions={visibleData.recentInteractions}
               isRefreshing={isRunning}
-              canSync={canOperate}
-              canExport={canSupervise}
+              canSync={canSync}
+              canExport={canExport}
               onRefresh={() => execute("sync")}
               onExport={exportExcel}
               onViewAllAccounts={() => setView("accounts")}
@@ -1662,10 +1684,10 @@ export function App({ onSignOut, sessionActor }: {
           <div className="content-page">
             <InteractionsView
               interactions={visibleData.interactions}
-              accounts={visibleData.accounts}
+              accounts={operationalAccounts}
               canWrite={canOperate}
-              canSync={canOperate}
-              canExport={canSupervise}
+              canSync={canSync}
+              canExport={canExport}
               isRefreshing={isRunning || isMutatingInteraction || isRefreshingInbox}
               lastUpdatedAt={lastInboxRefreshAt}
               refreshIssue={inboxRefreshIssue}
@@ -1686,8 +1708,7 @@ export function App({ onSignOut, sessionActor }: {
               surfaceKind={view === "manual-comments" ? "comment" : "dm"}
               // Solo cuentas operativas: una marca desactivada no debe poder seleccionarse
               // para responder. Sigue apareciendo en Cuentas para poder reactivarla.
-              accounts={visibleData.accounts.filter((account) =>
-                account.brandActive !== false && account.accountActive !== false)}
+              accounts={operationalAccounts}
               interactions={manualInteractions}
               selectedAccountId={manualAccountId}
               selectedInteractionId={selectedInteractionId}
@@ -1704,7 +1725,7 @@ export function App({ onSignOut, sessionActor }: {
               isLoadingPostComments={isRefreshingManualPostComments && manualPostCommentsPostKey !== selectedManualPostKey}
               postCommentsError={manualCommentsIssue}
               canWrite={canOperate}
-              canRefresh={canOperate}
+              canRefresh={canSync}
               lastUpdatedAt={lastInboxRefreshAt}
               refreshIssue={manualCommentsIssue || inboxRefreshIssue}
               statusReasons={visibleData.statusReasons}
@@ -1759,8 +1780,8 @@ export function App({ onSignOut, sessionActor }: {
           <div className="content-page">
             <AccountsView
               accounts={visibleData.accounts}
-              canAdmin={canAdmin}
-              canSync={canOperate}
+              canAdmin={canManageBrands}
+              canSync={canSync}
               isSavingBrand={isSavingBrand}
               isSavingAccount={isSavingAccount}
               isSavingWorkbook={isSavingWorkbook}
@@ -1784,6 +1805,11 @@ export function App({ onSignOut, sessionActor }: {
             />
           </div>
         ) : null}
+        {view === "users" && navIsAdmin ? (
+          <div className="content-page">
+            <UsersRolesView onToast={showPlatformToast} />
+          </div>
+        ) : null}
         {view === "settings" ? (
           <div className="content-page">
             <SettingsView
@@ -1791,7 +1817,7 @@ export function App({ onSignOut, sessionActor }: {
               isSaving={isSavingSettings}
               canRunDiagnostics={canOperate}
               canConfigureIntegrations={canAdmin}
-              canEditSettings={canSupervise}
+              canEditSettings={canEditWorkflow}
               canEnableAutomaticReplies={canAdmin}
               automationSettings={visibleData.automationSettings}
               integrations={visibleData.integrations}

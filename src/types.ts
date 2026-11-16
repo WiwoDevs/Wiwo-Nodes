@@ -12,11 +12,76 @@ export interface SessionActor {
   displayName: string;
   tenantId: string;
   role: "viewer" | "agent" | "supervisor" | "admin";
+  /** Rol asignado (de base o propio) y su nombre visible. */
+  roleId?: string;
+  roleName?: string;
+  /** Permisos efectivos; ausente para Admin, que los tiene todos. */
+  permissions?: import("./lib/permissions").Permission[];
   brandIds: string[] | "all";
   /** Origen de la identidad: "google" o "dev" cuando hay inicio de sesión. */
   source?: "local" | "trusted_headers" | "google" | "dev" | "service";
   /** Correo de la sesión, solo con inicio de sesión de Google o prueba local. */
   email?: string;
+}
+
+/** Rol asignable desde "Usuarios y roles": id de un rol (de base o propio) o "none" (sin acceso). */
+export type AccessRole = string;
+
+export interface PermissionDefinition {
+  key: string;
+  group: string;
+  label: string;
+  description: string;
+}
+
+export interface RoleView {
+  id: string;
+  name: string;
+  baseRole: "viewer" | "agent" | "supervisor";
+  permissions: string[];
+  builtIn: boolean;
+  editable: boolean;
+  customized: boolean;
+  userCount: number;
+  defaultPermissions?: string[];
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export interface UserAccessView {
+  email: string;
+  name: string | null;
+  effectiveRole: AccessRole;
+  assignedRole?: AccessRole;
+  assignedBy?: string;
+  assignedAt?: string;
+  serverRole: SessionActor["role"] | null;
+  serverSource: "allowlist_file" | "server_admin" | "server_supervisor" | "server_allowed" | "domain" | null;
+  locked: boolean;
+  lastSignInAt?: string;
+  isSelf: boolean;
+  /** Permisos del rol, antes de los ajustes personales. */
+  rolePermissions: string[];
+  /** Permisos efectivos de esta persona. */
+  permissions: string[];
+  permissionsAdd: string[];
+  permissionsRemove: string[];
+  permissionsUpdatedBy?: string;
+  permissionsUpdatedAt?: string;
+}
+
+export interface UserAccessPolicy {
+  authEnabled: boolean;
+  allowedDomains: string[];
+  defaultRole: SessionActor["role"];
+}
+
+export interface AccessControlListing {
+  users: UserAccessView[];
+  roles: RoleView[];
+  permissions: PermissionDefinition[];
+  adminOnly: string[];
+  policy: UserAccessPolicy;
 }
 
 export type ChannelConnectionStatus =

@@ -24,6 +24,7 @@ type LoginScreenProps = {
 
 const LOGIN_ERRORS: Record<string, string> = {
   ACCOUNT_NOT_ALLOWED: "Tu cuenta de Google no está autorizada para Wiwo Nodes. Pide acceso a un administrador.",
+  ACCESS_REVOKED: "Un administrador quitó el acceso de tu cuenta a Wiwo Nodes.",
   PERMISSION_REQUIRED: "Tu cuenta no tiene el permiso necesario para Wiwo Nodes.",
   EMAIL_NOT_VERIFIED: "Tu cuenta de Google no tiene un correo verificado.",
   GOOGLE_CANCELLED: "Cancelaste el inicio de sesión con Google.",

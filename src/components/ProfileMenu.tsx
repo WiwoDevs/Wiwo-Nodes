@@ -83,7 +83,7 @@ export function ProfileMenu({ actor, onSignOut }: ProfileMenuProps) {
           </div>
           <div className="profile-popover__chips">
             <span className="profile-chip">{identityLabel(actor.source)}</span>
-            <span className="profile-chip profile-chip--role">{ROLE_LABEL[actor.role]}</span>
+            <span className="profile-chip profile-chip--role">{actor.roleName || ROLE_LABEL[actor.role]}</span>
           </div>
           {onSignOut ? (
             <>

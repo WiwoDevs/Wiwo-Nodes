@@ -317,6 +317,35 @@ export const googleCallbackQuerySchema = z.object({
 }).passthrough();
 
 /** Inicio de sesión del modo de prueba local (SAC_FLOW_AUTH_MODE=dev). */
+export const userAccessRoleSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  /** Rol asignado; null quita la asignación y vuelve a la regla del servidor. */
+  role: z.string().trim().min(1).max(80).nullable(),
+}).strict();
+
+export const userPermissionsSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  /** Permisos que debe tener la persona; null quita sus ajustes y vuelve a los de su rol. */
+  permissions: z.array(z.string().max(60)).max(40).nullable(),
+}).strict();
+
+export const accessRoleIdParamsSchema = z.object({
+  roleId: z.string().trim().min(1).max(80),
+}).strict();
+
+const rolePermissionsSchema = z.array(z.string().max(60)).max(40);
+
+export const accessRoleCreateSchema = z.object({
+  name: z.string().trim().min(2).max(60),
+  baseRole: z.enum(["viewer", "agent", "supervisor"]),
+  permissions: rolePermissionsSchema,
+}).strict();
+
+export const accessRoleUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(60).optional(),
+  permissions: rolePermissionsSchema,
+}).strict();
+
 export const devPasswordSessionSchema = z.object({
   email: z.string().trim().email().max(254),
   password: z.string().min(1).max(256),

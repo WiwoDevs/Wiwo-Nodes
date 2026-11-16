@@ -70,6 +70,18 @@ fuentes, consultadas en este orden:
 
 Cambiar estas variables requiere reiniciar la API.
 
+Además, un admin puede asignar o quitar roles desde **Usuarios y roles** (menú Sistema) sin
+tocar el servidor: el rol asignado manda sobre las listas de supervisores y permitidos y sobre
+los dominios, rige en la siguiente acción de la persona y queda en la tabla `user_access`.
+En la pestaña **Roles** puede ajustar los permisos de Lector, Agente y Supervisor (por ejemplo,
+quitar Exportar al Supervisor) o crear roles propios como "Supervisor sin exportar"; se guardan
+en `access_roles`. Al hacer clic en una persona puede ajustar lo que puede hacer solo ella (por
+ejemplo, un Supervisor en específico sin Exportar); esos ajustes se guardan como diferencia con
+su rol. Admin no se edita y la administración (usuarios y roles, credenciales, envío
+automático, auditoría) no se puede delegar.
+`SAC_FLOW_AUTH_ADMIN_EMAILS` sigue siendo la llave maestra: esos correos son siempre admin y no
+se pueden cambiar desde la app, así nunca se pierde el acceso de administración.
+
 | En la allowlist (`permissions`) | Rol en Nodes | Alcance |
 | --- | --- | --- |
 | `admin` | `admin` | Portafolio completo, siempre |
@@ -105,7 +117,9 @@ No hace falta importar nada a mano. En live, **cada sincronización** (cada 5 mi
 - vincula sola cada marca nueva que tenga al menos una red que la bandeja sabe leer, con su
   `blogId` y el proveedor de Instagram de `METRICOOL_INSTAGRAM_PROVIDER`;
 - desactiva las 20 marcas de ejemplo del seed que nunca tuvieron referencia, sin borrar su
-  historial;
+  historial. Esto también ocurre **al arrancar la API en live**, aunque el catálogo no
+  responda, así nunca se ven como cuentas sin conectar. Las marcas desactivadas no cuentan como
+  alertas en Inicio ni en Cuentas; en Cuentas quedan bajo el filtro **Desactivadas**;
 - no duplica (va por `blogId`) y nunca escribe en Metricool. Si el catálogo no responde, la
   sincronización sigue con las marcas ya vinculadas.
 

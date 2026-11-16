@@ -632,6 +632,14 @@ export function WorkflowCanvas({
 
   useEffect(() => () => onStatusChange?.("locked"), [onStatusChange]);
 
+  // React Flow vuelve a llamar este callback cuando cambia su identidad: debe ser estable y no
+  // escribir estado si la selección no cambió, o entra en un ciclo infinito de renders.
+  const handleSelectionChange = useCallback(({ edges: selectedEdges }: { edges: Edge[] }) => {
+    const ids = selectedEdges.map((edge) => edge.id);
+    setSelectedEdgeIds((current) =>
+      current.length === ids.length && current.every((id, index) => id === ids[index]) ? current : ids);
+  }, []);
+
   const resetCanvas = useCallback(() => {
     setNodes(workflowNodes(workflow));
     setEdges(workflowEdges(workflow));
@@ -792,7 +800,7 @@ export function WorkflowCanvas({
         <span>1</span>
         <div>
           <strong>Captura</strong>
-          <small>Metricool · 20 marcas</small>
+          <small>Metricool · todas las marcas</small>
         </div>
       </div>
       <div className="canvas-stage-label stage-data">
@@ -892,7 +900,7 @@ export function WorkflowCanvas({
         onNodeDragStop={persistPosition}
         onNodeClick={selectNode}
         onPaneClick={clearSelection}
-        onSelectionChange={({ edges: selectedEdges }) => setSelectedEdgeIds(selectedEdges.map((edge) => edge.id))}
+        onSelectionChange={handleSelectionChange}
         defaultViewport={{ x: 28, y: 180, zoom: 0.72 }}
         minZoom={0.38}
         maxZoom={1.35}

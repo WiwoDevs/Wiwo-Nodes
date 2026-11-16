@@ -1,3 +1,4 @@
+import { can } from "../lib/permissions";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowSquareOut,
@@ -270,11 +271,13 @@ export function InteractionDetailPanel({
 
   if (!detail && !isLoading) return null;
 
-  const canWrite = actor.role !== "viewer";
+  const canWrite = can(actor, "inbox.reply");
+  const canTriage = can(actor, "inbox.triage");
+  const canAssign = can(actor, "inbox.assign");
   const canRelease = detail?.assignedTo
-    ? detail.assignedTo.userId === actor.userId || actor.role === "supervisor" || actor.role === "admin"
+    ? detail.assignedTo.userId === actor.userId || can(actor, "inbox.assign_others")
     : false;
-  const canChangeAssignment = canWrite && (!detail?.assignedTo || canRelease);
+  const canChangeAssignment = canAssign && (!detail?.assignedTo || canRelease);
   const providerReplyWindowMs = !detail || !["instagram", "facebook"].includes(detail.platform) || detail.kind === "review"
     ? undefined
     : detail.kind === "comment" ? 24 * 60 * 60_000 : 7 * 24 * 60 * 60_000;
@@ -290,7 +293,7 @@ export function InteractionDetailPanel({
   const deliveryBlocksSend = latestDelivery
     ? ["pending", "sending", "uncertain"].includes(latestDelivery.status)
     : false;
-  const canReconcile = actor.role === "supervisor" || actor.role === "admin";
+  const canReconcile = can(actor, "deliveries.reconcile");
   const aiRecommendation = detail?.automation?.proposal?.text || "";
   const hasConversationHistory = (detail?.conversationHistory.length ?? 0) > 1;
   const caseClosed = detail
@@ -416,7 +419,7 @@ export function InteractionDetailPanel({
               disabled={isSaving || !canChangeAssignment}
             >
               {detail.assignedTo ? <UserMinus size={15} weight="bold" /> : <UserPlus size={15} weight="bold" />}
-              {!canWrite ? "Solo lectura" : detail.assignedTo && !canRelease ? "Asignado" : detail.assignedTo ? "Liberar" : "Asignarme"}
+              {!canAssign ? "Solo lectura" : detail.assignedTo && !canRelease ? "Asignado" : detail.assignedTo ? "Liberar" : "Asignarme"}
             </button>
           </section>
 
@@ -652,11 +655,11 @@ export function InteractionDetailPanel({
                 <Trash size={16} weight="bold" aria-hidden="true" />
                 Borrar borrador
               </button>
-              <button className="button button--secondary" type="button" onClick={() => openStatusForm("escalated")} disabled={isSaving || !canWrite || caseClosed}>
+              <button className="button button--secondary" type="button" onClick={() => openStatusForm("escalated")} disabled={isSaving || !canTriage || caseClosed}>
                 <UserFocus size={16} weight="bold" aria-hidden="true" />
                 Escalar
               </button>
-              <button className="button button--secondary" type="button" onClick={() => openStatusForm("resolved")} disabled={isSaving || !canWrite || caseClosed}>
+              <button className="button button--secondary" type="button" onClick={() => openStatusForm("resolved")} disabled={isSaving || !canTriage || caseClosed}>
                 <CheckCircle size={16} weight="bold" aria-hidden="true" />
                 Resolver
               </button>
@@ -789,9 +792,9 @@ export function InteractionDetailPanel({
                 placeholder="Contexto para el siguiente agente"
                 rows={3}
                 maxLength={2000}
-                disabled={!canWrite}
+                disabled={!canTriage}
               />
-              <button className="button button--secondary" type="submit" disabled={isSaving || !canWrite || !noteText.trim()}>
+              <button className="button button--secondary" type="submit" disabled={isSaving || !canTriage || !noteText.trim()}>
                 <NotePencil size={15} weight="bold" aria-hidden="true" />
                 Guardar nota
               </button>

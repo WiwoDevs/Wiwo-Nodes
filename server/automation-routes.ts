@@ -1,3 +1,4 @@
+import type { Permission } from "./permissions.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -116,6 +117,7 @@ export interface AutomationRouteDependencies {
   repository: SacFlowRepository;
   config: AppConfig;
   requireRole: (request: FastifyRequest, role: ActorRole) => ActorContext;
+  requirePermission: (request: FastifyRequest, permission: Permission) => ActorContext;
 }
 
 export function registerAutomationRoutes(app: FastifyInstance, dependencies: AutomationRouteDependencies): void {
@@ -170,13 +172,13 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/workflows", async (request) => {
-    const actor = dependencies.requireRole(request, "admin");
+    const actor = dependencies.requirePermission(request, "automations.edit");
     const workflow = await createAutomationWorkflow(repository, actor, workflowCreate.parse(request.body));
     return { data: workflow, meta: { ...meta(), created: true } };
   });
 
   app.put("/api/platform/workflows/:id", async (request) => {
-    const actor = dependencies.requireRole(request, "admin");
+    const actor = dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const { changeNote, folderId, ...body } = workflowUpdate.parse(request.body);
     const patch = { ...body, ...(folderId === null ? { folderId: undefined } : folderId ? { folderId } : {}) };
@@ -195,21 +197,21 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/workflows/:id/publish", async (request) => {
-    const actor = dependencies.requireRole(request, "admin");
+    const actor = dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const body = z.object({ changeNote: z.string().max(500).optional() }).strict().parse(request.body || {});
     return { data: await publishAutomationWorkflow(repository, actor, id, body.changeNote), meta: { ...meta(), published: true } };
   });
 
   app.post("/api/platform/workflows/:id/rollback", async (request) => {
-    const actor = dependencies.requireRole(request, "admin");
+    const actor = dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const body = rollbackBody.parse(request.body);
     return { data: await rollbackAutomationWorkflow(repository, actor, id, body.version, body.changeNote), meta: { ...meta(), restoredFrom: body.version, publicationRequired: true } };
   });
 
   app.get("/api/platform/workflows/:id/export", async (request, reply) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const state = await repository.snapshotAutomation();
     const workflow = state.workflows.find((item) => item.id === id);
@@ -234,7 +236,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/workflows/import", async (request) => {
-    const actor = dependencies.requireRole(request, "admin");
+    const actor = dependencies.requirePermission(request, "automations.edit");
     const body = workflowImportBody.parse(request.body);
     const created = await createAutomationWorkflow(repository, actor, { projectId: body.projectId, name: body.name, description: body.description });
     const nodeIds = new Map(body.nodes.map((node) => [node.id, randomUUID()]));
@@ -249,21 +251,21 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/workflows/:id/active", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const { active } = z.object({ active: z.boolean() }).strict().parse(request.body);
     return { data: await setAutomationWorkflowActive(repository, id, active), meta: { ...meta(), active } };
   });
 
   app.post("/api/platform/workflows/:id/archive", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const { archived } = z.object({ archived: z.boolean() }).strict().parse(request.body);
     return { data: await archiveAutomationWorkflow(repository, id, archived), meta: { ...meta(), archived } };
   });
 
   app.post("/api/platform/workflows/:id/duplicate", async (request) => {
-    const actor = dependencies.requireRole(request, "admin");
+    const actor = dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const state = await repository.snapshotAutomation();
     const source = state.workflows.find((item) => item.id === id);
@@ -285,7 +287,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/workflows/:id/run", async (request, reply) => {
-    const actor = dependencies.requireRole(request, "agent");
+    const actor = dependencies.requirePermission(request, "automations.run");
     const { id } = idParams.parse(request.params);
     const body = runBody.parse(request.body || {});
     const key = idempotencyKey(request, !config.demoMode);
@@ -313,7 +315,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/executions/:id/retry", async (request, reply) => {
-    const actor = dependencies.requireRole(request, "agent");
+    const actor = dependencies.requirePermission(request, "automations.run");
     const { id } = idParams.parse(request.params);
     const key = idempotencyKey(request, !config.demoMode);
     const hash = requestHash({ executionId: id });
@@ -362,7 +364,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/projects", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const body = projectBody.parse(request.body);
     const now = new Date().toISOString();
     const project = { id: randomUUID(), name: body.name, description: body.description || "", type: "team" as const, color: body.color || "#4b46f5", createdAt: now, updatedAt: now };
@@ -374,7 +376,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.put("/api/platform/projects/:id", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const body = projectBody.partial().parse(request.body);
     const project = await repository.mutateAutomation((state) => {
@@ -388,7 +390,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.delete("/api/platform/projects/:id", async (request, reply) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     await repository.mutateAutomation((state) => {
       const exists = state.projects.some((item) => item.id === id);
@@ -403,7 +405,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/folders", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const body = namedResourceBody.parse(request.body);
     const now = new Date().toISOString();
     const folder = { id: randomUUID(), projectId: body.projectId, parentId: body.parentId, name: body.name, createdAt: now, updatedAt: now };
@@ -416,7 +418,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.put("/api/platform/folders/:id", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const body = z.object({ name: z.string().trim().min(1).max(120).optional(), parentId: z.string().nullable().optional() }).strict().parse(request.body);
     const folder = await repository.mutateAutomation((state) => {
@@ -439,7 +441,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.delete("/api/platform/folders/:id", async (request, reply) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     await repository.mutateAutomation((state) => {
       if (!state.folders.some((item) => item.id === id)) throw new AutomationServiceError(404, "FOLDER_NOT_FOUND", "La carpeta no existe.");
@@ -450,7 +452,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.post("/api/platform/tags", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const body = namedResourceBody.parse(request.body);
     const tag = { id: randomUUID(), projectId: body.projectId, name: body.name, color: body.color || "#4b46f5", createdAt: new Date().toISOString() };
     await repository.mutateAutomation((state) => {
@@ -462,7 +464,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.put("/api/platform/tags/:id", async (request) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     const body = z.object({ name: z.string().trim().min(1).max(120).optional(), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).strict().parse(request.body);
     const tag = await repository.mutateAutomation((state) => {
@@ -476,7 +478,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.delete("/api/platform/tags/:id", async (request, reply) => {
-    dependencies.requireRole(request, "admin");
+    dependencies.requirePermission(request, "automations.edit");
     const { id } = idParams.parse(request.params);
     await repository.mutateAutomation((state) => {
       if (!state.tags.some((item) => item.id === id)) throw new AutomationServiceError(404, "TAG_NOT_FOUND", "El tag no existe.");
@@ -487,7 +489,7 @@ export function registerAutomationRoutes(app: FastifyInstance, dependencies: Aut
   });
 
   app.all("/api/webhooks/:path", async (request, reply) => {
-    const actor = dependencies.requireRole(request, "agent");
+    const actor = dependencies.requirePermission(request, "automations.run");
     const { path } = webhookParams.parse(request.params);
     const state = await repository.snapshotAutomation();
     const workflow = state.workflows.find((candidate) => candidate.active && candidate.nodes.some((node) => ["core.webhook", "core.formTrigger"].includes(node.type) && String(node.parameters.path) === path && String(node.parameters.method || "POST").toUpperCase() === request.method));

@@ -19,6 +19,9 @@ import type {
   InteractionStatus,
   SocialPlatform,
   SessionActor,
+  AccessRole,
+  AccessControlListing,
+  UserAccessView,
   ProjectRequirement,
   SacAutomationAssessment,
   BrandWorkbook,
@@ -799,7 +802,8 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
     {
       id: "automation",
       label: "Cobertura del protocolo",
-      value: `${protocolCoverage}%`,
+      // Sin interacciones evaluables no hay cobertura que medir: 0% simularía una medición.
+      value: stats.automationScope ? `${protocolCoverage}%` : "Sin datos",
       detail: `${stats.autoReplyCandidates} candidatas · ${stats.knowledgeBlocked} bloqueadas por conocimiento`,
       change: "Dato servidor",
       trend: "neutral",
@@ -1314,6 +1318,46 @@ export async function listMetricoolBrands(): Promise<MetricoolCatalogBrand[]> {
   if (!response.ok) await throwApiError(response);
   const payload = await response.json() as { data: MetricoolCatalogBrand[] };
   return payload.data;
+}
+
+async function accessControlRequest<T = AccessControlListing>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, init);
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: T };
+  return payload.data;
+}
+
+const jsonInit = (method: string, body?: unknown): RequestInit => ({
+  method,
+  ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+});
+
+/** Usuarios y roles (solo admin): personas, roles y catálogo de permisos. */
+export function listUserAccess(): Promise<AccessControlListing> {
+  return accessControlRequest("/admin/users");
+}
+
+/** Asigna un rol (o con null vuelve a la regla del servidor). El correo viaja en el cuerpo. */
+export function setUserAccessRole(email: string, role: AccessRole | null): Promise<AccessControlListing & { user?: UserAccessView }> {
+  return accessControlRequest("/admin/users/role", jsonInit("PUT", { email, role }));
+}
+
+/** Ajusta los permisos de una persona en específico; null quita sus ajustes. */
+export function setUserPermissions(email: string, permissions: string[] | null): Promise<AccessControlListing & { user?: UserAccessView }> {
+  return accessControlRequest("/admin/users/permissions", jsonInit("PUT", { email, permissions }));
+}
+
+export function createAccessRole(input: { name: string; baseRole: "viewer" | "agent" | "supervisor"; permissions: string[] }): Promise<AccessControlListing & { roleId: string }> {
+  return accessControlRequest("/admin/roles", jsonInit("POST", input));
+}
+
+export function updateAccessRole(roleId: string, input: { name?: string; permissions: string[] }): Promise<AccessControlListing> {
+  return accessControlRequest(`/admin/roles/${encodeURIComponent(roleId)}`, jsonInit("PUT", input));
+}
+
+/** Borra un rol propio o restablece un rol de base a sus permisos por defecto. */
+export function deleteAccessRole(roleId: string): Promise<AccessControlListing> {
+  return accessControlRequest(`/admin/roles/${encodeURIComponent(roleId)}`, jsonInit("DELETE"));
 }
 
 /** Crea marcas locales a partir del catálogo de Metricool. No escribe en Metricool. */

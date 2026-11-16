@@ -738,7 +738,7 @@ export function AutomationPlatform({
           <span><UserFocus weight="duotone" /> Sin asignar</span><strong>{unassigned.length}</strong><small>{unassigned.length ? "Disponibles para tomar" : "Todo tiene responsable"}</small><ArrowRight />
         </button>
         <button onClick={() => onNavigate("accounts")} className={accountsWithAlerts.length ? "is-warning" : "is-ready"}>
-          <span><Buildings weight="duotone" /> Cuentas con alertas</span><strong>{accountsWithAlerts.length}</strong><small>{accountsWithAlerts.length ? `de ${accounts.length} conectadas` : `${accounts.length} operativas`}</small><ArrowRight />
+          <span><Buildings weight="duotone" /> Cuentas con alertas</span><strong>{accountsWithAlerts.length}</strong><small>{accountsWithAlerts.length ? `de ${accounts.length} conectadas` : `${accounts.length} operativa${accounts.length === 1 ? "" : "s"}`}</small><ArrowRight />
         </button>
       </section>
 

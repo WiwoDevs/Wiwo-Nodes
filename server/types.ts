@@ -1,3 +1,5 @@
+import type { AccessRoleRecord, Permission } from "./permissions.js";
+
 import type { AutomationState } from "./automation-types.js";
 
 export const CHANNELS = [
@@ -133,11 +135,41 @@ export interface SacAutomationAssessment {
 export const ACTOR_ROLES = ["viewer", "agent", "supervisor", "admin"] as const;
 export type ActorRole = (typeof ACTOR_ROLES)[number];
 
+/**
+ * Rol asignable desde "Usuarios y roles": "admin", un rol de base ("viewer", "agent",
+ * "supervisor"), el id de un rol propio, o "none" (sin acceso).
+ */
+export type AccessRole = string;
+
+/**
+ * Acceso de una persona administrado desde la app. `role` es la asignación hecha por un
+ * admin (ausente = usa la regla del servidor); `lastSignInAt` registra el último ingreso.
+ */
+export interface UserAccessRecord {
+  email: string;
+  name: string | null;
+  role?: AccessRole;
+  assignedBy?: string;
+  assignedAt?: string;
+  lastSignInAt?: string;
+  /** Ajustes personales sobre los permisos de su rol: permisos agregados y quitados. */
+  permissionsAdd?: Permission[];
+  permissionsRemove?: Permission[];
+  permissionsUpdatedBy?: string;
+  permissionsUpdatedAt?: string;
+}
+
 export interface ActorContext {
   userId: string;
   displayName: string;
   tenantId: string;
+  /** Nivel de referencia. Con un rol propio es el rol de base con que se creó. */
   role: ActorRole;
+  /** Rol asignado (de base o propio); si falta, es `role`. */
+  roleId?: string;
+  roleName?: string;
+  /** Permisos efectivos resueltos con el catálogo de roles vigente. */
+  permissions?: Permission[];
   brandIds: string[] | "all";
   source: "local" | "trusted_headers" | "google" | "dev" | "service";
   /** Correo verificado de la sesión (solo inicio de sesión con Google o prueba local). */
@@ -651,6 +683,10 @@ export interface DataStore {
   jobs: WorkflowJob[];
   idempotency: StoredIdempotencyRecord[];
   automation: AutomationState;
+  /** Solo JSON local; en PostgreSQL vive en la tabla `user_access`. */
+  userAccess?: UserAccessRecord[];
+  /** Solo JSON local; en PostgreSQL vive en la tabla `access_roles`. */
+  accessRoles?: AccessRoleRecord[];
 }
 
 /**

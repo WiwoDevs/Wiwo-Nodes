@@ -2,7 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import pg, { type QueryResultRow } from "pg";
 import { createDemoStore } from "./seed.js";
 import { createDemoAutomationState } from "./automation-seed.js";
-import type { SacFlowRepository } from "./repository-contract.js";
+import type { SacFlowRepository, SetUserAccessRoleInput, SetUserPermissionOverridesInput } from "./repository-contract.js";
 import type {
   Brand,
   CatalogStore,
@@ -33,6 +33,8 @@ import type {
 } from "./types.js";
 import type { AutomationState } from "./automation-types.js";
 import { CHANNELS } from "./types.js";
+import type { AccessRole, UserAccessRecord } from "./types.js";
+import { normalizePermissions, type AccessRoleRecord, type BaseRole, type Permission } from "./permissions.js";
 import { ensureMetricoolInboxCoverage } from "./workflow-coverage.js";
 import { mergeMissingMetricoolRef } from "./workflow-service.js";
 import {
@@ -1782,6 +1784,143 @@ export class PostgresRepository implements SacFlowRepository {
     }, { write: true });
   }
 
+  async listUserAccess(): Promise<UserAccessRecord[]> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<UserAccessRow>(
+        `SELECT ${USER_ACCESS_COLUMNS}
+         FROM user_access WHERE organization_id = $1 ORDER BY email`,
+        [organizationId],
+      );
+      return result.rows.map(userAccessFromRow);
+    });
+  }
+
+  async setUserAccessRole(input: SetUserAccessRoleInput): Promise<UserAccessRecord | undefined> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<UserAccessRow>(
+        `INSERT INTO user_access (organization_id, email, display_name, role, assigned_by, assigned_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6::timestamptz, now())
+         ON CONFLICT (organization_id, email) DO UPDATE SET
+           display_name = COALESCE(EXCLUDED.display_name, user_access.display_name),
+           role = EXCLUDED.role,
+           assigned_by = EXCLUDED.assigned_by,
+           assigned_at = EXCLUDED.assigned_at,
+           updated_at = now()
+         RETURNING ${USER_ACCESS_COLUMNS}`,
+        [
+          organizationId,
+          input.email,
+          input.name ?? null,
+          input.role,
+          input.role ? input.assignedBy : null,
+          input.role ? input.at : null,
+        ],
+      );
+      const row = result.rows[0];
+      if (row && !keepUserAccessRow(row)) {
+        await client.query("DELETE FROM user_access WHERE organization_id = $1 AND email = $2", [organizationId, input.email]);
+        return undefined;
+      }
+      return row ? userAccessFromRow(row) : undefined;
+    }, { write: true });
+  }
+
+  async setUserPermissionOverrides(input: SetUserPermissionOverridesInput): Promise<UserAccessRecord | undefined> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const hasOverrides = input.add.length > 0 || input.remove.length > 0;
+      const result = await client.query<UserAccessRow>(
+        `INSERT INTO user_access (organization_id, email, display_name, permissions_add, permissions_remove, permissions_updated_by, permissions_updated_at, updated_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::timestamptz, now())
+         ON CONFLICT (organization_id, email) DO UPDATE SET
+           display_name = COALESCE(EXCLUDED.display_name, user_access.display_name),
+           permissions_add = EXCLUDED.permissions_add,
+           permissions_remove = EXCLUDED.permissions_remove,
+           permissions_updated_by = EXCLUDED.permissions_updated_by,
+           permissions_updated_at = EXCLUDED.permissions_updated_at,
+           updated_at = now()
+         RETURNING ${USER_ACCESS_COLUMNS}`,
+        [
+          organizationId,
+          input.email,
+          input.name ?? null,
+          JSON.stringify(input.add),
+          JSON.stringify(input.remove),
+          hasOverrides ? input.updatedBy : null,
+          hasOverrides ? input.at : null,
+        ],
+      );
+      const row = result.rows[0];
+      if (row && !keepUserAccessRow(row)) {
+        await client.query("DELETE FROM user_access WHERE organization_id = $1 AND email = $2", [organizationId, input.email]);
+        return undefined;
+      }
+      return row ? userAccessFromRow(row) : undefined;
+    }, { write: true });
+  }
+
+  async recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void> {
+    await this.withTenantClient(async (client, organizationId) => {
+      await client.query(
+        `INSERT INTO user_access (organization_id, email, display_name, last_sign_in_at, updated_at)
+         VALUES ($1, $2, $3, $4::timestamptz, now())
+         ON CONFLICT (organization_id, email) DO UPDATE SET
+           display_name = COALESCE(EXCLUDED.display_name, user_access.display_name),
+           last_sign_in_at = EXCLUDED.last_sign_in_at,
+           updated_at = now()`,
+        [organizationId, input.email, input.name, input.at],
+      );
+    });
+  }
+
+  async listAccessRoles(): Promise<AccessRoleRecord[]> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<AccessRoleRow>(
+        `SELECT role_id, name, base_role, permissions, built_in, updated_by, updated_at
+         FROM access_roles WHERE organization_id = $1 ORDER BY role_id`,
+        [organizationId],
+      );
+      return result.rows.map(accessRoleFromRow);
+    });
+  }
+
+  async saveAccessRole(record: AccessRoleRecord): Promise<AccessRoleRecord> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<AccessRoleRow>(
+        `INSERT INTO access_roles (organization_id, role_id, name, base_role, permissions, built_in, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, COALESCE($8::timestamptz, now()))
+         ON CONFLICT (organization_id, role_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           base_role = EXCLUDED.base_role,
+           permissions = EXCLUDED.permissions,
+           built_in = EXCLUDED.built_in,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = EXCLUDED.updated_at
+         RETURNING role_id, name, base_role, permissions, built_in, updated_by, updated_at`,
+        [
+          organizationId,
+          record.id,
+          record.name,
+          record.baseRole,
+          JSON.stringify(record.permissions),
+          record.builtIn,
+          record.updatedBy ?? null,
+          record.updatedAt ?? null,
+        ],
+      );
+      return accessRoleFromRow(result.rows[0]!);
+    }, { write: true });
+  }
+
+  async deleteAccessRole(id: string): Promise<boolean> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query(
+        "DELETE FROM access_roles WHERE organization_id = $1 AND role_id = $2",
+        [organizationId, id],
+      );
+      return (result.rowCount ?? 0) > 0;
+    }, { write: true });
+  }
+
   async stats(filters: InteractionFilters = {}): Promise<InteractionStats> {
     const store = await this.readBrandsAndInteractions();
     const items = fromActiveBrands(store.interactions, store)
@@ -3034,4 +3173,79 @@ export class PostgresRepository implements SacFlowRepository {
       },
     );
   }
+}
+
+const USER_ACCESS_COLUMNS = "email, display_name, role, assigned_by, assigned_at, last_sign_in_at, permissions_add, permissions_remove, permissions_updated_by, permissions_updated_at";
+
+interface UserAccessRow extends QueryResultRow {
+  email: string;
+  display_name: string | null;
+  role: AccessRole | null;
+  assigned_by: string | null;
+  assigned_at: Date | string | null;
+  last_sign_in_at: Date | string | null;
+  permissions_add?: unknown;
+  permissions_remove?: unknown;
+  permissions_updated_by?: string | null;
+  permissions_updated_at?: Date | string | null;
+}
+
+function permissionList(value: unknown): Permission[] {
+  return normalizePermissions(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+}
+
+function keepUserAccessRow(row: UserAccessRow): boolean {
+  return Boolean(row.role || row.last_sign_in_at || permissionList(row.permissions_add).length || permissionList(row.permissions_remove).length);
+}
+
+function isoOrUndefined(value: Date | string | null): string | undefined {
+  if (!value) return undefined;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function userAccessFromRow(row: UserAccessRow): UserAccessRecord {
+  const assignedAt = isoOrUndefined(row.assigned_at);
+  const lastSignInAt = isoOrUndefined(row.last_sign_in_at);
+  const permissionsAdd = permissionList(row.permissions_add);
+  const permissionsRemove = permissionList(row.permissions_remove);
+  const permissionsUpdatedAt = isoOrUndefined(row.permissions_updated_at ?? null);
+  return {
+    email: row.email,
+    name: row.display_name,
+    ...(row.role ? { role: row.role } : {}),
+    ...(row.role && row.assigned_by ? { assignedBy: row.assigned_by } : {}),
+    ...(row.role && assignedAt ? { assignedAt } : {}),
+    ...(lastSignInAt ? { lastSignInAt } : {}),
+    ...(permissionsAdd.length || permissionsRemove.length
+      ? {
+        permissionsAdd,
+        permissionsRemove,
+        ...(row.permissions_updated_by ? { permissionsUpdatedBy: row.permissions_updated_by } : {}),
+        ...(permissionsUpdatedAt ? { permissionsUpdatedAt } : {}),
+      }
+      : {}),
+  };
+}
+
+interface AccessRoleRow extends QueryResultRow {
+  role_id: string;
+  name: string;
+  base_role: BaseRole;
+  permissions: unknown;
+  built_in: boolean;
+  updated_by: string | null;
+  updated_at: Date | string | null;
+}
+
+function accessRoleFromRow(row: AccessRoleRow): AccessRoleRecord {
+  const updatedAt = isoOrUndefined(row.updated_at);
+  return {
+    id: row.role_id,
+    name: row.name,
+    baseRole: row.base_role,
+    permissions: normalizePermissions(Array.isArray(row.permissions) ? row.permissions.filter((value): value is string => typeof value === "string") : []),
+    builtIn: row.built_in,
+    ...(row.updated_by ? { updatedBy: row.updated_by } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+  };
 }

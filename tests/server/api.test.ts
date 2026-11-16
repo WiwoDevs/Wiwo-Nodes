@@ -959,6 +959,9 @@ describe("SAC Flow API", () => {
       displayName: "Usuario viewer",
       tenantId: "tenant-test",
       role: "viewer",
+      roleId: "viewer",
+      roleName: "Lector",
+      permissions: [],
       brandIds: ["brand-01"],
       source: "trusted_headers",
     });
@@ -1646,6 +1649,8 @@ describe("SAC Flow API", () => {
       env: {
         METRICOOL_MODE: "live",
         METRICOOL_API_TOKEN: "configured-token",
+        // Una cuenta conectada: las marcas de ejemplo sin referencia se retiran en live.
+        METRICOOL_ACCOUNTS_JSON: JSON.stringify({ "account-01": { userId: "user-1", blogId: "blog-1" } }),
         SAC_FLOW_DISABLE_OUTBOUND_SENDS: "false",
         SAC_FLOW_ENABLE_MANUAL_REPLIES: "true",
         SAC_FLOW_DISABLE_METRICOOL_MUTATIONS: "true",
@@ -1689,6 +1694,8 @@ describe("SAC Flow API", () => {
       env: {
         METRICOOL_MODE: "live",
         METRICOOL_API_TOKEN: "configured-token",
+        // Una cuenta conectada: las marcas de ejemplo sin referencia se retiran en live.
+        METRICOOL_ACCOUNTS_JSON: JSON.stringify({ "account-01": { userId: "user-1", blogId: "blog-1" } }),
         SAC_FLOW_DISABLE_OUTBOUND_SENDS: "false",
         SAC_FLOW_ENABLE_MANUAL_REPLIES: "false",
         SAC_FLOW_DISABLE_METRICOOL_MUTATIONS: "true",
@@ -1785,6 +1792,8 @@ describe("SAC Flow API", () => {
       env: {
         METRICOOL_MODE: "live",
         METRICOOL_API_TOKEN: "configured-token",
+        // Una cuenta conectada: las marcas de ejemplo sin referencia se retiran en live.
+        METRICOOL_ACCOUNTS_JSON: JSON.stringify({ "account-01": { userId: "user-1", blogId: "blog-1" } }),
         SAC_FLOW_DISABLE_OUTBOUND_SENDS: "true",
       },
       client,

@@ -1,4 +1,5 @@
 import type {
+  AccessRole,
   Brand,
   CatalogStore,
   DataStore,
@@ -14,6 +15,7 @@ import type {
   ReplyDelivery,
   ReplyDeliveryFilters,
   SettleReplyDeliveryInput,
+  UserAccessRecord,
   StoreRecordCounts,
   StoredIdempotencyRecord,
   Workflow,
@@ -21,6 +23,7 @@ import type {
   WorkflowJob,
 } from "./types.js";
 import type { AutomationState } from "./automation-types.js";
+import type { AccessRoleRecord, Permission } from "./permissions.js";
 
 export interface SacFlowRepository {
   initialize(): Promise<void>;
@@ -106,4 +109,41 @@ export interface SacFlowRepository {
   claimIdempotency(record: StoredIdempotencyRecord): Promise<StoredIdempotencyRecord | undefined>;
   saveIdempotency(record: StoredIdempotencyRecord): Promise<void>;
   stats(filters?: InteractionFilters): Promise<InteractionStats>;
+  /** Personas con rol asignado desde la app o que ya ingresaron, ordenadas por correo. */
+  listUserAccess(): Promise<UserAccessRecord[]>;
+  /**
+   * Asigna (o con `null` quita) el rol de una persona. Conserva su último ingreso; un
+   * registro sin rol ni ingreso se elimina.
+   */
+  setUserAccessRole(input: SetUserAccessRoleInput): Promise<UserAccessRecord | undefined>;
+  /**
+   * Guarda los ajustes personales de permisos de una persona (agregados y quitados respecto
+   * de su rol). Listas vacías los quitan; un registro sin rol, ingreso ni ajustes se elimina.
+   */
+  setUserPermissionOverrides(input: SetUserPermissionOverridesInput): Promise<UserAccessRecord | undefined>;
+  /** Registra un inicio de sesión exitoso (nombre y fecha). */
+  recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void>;
+  /** Ajustes de roles de base y roles propios guardados. */
+  listAccessRoles(): Promise<AccessRoleRecord[]>;
+  /** Crea o reemplaza un rol guardado. */
+  saveAccessRole(record: AccessRoleRecord): Promise<AccessRoleRecord>;
+  /** Elimina un rol guardado (un rol propio o el ajuste de un rol de base). */
+  deleteAccessRole(id: string): Promise<boolean>;
+}
+
+export interface SetUserPermissionOverridesInput {
+  email: string;
+  name?: string | null;
+  add: Permission[];
+  remove: Permission[];
+  updatedBy: string;
+  at: string;
+}
+
+export interface SetUserAccessRoleInput {
+  email: string;
+  name?: string | null;
+  role: AccessRole | null;
+  assignedBy: string;
+  at: string;
 }

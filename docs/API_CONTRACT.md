@@ -42,17 +42,25 @@ Esta es una frontera de integración, no un SSO propio. Solo debe activarse detr
 
 Roles mínimos del MVP:
 
-| Acción | Rol mínimo |
-| --- | --- |
-| Leer marcas, bandeja, detalle, stats y workflow | `viewer` |
-| Sincronizar, simular workflow, ejecutar protocolo SAC, guardar borrador, responder y cambiar estado | `agent` |
-| Exportar XLSX, leer métricas Prometheus y editar reglas del workflow | `supervisor` |
-| Alta/edición/desactivación de marcas, activar auto-respuesta o administrar referencias Metricool por cuenta | `admin` |
-| Conectar/revalidar el libro maestro de una marca | `admin` |
-| Leer catálogo, proyectos, workflows y ejecuciones | `viewer` |
-| Ver la lista de credenciales públicas y variables (la vista Credenciales del menú) | `admin` |
-| Ejecutar/reintentar workflows generales y llamar webhooks autenticados | `agent` |
-| Crear/editar/publicar/activar workflows, credenciales, variables, proyectos, carpetas y tags | `admin` |
+Cada ruta exige un **permiso**; los roles son conjuntos de permisos editables desde **Usuarios y roles** (ver más abajo). Cualquier rol puede leer marcas, bandeja, detalle, stats, workflow, catálogo, proyectos, workflows y ejecuciones de su alcance. Los permisos por defecto reproducen los niveles anteriores:
+
+| Permiso | Qué abre | Por defecto |
+| --- | --- | --- |
+| `inbox.reply` | `POST /api/interactions/:id/reply`, `DELETE /api/interactions/:id/draft`, `GET /api/deliveries` | Agente, Supervisor |
+| `inbox.triage` | Notas, `PATCH .../status`, `POST /api/sac/protocol/evaluate` | Agente, Supervisor |
+| `inbox.assign` | `PUT .../assignment` sobre sí mismo | Agente, Supervisor |
+| `inbox.assign_others` | Asignar a otra persona y soltar casos ajenos | Supervisor |
+| `sync.run` | `POST /api/sync` | Agente, Supervisor |
+| `export.xlsx` | `GET /api/export/xlsx` | Supervisor |
+| `metrics.read` | `GET /api/metrics`, `GET /api/jobs` | Supervisor |
+| `deliveries.reconcile` | `POST /api/deliveries/:id/reconcile` | Supervisor |
+| `workflow.edit` | `PUT /api/workflow` sin activar auto-respuesta | Supervisor |
+| `workflow.publish` | `POST /api/workflow/publish` y `/rollback` | Admin |
+| `automations.run` | Ejecutar/reintentar workflows y ejecuciones, webhooks | Agente, Supervisor |
+| `automations.edit` | Crear/editar/publicar/importar/archivar workflows generales, proyectos, carpetas y tags | Admin |
+| `brands.manage` | Marcas, referencias Metricool por cuenta, catálogo/importación Metricool, libros y recursos | Admin |
+
+Solo Admin, sin delegación posible: usuarios y roles, credenciales y variables (incluida su lectura), activar la auto-respuesta, `GET /api/security/audit` y `POST /api/jobs/:id/retry`. Sin el permiso la API responde `403 FORBIDDEN` con el nombre del permiso. El actor de servicio del worker tiene fijos `sync.run` e `inbox.reply`.
 
 Además del rol, la API aplica scope por marca en listados, métricas, sincronización, detalle, respuestas, estados, exportación y administración de cuentas. Si el usuario solicita una marca fuera de `X-SAC-Brand-Ids`, responde `403 FORBIDDEN`.
 
@@ -507,6 +515,18 @@ Techlab debe exponer esta ruta solo detrás del gateway/red de observabilidad y 
 - Procesos internos: Con inicio de sesión activo, `SAC_FLOW_API_KEY` deja de ser una credencial de navegador y pasa a ser solo interna: con `X-API-Key` o `Authorization: Bearer` abre únicamente `POST /api/sync` (worker) y `POST /api/interactions/:id/reply` (despachador de respuestas automáticas), con un actor de servicio `service:worker`, rol `agent` y todas las marcas. Una clave incorrecta en esas rutas responde `401 UNAUTHORIZED`; en cualquier otra ruta o método la clave no tiene efecto y se exige la cookie de una persona (`401 SESSION_REQUIRED`). Cada uso queda registrado como evento `service_actor`, sin la clave.
 - `DELETE /api/auth/session`: responde `204` y expira la cookie. La UI lo usa en **Cerrar sesión**.
 - Toda ruta protegida sin cookie válida responde `401 SESSION_REQUIRED`. La allowlist se relee en cada solicitud: quitar a alguien corta su sesión.
+- Precedencia del rol, de mayor a menor: archivo `SAC_FLOW_AUTH_ALLOWED_USERS_FILE`; `SAC_FLOW_AUTH_ADMIN_EMAILS` (siempre admin); rol asignado desde **Usuarios y roles** (incluido `none`, sin acceso, que responde `403 ACCESS_REVOKED` y en el callback `?login_error=ACCESS_REVOKED`); `SAC_FLOW_AUTH_SUPERVISOR_EMAILS`; `SAC_FLOW_AUTH_ALLOWED_EMAILS`; dominios permitidos. Un rol asignado también deja entrar a un correo fuera de los dominios. Los roles asignados y el catálogo de roles se cachean hasta 15 segundos por proceso y la caché se descarta al cambiar una asignación o un rol, así que el cambio rige en la siguiente solicitud sin volver a iniciar sesión.
+
+### Usuarios y roles (`admin`)
+
+- `GET /api/admin/users`: `{ data: { users: UserAccessView[], roles: RoleView[], permissions: PermissionDefinition[], adminOnly: string[], policy: { authEnabled, allowedDomains, defaultRole } } }`. `RoleView` = `{ id, name, baseRole, permissions, builtIn, editable, customized, userCount, defaultPermissions?, updatedBy?, updatedAt? }`; `admin` aparece siempre con todos los permisos y `editable: false`. Lista a quienes están en el archivo o en las listas del entorno, tienen un rol asignado o ya iniciaron sesión. `UserAccessView` = `{ email, name, effectiveRole, assignedRole?, assignedBy?, assignedAt?, serverRole, serverSource, locked, lastSignInAt?, isSelf, rolePermissions, permissions, permissionsAdd, permissionsRemove, permissionsUpdatedBy?, permissionsUpdatedAt? }` (`permissions` = los del rol más los ajustes personales), con `effectiveRole`/`assignedRole` = id de un rol (`admin`, `viewer`, `agent`, `supervisor` o un rol propio `rol-…`) o `none` y `serverSource` en `allowlist_file | server_admin | server_supervisor | server_allowed | domain | null`.
+- `PUT /api/admin/users/role` con `{ "email", "role" }`: asigna el rol; `role: null` quita la asignación y vuelve a la regla del servidor. El correo va en el cuerpo, nunca en la URL, para que no quede en registros de acceso. Responde el listado completo más `user`. `409 ACCESS_LOCKED` si el correo es el propio, está en `SAC_FLOW_AUTH_ADMIN_EMAILS` o en el archivo; `400 ROLE_NOT_FOUND` si el rol no existe; `400 VALIDATION_ERROR` con correo inválido.
+- `PUT /api/admin/users/permissions` con `{ "email", "permissions" }`: ajusta lo que puede hacer una persona en específico. La API guarda la diferencia con su rol como permisos agregados y quitados, así un cambio posterior del rol o de sus permisos se sigue aplicando con esos ajustes encima; `permissions: null` los quita. `409 ACCESS_LOCKED` (propio, admin del entorno o archivo), `409 ADMIN_HAS_ALL` si su rol es Admin, `409 ACCESS_REVOKED` si no tiene acceso, `404 USER_NOT_FOUND` si no está en la lista. Los permisos exclusivos de Admin nunca se pueden agregar.
+- `POST /api/admin/roles` con `{ name, baseRole: viewer|agent|supervisor, permissions }`: crea un rol propio (id `rol-<nombre>`); los permisos desconocidos o de administración se descartan. `409 ROLE_NAME_TAKEN` si el nombre ya existe. Responde el listado más `roleId`.
+- `PUT /api/admin/roles/:roleId` con `{ permissions, name? }`: cambia los permisos de un rol de base o propio (el nombre solo en los propios). `409 ROLE_LOCKED` para `admin`.
+- `DELETE /api/admin/roles/:roleId`: borra un rol propio (`409 ROLE_IN_USE` si alguien lo tiene asignado) o restablece un rol de base a sus permisos por defecto.
+- Un rol propio lleva un `baseRole` que da el nivel nominal (`role` en `/api/me`); los permisos efectivos salen siempre del rol. `GET /api/me` agrega `roleId`, `roleName` y `permissions` (ausente para Admin, que los tiene todos).
+- Cada inicio de sesión exitoso (Google o `dev`) registra nombre y fecha en `user_access` (PostgreSQL, migración `0018_access_control.sql`, que también crea `access_roles` y guarda los ajustes personales en `user_access.permissions_add`/`permissions_remove`) o en `userAccess` del JSON local; un fallo al registrarlo no impide entrar. Los registros de la API anotan el cambio de rol sin el correo.
 
 ### `GET /api/me`
 
@@ -926,7 +946,7 @@ Lee y normaliza DMs/comentarios, deduplica por `(accountId, type, externalId)`, 
 
 - `accountIds`: opcional, máximo 20; default todas las activas. El worker programado no envía lista y cubre todo el portafolio activo.
 
-En live, cuando el actor tiene alcance a todas las marcas, antes de leer la bandeja la API consulta el catálogo de Metricool (`SAC_FLOW_METRICOOL_AUTO_LINK`, activo por defecto): vincula las marcas nuevas con canales legibles, salvo las de `SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS` o ya vinculadas aunque estén desactivadas, y desactiva las marcas de ejemplo del seed sin referencia. Lo registra en el `auditTrail` del run como "Catálogo Metricool" y "Marcas de ejemplo". Si se envió `accountIds`, se quitan las cuentas retiradas y se agregan las recién vinculadas. Un fallo del catálogo no detiene la sincronización.
+En live, cuando el actor tiene alcance a todas las marcas, antes de leer la bandeja la API consulta el catálogo de Metricool (`SAC_FLOW_METRICOOL_AUTO_LINK`, activo por defecto): vincula las marcas nuevas con canales legibles, salvo las de `SAC_FLOW_METRICOOL_EXCLUDED_BLOG_IDS` o ya vinculadas aunque estén desactivadas, y desactiva las marcas de ejemplo del seed sin referencia (esto último también se hace al arrancar la API en live, sin depender del catálogo). Lo registra en el `auditTrail` del run como "Catálogo Metricool" y "Marcas de ejemplo". Si se envió `accountIds`, se quitan las cuentas de ejemplo retiradas (en este ciclo o antes) y se agregan las recién vinculadas. Un fallo del catálogo no detiene la sincronización.
 - `limit`: opcional, entero 1–5000. Si se omite, SAC Flow conserva todas las interacciones que entregue la API; cuando se envía funciona como cortafuegos explícito por superficie.
 - `since`: fecha ISO opcional.
 

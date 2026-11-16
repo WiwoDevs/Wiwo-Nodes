@@ -166,8 +166,18 @@ describe("Vinculación automática del catálogo de Metricool", () => {
     const response = await sync(app);
     expect(response.statusCode).toBe(200);
     expect(JSON.stringify(response.json().data.run)).toContain("No se pudo leer el catálogo");
-    // Sin catálogo no se retiran las marcas existentes.
-    expect((await brands(app)).filter((brand) => brand.active).length).toBeGreaterThan(0);
+    // Las marcas de ejemplo se retiran al arrancar en live, aunque el catálogo no responda.
+    expect((await brands(app)).filter((brand) => brand.active)).toHaveLength(0);
+  });
+
+  it("al arrancar en live retira las marcas de ejemplo sin referencia y respeta las vinculadas", async () => {
+    const { app } = await makeApp({
+      METRICOOL_ACCOUNTS_JSON: JSON.stringify({ "account-03": { userId: "u-1", blogId: "blog-3" } }),
+    }, fakeMetricool(async () => { throw new Error("sin red"); }));
+    const all = await brands(app);
+    expect(all.filter((brand) => brand.active).map((brand) => brand.id)).toEqual(["brand-03"]);
+    const listed = await app.inject({ method: "GET", url: "/api/brands", headers: { "x-api-key": API_KEY } });
+    expect(listed.json().data.filter((brand: { active: boolean }) => brand.active).map((brand: { id: string }) => brand.id)).toEqual(["brand-03"]);
   });
 
   it("quita del pedido explícito las marcas de ejemplo retiradas y agrega las nuevas", async () => {
