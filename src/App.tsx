@@ -386,19 +386,31 @@ function WorkflowLoading() {
   );
 }
 
+/** Igual que greetingName del servidor: solo saluda con algo que parezca un nombre real. */
+function draftGreetingName(interaction: Interaction): string | undefined {
+  const name = interaction.customerName.trim();
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return undefined;
+  const handle = interaction.customerHandle.trim().replace(/^@/, "").toLowerCase();
+  if (handle && name.toLowerCase() === handle) return undefined;
+  const first = words[0]!;
+  return /^\p{L}[\p{L}'’-]*$/u.test(first) ? first : undefined;
+}
+
 function suggestedDraft(interaction: Interaction): string {
   if (interaction.responseText?.trim()) return interaction.responseText;
-  const firstName = interaction.customerName.split(/\s+/)[0] || "Hola";
+  const name = draftGreetingName(interaction);
+  const opening = (rest: string) => (name ? `${name}, ${rest}` : `${rest.charAt(0).toUpperCase()}${rest.slice(1)}`);
   if (interaction.sentiment === "negative" || interaction.priority !== "normal") {
-    return `${firstName}, gracias por escribirnos. Dejamos tu caso registrado para que el equipo SAC lo revise y te responda con el detalle correcto.`;
+    return opening("gracias por escribirnos. Dejamos tu caso registrado para que el equipo SAC lo revise y te responda con el detalle correcto.");
   }
   if (interaction.kind === "comment") {
-    return `${firstName}, gracias por comentar. Te dejamos la información revisada por nuestro equipo para responderte correctamente.`;
+    return opening("gracias por comentar. Te dejamos la información revisada por nuestro equipo para responderte correctamente.");
   }
   if (interaction.kind === "review") {
-    return `${firstName}, gracias por compartir tu experiencia con ${interaction.brandName}. El equipo revisó tu comentario y preparó esta respuesta para aprobación.`;
+    return opening(`gracias por compartir tu experiencia con ${interaction.brandName}. El equipo revisó tu comentario y preparó esta respuesta para aprobación.`);
   }
-  return `${firstName}, gracias por escribirnos. Revisamos tu consulta y te respondemos por este mismo canal.`;
+  return opening("gracias por escribirnos. Revisamos tu consulta y te respondemos por este mismo canal.");
 }
 
 export function App({ onSignOut, sessionActor }: {

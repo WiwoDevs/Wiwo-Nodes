@@ -8,6 +8,7 @@ import { executeAutomation } from "./automation-service.js";
 import { dispatchNextQueuedAutoReply } from "./auto-reply-dispatcher.js";
 import type { ActorContext, WorkflowJob } from "./types.js";
 import { loadLocalEnvironment } from "./load-env.js";
+import { classifySyncResponse, SYNC_REQUEST_TIMEOUT_MS } from "./worker-sync.js";
 
 loadLocalEnvironment();
 const config = loadConfig();
@@ -154,11 +155,15 @@ async function executeJob(job: WorkflowJob): Promise<void> {
       body: JSON.stringify(job.scheduleKey?.startsWith("sac:")
         ? { limit: job.limit }
         : { accountIds: job.accountIds, limit: job.limit }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(SYNC_REQUEST_TIMEOUT_MS),
     });
-    const payload = await response.json().catch(() => undefined) as { data?: { run?: { id?: string } }; error?: { message?: string } } | undefined;
-    if (!response.ok) throw new Error(payload?.error?.message || `API de sincronización respondió ${response.status}.`);
-    await repository.completeJob(job.id, workerId, payload?.data?.run?.id);
+    const payload = await response.json().catch(() => undefined) as Parameters<typeof classifySyncResponse>[2];
+    const outcome = classifySyncResponse(job, response.status, payload);
+    if (outcome.kind === "failed") throw new Error(outcome.message);
+    if (outcome.kind === "skipped") {
+      process.stdout.write(`${JSON.stringify({ level: "info", event: "sync_job_skipped", reason: outcome.reason })}\n`);
+    }
+    await repository.completeJob(job.id, workerId, outcome.kind === "completed" ? outcome.runId : undefined);
   } catch (error) {
     const backoffMs = Math.min(30 * 60_000, 30_000 * (2 ** Math.max(0, job.attempts - 1)));
     await repository.failJob(job.id, workerId, safeError(error), backoffMs);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   detectConversationResponses,
   evaluateSacInteraction,
+  greetingName,
   processSacInteractions,
   reconcileConversationResponses,
 } from "../../server/sac-automation.js";
@@ -303,5 +304,54 @@ describe("SAC automation protocol", () => {
 
     expect(firstInbound.status).toBe("replied");
     expect(latestInbound.status).toBe("new");
+  });
+});
+
+describe("SAC draft wording", () => {
+  it("greets only with something that looks like a real first name", () => {
+    expect(greetingName({ customerName: "Carmen Gloria Jara", customerHandle: "29845608475043638" })).toBe("Carmen");
+    expect(greetingName({ customerName: "José Ñuñez", customerHandle: "" })).toBe("José");
+    // Instagram entrega el usuario como nombre.
+    expect(greetingName({ customerName: "chavezxlau", customerHandle: "chavezxlau" })).toBeUndefined();
+    expect(greetingName({ customerName: "jurobinsonoro2013", customerHandle: "1604181797859370" })).toBeUndefined();
+    expect(greetingName({ customerName: "ana.perez 2", customerHandle: "@ana" })).toBeUndefined();
+    expect(greetingName({ customerName: "Carmen", customerHandle: "123" })).toBeUndefined();
+  });
+
+  it("never names the catch-all category in the acknowledgement", () => {
+    const store = readyStore();
+    const item = interaction("Cuál sería su recorrido ????");
+    item.customerName = "magicocuentacuentos";
+    item.customerHandle = "magicocuentacuentos";
+    store.interactions.push(item);
+
+    const result = evaluateSacInteraction(item, store, { evaluatedAt: now });
+
+    expect(result.intent).toBe("otro");
+    expect(result.proposal?.text).toBe(
+      "Gracias por escribirnos. Recibimos tu consulta y la estamos verificando para responderte con información correcta.",
+    );
+  });
+
+  it("keeps a readable topic and the first name when both are clear", () => {
+    const store = readyStore();
+    const item = interaction("¿Cuánto cuesta el envío a mi comuna?");
+    store.interactions.push(item);
+
+    const result = evaluateSacInteraction(item, store, { evaluatedAt: now });
+
+    expect(result.proposal?.text).toMatch(/^Ana, gracias por escribirnos\. Recibimos tu consulta sobre (precios|despachos) y/);
+  });
+
+  it("fills approved answers without a fake name when the customer has none", () => {
+    const store = readyStore();
+    const item = interaction("¿Cuál es el horario de atención?");
+    item.customerName = "ana_cliente";
+    item.customerHandle = "ana_cliente";
+    store.interactions.push(item);
+
+    const result = evaluateSacInteraction(item, store, { evaluatedAt: now });
+
+    expect(result.proposal?.text).toMatch(/^¡Hola! El horario de atención demo/);
   });
 });

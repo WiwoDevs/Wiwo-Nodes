@@ -261,35 +261,72 @@ function isWithinBusinessHours(brand: Brand, at: Date): boolean | undefined {
   return local.minutes >= start && local.minutes < end;
 }
 
-function interpolate(answer: string, brand: Brand, interaction: Interaction): string {
-  const firstName = interaction.customerName.split(/\s+/)[0]?.trim() || "Hola";
-  return answer
-    .replaceAll("{brand}", brand.name)
-    .replaceAll("{firstName}", firstName);
+/**
+ * Nombre de pila para saludar, solo cuando parece un nombre real ("Carmen Gloria" → "Carmen").
+ * Instagram suele entregar el usuario como nombre ("jurobinsonoro2013"); saludar con eso
+ * suena automático, así que en ese caso el borrador no lleva nombre.
+ */
+export function greetingName(interaction: Pick<Interaction, "customerName" | "customerHandle">): string | undefined {
+  const name = interaction.customerName.trim();
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return undefined;
+  const handle = interaction.customerHandle.trim().replace(/^@/, "").toLowerCase();
+  if (handle && name.toLowerCase() === handle) return undefined;
+  const first = words[0]!;
+  if (!/^\p{L}[\p{L}'’-]*$/u.test(first)) return undefined;
+  return first;
 }
 
+function fillFirstName(text: string, name: string | undefined): string {
+  if (name) return text.replaceAll("{firstName}", name);
+  return text
+    .replace(/^\{firstName\}\s*,\s*/, "Hola, ")
+    .replace(/,?[ \t]*\{firstName\}/g, "");
+}
+
+function interpolate(answer: string, brand: Brand, interaction: Interaction): string {
+  return fillFirstName(answer.replaceAll("{brand}", brand.name), greetingName(interaction));
+}
+
+/** Tema legible para el acuse genérico; sin tema claro ("otro", categorías propias) no se nombra. */
+const ACK_TOPICS: Record<string, string> = {
+  precio: "precios",
+  precios: "precios",
+  stock: "stock",
+  despacho: "despachos",
+  despachos: "despachos",
+  seguimiento_pedido: "el seguimiento de tu pedido",
+  seguimiento: "el seguimiento de tu pedido",
+  horarios: "horarios",
+  ubicacion: "nuestra ubicación",
+  contacto: "cómo contactarnos",
+};
+
 function genericProposal(intent: string, brand: Brand, interaction: Interaction): { text: string; templateId: string } {
-  const firstName = interaction.customerName.split(/\s+/)[0]?.trim() || "Hola";
+  const name = greetingName(interaction);
+  // "Carmen, gracias…" con nombre; "Gracias…" sin él.
+  const opening = (rest: string) => (name ? `${name}, ${rest}` : `${rest.charAt(0).toUpperCase()}${rest.slice(1)}`);
   if (intent === "saludo") {
     return {
-      text: `¡Hola, ${firstName}! Gracias por escribir a ${brand.name}. ¿En qué podemos ayudarte?`,
+      text: `¡Hola${name ? `, ${name}` : ""}! Gracias por escribir a ${brand.name}. ¿En qué podemos ayudarte?`,
       templateId: "builtin-greeting-v1",
     };
   }
   if (intent === "agradecimiento") {
     return {
-      text: `¡Gracias a ti, ${firstName}! Nos alegra poder ayudarte. Si necesitas algo más, escríbenos por este mismo canal.`,
+      text: `¡Gracias a ti${name ? `, ${name}` : ""}! Nos alegra poder ayudarte. Si necesitas algo más, escríbenos por este mismo canal.`,
       templateId: "builtin-thanks-v1",
     };
   }
   if (HUMAN_INTENTS.has(intent)) {
     return {
-      text: `${firstName}, gracias por contarnos lo ocurrido. Dejamos tu caso priorizado para que una persona del equipo SAC lo revise con el contexto completo.`,
+      text: opening("gracias por contarnos lo ocurrido. Dejamos tu caso priorizado para que una persona del equipo SAC lo revise con el contexto completo."),
       templateId: "builtin-sensitive-ack-v1",
     };
   }
+  const topic = ACK_TOPICS[intent];
   return {
-    text: `${firstName}, gracias por escribirnos. Recibimos tu consulta sobre ${intent.replaceAll("_", " ")} y la estamos verificando para responderte con información correcta.`,
+    text: opening(`gracias por escribirnos. Recibimos tu consulta${topic ? ` sobre ${topic}` : ""} y la estamos verificando para responderte con información correcta.`),
     templateId: "builtin-safe-ack-v1",
   };
 }

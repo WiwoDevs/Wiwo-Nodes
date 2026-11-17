@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise,
   ArrowLeft,
@@ -571,6 +571,38 @@ export function ManualManagementView({
     () => visibleDetail ? timelineFor(visibleDetail) : [],
     [visibleDetail],
   );
+  const timelineListRef = useRef<HTMLOListElement>(null);
+  // Como cualquier chat: al abrir, el mensaje que se responde queda al pie de la vista
+  // (lo anterior arriba, al alcance del scroll), en vez de empezar por el más antiguo.
+  useLayoutEffect(() => {
+    const list = timelineListRef.current;
+    if (!list) return;
+    const align = () => {
+      const target = list.querySelector<HTMLElement>(".is-target");
+      if (!target) {
+        list.scrollTop = list.scrollHeight;
+        return;
+      }
+      list.scrollTop += target.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom + 12;
+    };
+    align();
+    if (typeof ResizeObserver === "undefined") return;
+    // El compositor y los adjuntos terminan de medirse después y cambian el alto visible:
+    // se reajusta un momento, salvo que el operador ya haya movido el historial.
+    let operatorMoved = false;
+    const stopFollowing = () => { operatorMoved = true; };
+    const observer = new ResizeObserver(() => { if (!operatorMoved) align(); });
+    observer.observe(list);
+    for (const message of Array.from(list.children)) observer.observe(message);
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const event of events) list.addEventListener(event, stopFollowing, { passive: true });
+    const timer = window.setTimeout(() => observer.disconnect(), 2_000);
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+      for (const event of events) list.removeEventListener(event, stopFollowing);
+    };
+  }, [visibleDetail?.id, timeline.length]);
   const aiRecommendation = visibleDetail?.automation?.proposal?.text?.trim() || "";
   const caseClosed = visibleDetail ? detailIsClosed(visibleDetail) : true;
   const latestDelivery = visibleDetail?.deliveries[0];
@@ -1048,7 +1080,7 @@ export function ManualManagementView({
                       </div>
                       <small title={`Caso ${visibleDetail.id}`}>{timeline.length} mensajes</small>
                     </header>
-                    <ol>
+                    <ol ref={timelineListRef}>
                       {timeline.map((message) => (
                         <li
                           className={`manual-inbox-message manual-inbox-message--${message.direction}${message.id === visibleDetail.id ? " is-target" : ""}`}

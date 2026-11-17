@@ -795,7 +795,8 @@ export function AutomationPlatform({
         </div>
         <div className="sac-home-status" aria-label="Estado del espacio">
           <span className={meta?.demoMode ? "is-neutral" : "is-ready"}><i />{meta?.demoMode ? "Entorno aislado" : "API real"}</span>
-          <span className={sacWorkflow.enabled ? "is-ready" : "is-warning"}><i />Flujo SAC {sacWorkflow.enabled ? "activo" : "pausado"}</span>
+          {/* El flujo llega con la primera carga; antes no hay estado que mostrar. */}
+          {isFirstLoad ? null : <span className={sacWorkflow.enabled ? "is-ready" : "is-warning"}><i />Flujo SAC {sacWorkflow.enabled ? "activo" : "pausado"}</span>}
           <span className={meta?.metricoolMutationsDisabled ? "is-neutral" : "is-warning"}><ShieldCheck weight="fill" />{meta?.metricoolMutationsDisabled ? "Metricool protegido" : "Envíos habilitados"}</span>
           {isOperationalLoading ? <span role="status" aria-live="polite"><ArrowsClockwise className="spin" />Actualizando operación</span> : null}
         </div>
@@ -847,8 +848,8 @@ export function AutomationPlatform({
           </section> : null}
 
           <section className="sac-home-panel sac-flow-panel">
-            <header><div><span className="panel-kicker">Flujo SAC</span><h3>{sacWorkflow.name}</h3></div><span className={`sac-flow-state ${sacWorkflow.enabled ? "is-active" : ""}`}><i />{sacWorkflow.enabled ? "Activo" : "Pausado"}</span></header>
-            <dl><div><dt>Frecuencia</dt><dd>Cada {sacWorkflow.pollIntervalMinutes} min</dd></div><div><dt>Revisión sensible</dt><dd>{sacWorkflow.requireHumanFor.length} categorías</dd></div><div><dt>Respuesta automática</dt><dd>{meta?.metricoolMutationsDisabled ? "Bloqueada en desarrollo" : sacWorkflow.autoReplyEnabled ? "Habilitada" : "Desactivada"}</dd></div></dl>
+            <header><div><span className="panel-kicker">Flujo SAC</span><h3>{sacWorkflow.name}</h3></div>{isFirstLoad ? <span className="sac-flow-state"><i />Cargando…</span> : <span className={`sac-flow-state ${sacWorkflow.enabled ? "is-active" : ""}`}><i />{sacWorkflow.enabled ? "Activo" : "Pausado"}</span>}</header>
+            <dl><div><dt>Frecuencia</dt><dd>{isFirstLoad ? "—" : `Cada ${sacWorkflow.pollIntervalMinutes} min`}</dd></div><div><dt>Revisión sensible</dt><dd>{isFirstLoad ? "—" : `${sacWorkflow.requireHumanFor.length} categorías`}</dd></div><div><dt>Respuesta automática</dt><dd>{isFirstLoad ? "—" : meta?.metricoolMutationsDisabled ? "Bloqueada en desarrollo" : sacWorkflow.autoReplyEnabled ? "Habilitada" : "Desactivada"}</dd></div></dl>
             {canOpen("workflow") ? <button className="button secondary" onClick={() => onNavigate("workflow")}><FlowArrow /> Abrir flujo SAC</button> : null}
           </section>
         </div>
@@ -874,9 +875,9 @@ export function AutomationPlatform({
         {homeRole === "admin" ? <section className="sac-home-panel sac-flow-panel sac-system-panel" aria-labelledby="sac-system-title">
           <header><div><span className="panel-kicker">Sistema</span><h3 id="sac-system-title">Estado técnico</h3></div></header>
           <dl>
-            <div><dt>Última sincronización Metricool</dt><dd className={inboxSync?.lastRunStatus === "failed" ? "is-warning" : undefined}>{syncLabel}</dd></div>
-            <div><dt>Sincronización automática</dt><dd>{inboxSync ? (inboxSync.enabled ? `Cada ${inboxSync.intervalMinutes} min` : "Pausada") : "—"}</dd></div>
-            <div><dt>Envío automático</dt><dd>{automaticRepliesEnabled ? "Activado" : "Desactivado"}</dd></div>
+            <div><dt>Última sincronización Metricool</dt><dd className={!isFirstLoad && inboxSync?.lastRunStatus === "failed" ? "is-warning" : undefined}>{isFirstLoad ? "—" : syncLabel}</dd></div>
+            <div><dt>Sincronización automática</dt><dd>{isFirstLoad || !inboxSync ? "—" : inboxSync.enabled ? `Cada ${inboxSync.intervalMinutes} min` : "Pausada"}</dd></div>
+            <div><dt>Envío automático</dt><dd>{isFirstLoad ? "—" : automaticRepliesEnabled ? "Activado" : "Desactivado"}</dd></div>
             <div><dt>Trabajos fallidos</dt><dd className={failedJobs ? "is-warning" : undefined}>{hasLoadedOperationalJobs ? `${formatCount(failedJobs)}${retryingJobs ? ` · ${formatCount(retryingJobs)} reintentando` : ""}` : "—"}</dd></div>
           </dl>
           {canOpen("automation-executions") ? <button className="button secondary" onClick={() => onNavigate("automation-executions")}><ClockCounterClockwise /> Ver ejecuciones</button> : null}

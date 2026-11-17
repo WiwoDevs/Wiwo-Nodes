@@ -3923,6 +3923,12 @@ textarea:focus-visible {
   .topbar-wordmark { display: none; }
 }
 
+/* Con el wordmark centrado visible, título y subtítulo se cortan antes de llegar a él
+   (mitad del topbar − media marca de 150 px − aire) en vez de pasarle por debajo. */
+@media (min-width: 1401px) {
+  .page-heading { max-width: calc(50% - 100px); }
+}
+
 @media (max-width: 780px) {
   .app-sidebar { background: var(--accent-soft); }
   .primary-nav button.is-active { color: var(--accent-text); background: var(--accent-soft); }
@@ -6605,10 +6611,14 @@ button.users-roles-person:hover strong { color: var(--accent-text); }
 
   /* Título y selector de cuenta en una sola fila baja. */
   .manual-inbox-header { gap: 14px; padding: 6px 14px; }
+  /* El título no se encoge; el selector (cuyas opciones son largas) es el que cede ancho. */
+  .manual-inbox-header__copy { flex: none; }
   .manual-inbox-header__copy p { display: none; }
   .manual-inbox-header__copy h1 { margin: 0; font-size: 17px; white-space: nowrap; }
   .manual-inbox-account-picker {
-    min-width: min(100%, 560px);
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 760px;
     grid-template-columns: minmax(240px, 1fr) auto auto;
     align-items: center;
     gap: 8px;
