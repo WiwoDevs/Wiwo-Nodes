@@ -60,6 +60,45 @@ Los umbrales son una base de staging. Techlab debe ajustarlos con el volumen rea
 
 El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo SAC ni `/reply`. Si aparecen envíos al abrir, filtrar o seleccionar, detener la prueba y revisar requests/auditoría antes de continuar.
 
+## Respaldos de la base
+
+En producción, el servicio `backup` de `docker-compose.production.yml` respalda la base PostgreSQL completa con `pg_dump` (script `scripts/postgres-backup.sh`). La base guarda todo el historial: mensajes, borradores, respuestas, asignaciones, casos marcados a mano, marcas, usuarios y roles.
+
+- **Cuándo:** al arrancar el servicio, si ese día todavía no hay respaldo, y después todos los días a las `SAC_FLOW_BACKUP_HOUR_UTC` (por defecto 06:00 UTC, 03:00 en Chile). Si falla, reintenta dos veces cada diez minutos.
+- **Dónde:** en el servidor, en `SAC_FLOW_BACKUP_DIR` (por defecto `/var/backups/sac-flow`), fuera del volumen de Docker. Así, un `docker compose down -v` o un volumen dañado no se llevan los respaldos.
+- **Cuántos:** se guardan `SAC_FLOW_BACKUP_RETENTION_DAYS` días (por defecto 14). Los tres más recientes no se borran nunca, y un respaldo que falla no borra los anteriores.
+- **Formato:** `sac-flow-AAAA-MM-DDTHHMMSSZ.dump`, formato custom de PostgreSQL y comprimido. Antes de guardarlo se comprueba que se pueda leer.
+- **Salud:** `docker compose ... ps` muestra `backup` como `unhealthy` si no hay un respaldo de las últimas 26 horas.
+
+Desde la carpeta del despliegue, primero se define un alias para no repetir el prefijo:
+
+```bash
+alias nodes='docker compose --env-file .env.production -f docker-compose.production.yml'
+nodes ps backup                                          # healthy = hay respaldo reciente
+nodes logs --tail 20 backup                              # último respaldo y errores
+nodes exec backup sh /usr/local/bin/sac-flow-backup list # respaldos guardados
+nodes exec backup sh /usr/local/bin/sac-flow-backup once # respaldo ahora (antes de un cambio riesgoso)
+```
+
+### Restaurar
+
+Restaurar reemplaza **toda** la base por el contenido del respaldo. Lo ocurrido después de ese respaldo se pierde de Nodes, aunque la próxima sincronización vuelve a traer de Metricool los mensajes que este todavía entregue.
+
+1. Detener la API y el worker: `nodes stop api worker`.
+2. Restaurar:
+   ```bash
+   nodes run --rm -e SAC_FLOW_CONFIRM_RESTORE=sac_flow backup restore sac-flow-AAAA-MM-DDTHHMMSSZ.dump
+   ```
+   El script se niega si falta la confirmación o si la base tiene conexiones abiertas. Antes de restaurar guarda un respaldo del estado actual. La carga ocurre en una sola transacción: si falla, la base queda como estaba.
+3. Levantar de nuevo: `nodes up -d api worker`. `migrate` corre antes de la API y vuelve a aplicar las migraciones posteriores al respaldo.
+4. Verificar `/api/ready` y que Reportes muestre los meses esperados.
+
+Los datos cifrados de la base (referencias de Metricool y credenciales) solo se leen con las mismas `SAC_FLOW_POSTGRES_ENCRYPTION_KEY` y `SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY`. Esas claves deben guardarse aparte, en el gestor de secretos, nunca junto a los respaldos.
+
+### Copia fuera del servidor
+
+Estos respaldos protegen contra borrados, migraciones fallidas y volúmenes dañados, pero viven en el mismo servidor. Para sobrevivir a la pérdida del servidor, copiar `/var/backups/sac-flow` a otro lugar (otro servidor o un almacenamiento de objetos), cifrado y con acceso restringido. Contienen mensajes y datos de clientes: nunca se suben a repositorios, tickets, chats ni carpetas compartidas abiertas.
+
 ## Checkpoint y rollback local
 
 El punto previo a la bandeja account-first es `checkpoint/before-account-manual-inbox-20260817`, commit `e9ee6301049c59e53fdf96a20dd75bfbf49197d9`. Usarlo revierte código local, no el estado externo: una respuesta ya confirmada por Metricool/Meta no se retracta al volver el repositorio. Antes de un rollback, detener nuevas respuestas, registrar entregas `sent`/`uncertain` y conciliar las ambiguas.

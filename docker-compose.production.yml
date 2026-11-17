@@ -131,6 +131,40 @@ services:
       start_period: 10s
       retries: 5
 
+  # Respaldo diario de la base (pg_dump) fuera del volumen de Docker, con retención.
+  # Ver docs/OPERATIONS_RUNBOOK.md, "Respaldos de la base".
+  backup:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    entrypoint: ["sh", "/usr/local/bin/sac-flow-backup"]
+    command: ["loop"]
+    environment:
+      PGHOST: postgres
+      PGUSER: sac_flow
+      PGDATABASE: sac_flow
+      PGPASSWORD: "${SAC_FLOW_POSTGRES_PASSWORD:?Set SAC_FLOW_POSTGRES_PASSWORD}"
+      SAC_FLOW_BACKUP_RETENTION_DAYS: "${SAC_FLOW_BACKUP_RETENTION_DAYS:-14}"
+      SAC_FLOW_BACKUP_HOUR_UTC: "${SAC_FLOW_BACKUP_HOUR_UTC:-6}"
+    volumes:
+      - "${SAC_FLOW_BACKUP_DIR:-/var/backups/sac-flow}:/backups"
+      - ./scripts/postgres-backup.sh:/usr/local/bin/sac-flow-backup:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Sano mientras exista un respaldo de las últimas 26 horas.
+      test: ["CMD-SHELL", "find /backups -maxdepth 1 -name 'sac-flow-*.dump' -mmin -1560 | grep -q ."]
+      interval: 5m
+      timeout: 10s
+      start_period: 30m
+      retries: 1
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   sac-flow-postgres:
     name: sac-flow-postgres

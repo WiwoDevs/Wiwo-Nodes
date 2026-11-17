@@ -235,6 +235,12 @@ docker compose --env-file .env.production -f docker-compose.production.yml up --
 Invoke-RestMethod http://localhost:8787/api/ready
 ```
 
+El mismo compose levanta el servicio `backup`, que respalda la base todos los días en
+`/var/backups/sac-flow` y guarda 14 días. Se puede cambiar con `SAC_FLOW_BACKUP_DIR`,
+`SAC_FLOW_BACKUP_RETENTION_DAYS` y `SAC_FLOW_BACKUP_HOUR_UTC`. En una instalación que ya estaba
+corriendo, se activa con `docker compose --env-file .env.production -f docker-compose.production.yml up -d backup`.
+Cómo revisar y restaurar los respaldos: [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md#respaldos-de-la-base).
+
 ## 5. Orden de activación
 
 Cada interruptor es una decisión separada. No los levante juntos.

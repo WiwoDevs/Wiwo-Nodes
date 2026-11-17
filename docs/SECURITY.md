@@ -147,6 +147,8 @@ Techlab debe acordar una política explícita antes del piloto real:
 
 No conservar indefinidamente “por si acaso”. Un borrado en la red o en Metricool no borra automáticamente la copia de SAC Flow.
 
+Los respaldos diarios de la base (servicio `backup`, ver [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md#respaldos-de-la-base)) contienen todo lo anterior. Quedan en el servidor con permisos solo de root y se borran a los `SAC_FLOW_BACKUP_RETENTION_DAYS` días (14 por defecto). Una copia fuera del servidor debe ir cifrada, con acceso restringido y con la misma retención. Las claves de cifrado de la base no se guardan junto a los respaldos.
+
 ## Respuesta a incidentes
 
 1. Desactivar auto-respuesta y, si corresponde, sincronización.

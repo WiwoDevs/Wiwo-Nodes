@@ -85,7 +85,8 @@ Abre http://localhost:5173. Vite reenvía `/api` a Fastify en el puerto 8787.
 
 ## Despliegue
 
-- **Producción** (`docker-compose.production.yml`): PostgreSQL, migraciones (`migrate`), API y worker. La API sirve la web compilada en el puerto 8787 y responde 404 real para `/api/*` desconocidas.
+- **Producción** (`docker-compose.production.yml`): PostgreSQL, migraciones (`migrate`), API, worker y respaldo diario de la base (`backup`). La API sirve la web compilada en el puerto 8787 y responde 404 real para `/api/*` desconocidas.
+- **Respaldos:** `pg_dump` diario en `/var/backups/sac-flow` (fuera del volumen de Docker), con 14 días de retención y restauración en una sola transacción. Ver [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md#respaldos-de-la-base).
 - **Deploy:** el workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) se ejecuta en cada push a `main` y despliega por SSH. Los cambios en los archivos de Docker Compose requieren aprobación manual en el servidor antes de aplicarse.
 - **Variables:** se documentan en [`.env.example`](.env.example). Las principales:
   - `SAC_FLOW_AUTH_MODE=google` con `GOOGLE_OAUTH_CLIENT_ID`/`SECRET`.

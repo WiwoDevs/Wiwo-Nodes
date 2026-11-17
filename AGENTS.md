@@ -20,7 +20,7 @@ Runtime and deployment must be self-contained. Codex skills, plugins and researc
 
 The default developer experience is one command (`npm run dev:all`): Vite on 5173 proxies `/api` to Fastify on 8787. The production/container experience is one Fastify process on 8787 with `SERVE_FRONTEND=true`, serving `dist/client` and preserving API 404s instead of returning the SPA shell for `/api/*`.
 
-Keep Metricool behind an adapter and local JSON behind a repository interface so Techlab can replace JSON with PostgreSQL and move polling to workers without changing the frontend contract. JSON writes must remain serialized and atomic. Use stable external IDs for deduplication and idempotency; never treat Excel as persistence.
+Production keeps the `backup` service in `docker-compose.production.yml` (`scripts/postgres-backup.sh`): a daily `pg_dump` outside the Docker volume with retention, a failed backup never deletes older ones, and restore runs in a single transaction only with explicit confirmation and the API stopped. Keep Metricool behind an adapter and local JSON behind a repository interface so Techlab can replace JSON with PostgreSQL and move polling to workers without changing the frontend contract. JSON writes must remain serialized and atomic. Use stable external IDs for deduplication and idempotency; never treat Excel as persistence.
 
 Demo mode must work with fictitious seeded data and without credentials. Live mode must be explicit. Never add tokens, real `userId`/`blogId` values, DMs, comments, email addresses, phone numbers or customer identifiers to tracked files, fixtures, screenshots, logs or XLSX samples.
 
