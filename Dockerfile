@@ -19,6 +19,7 @@ COPY .openai ./.openai
 COPY scripts ./scripts
 COPY db ./db
 COPY src ./src
+COPY public ./public
 COPY server ./server
 COPY worker ./worker
 
