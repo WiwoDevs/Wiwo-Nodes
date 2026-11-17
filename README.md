@@ -146,6 +146,7 @@ Antes de entregar un cambio: `npm run check`, `npm run build:all`, `npm test` y,
 | [POSTGRESQL_MIGRATION.md](docs/POSTGRESQL_MIGRATION.md) | Paso de JSON a PostgreSQL |
 | [SECURITY.md](docs/SECURITY.md) | Seguridad y privacidad |
 | [HANDOFF_TECHLAB.md](docs/HANDOFF_TECHLAB.md) | Traspaso a Techlab |
+| [INTEGRACION_METRIQ.md](docs/INTEGRACION_METRIQ.md) | API de solo lectura para MetriQ: marcas, filas SAC, totales, reporte y Excel del mes |
 | [N8N_PARITY_AUDIT.md](docs/N8N_PARITY_AUDIT.md) | Comparación del módulo de automatización con n8n (implementación original) |
 
 ## Estructura

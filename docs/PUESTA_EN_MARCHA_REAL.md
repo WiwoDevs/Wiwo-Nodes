@@ -149,7 +149,7 @@ El worker de sincronización y el despachador de respuestas automáticas no tien
 
 Por eso `SAC_FLOW_API_KEY` debe seguir definido en el servidor (el compose de producción ya lo exige) y nunca se entrega al navegador. Si falta con el inicio de sesión activo y la sincronización encendida, la API lo advierte al arrancar.
 
-Las rutas de solo lectura `/api/integrations/*` que consume METRIQ usan otra clave, `SAC_FLOW_SERVICE_API_KEY` (32+ caracteres), que el compose de producción ahora pasa al contenedor.
+Las rutas de solo lectura `/api/integrations/*` que consume METRIQ usan otra clave, `SAC_FLOW_SERVICE_API_KEY` (32+ caracteres; admite varias separadas por comas para rotarla sin cortes), que el compose de producción ahora pasa al contenedor. El contrato completo para MetriQ (marcas, filas SAC, totales por mes, reporte del mes y Excel) está en [INTEGRACION_METRIQ.md](INTEGRACION_METRIQ.md).
 
 ## 3. Alta de las marcas reales
 

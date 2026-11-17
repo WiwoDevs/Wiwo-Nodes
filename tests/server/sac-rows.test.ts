@@ -41,7 +41,7 @@ describe("buildSacRows", () => {
       canal: "@energiacolbun",
       usuario: "Ana Cliente (@ana)",
       reclamo: "No me llegó el pedido",
-      categoria: "reclamo",
+      categoria: "Reclamos",
       tonalidad: "Negativa",
       estado: "Pendiente",
       mes: "Agosto",
@@ -91,8 +91,8 @@ describe("buildSacRows", () => {
     ]);
     expect(rows.map((row) => [row.plataforma, row.tonalidad, row.estado])).toEqual(
       expect.arrayContaining([
-        ["Facebook", "Positiva", "Respondido"],
-        ["TikTok", "Neutra", "Escalado"],
+        ["Facebook", "Positiva", "Resuelto"],
+        ["TikTok", "Neutra", "Derivado"],
       ]),
     );
   });
@@ -113,5 +113,26 @@ describe("buildSacRows", () => {
   it("no duplica el nombre cuando el handle coincide", () => {
     const { rows } = buildSacRows(brand, [caso({ customerName: "ana", customerHandle: "@ana" })]);
     expect(rows[0]!.usuario).toBe("ana");
+  });
+
+  it("entrega solo casos SAC: el ruido social se cuenta aparte salvo que se pida", () => {
+    const interacciones = [
+      caso({}),
+      caso({ text: "😍😍" }),
+      caso({ text: "@amiga mira" }),
+      caso({ text: "😍", sacTriage: { categoria: "agradecimiento", esCasoSac: true, requiereDerivacion: false, confianza: 1, clasificadoEn: "", modelo: "manual" } }),
+    ];
+    const soloCasos = buildSacRows(brand, interacciones);
+    expect(soloCasos.rows).toHaveLength(2);
+    expect(soloCasos.droppedNoise).toBe(2);
+    const conRuido = buildSacRows(brand, interacciones, { incluirRuido: true });
+    expect(conRuido.rows).toHaveLength(4);
+    expect(conRuido.droppedNoise).toBe(0);
+  });
+
+  it("usa los estados que reconoce METRIQ", () => {
+    const estados = (["new", "pending", "drafted", "replied", "escalated", "resolved"] as const)
+      .map((status) => buildSacRows(brand, [caso({ status })]).rows[0]!.estado);
+    expect(estados).toEqual(["Pendiente", "Pendiente", "En proceso", "Resuelto", "Derivado", "Resuelto"]);
   });
 });

@@ -11,6 +11,7 @@
  * no la respuesta del equipo. Las respuestas viajan aparte, en la observación.
  */
 import type { Brand, Channel, Interaction, InteractionStatus, Sentiment } from "./types.js";
+import { esCasoSac, etiquetaMotivo } from "./sac-report.js";
 
 /** Fila SAC, con los mismos nombres de campo que usa METRIQ. */
 export interface SacRow {
@@ -33,6 +34,8 @@ export interface SacRowsResult {
   rows: SacRow[];
   /** Entrantes descartados por no tener fecha utilizable. METRIQ audita este número. */
   droppedNoDate: number;
+  /** Entrantes del período que no son caso SAC (ruido) y no se entregaron. */
+  droppedNoise: number;
 }
 
 const PLATAFORMA: Record<Channel, string> = {
@@ -51,12 +54,17 @@ const TONALIDAD: Record<Sentiment, string> = {
   negative: "Negativa",
 };
 
+/**
+ * Estados con los nombres que usan las planillas SAC y que el dashboard de METRIQ reconoce
+ * (resuelto, pendiente, en proceso, derivado). Un caso respondido por el equipo cuenta como
+ * resuelto; uno escalado a otra área, como derivado.
+ */
 const ESTADO: Record<InteractionStatus, string> = {
-  new: "Nuevo",
+  new: "Pendiente",
   pending: "Pendiente",
-  drafted: "Borrador",
-  replied: "Respondido",
-  escalated: "Escalado",
+  drafted: "En proceso",
+  replied: "Resuelto",
+  escalated: "Derivado",
   resolved: "Resuelto",
 };
 
@@ -110,6 +118,11 @@ export interface SacRowsOptions {
   from?: string;
   /** Límite superior inclusive, YYYY-MM-DD. */
   to?: string;
+  /**
+   * Incluir también el ruido social (reacciones, menciones, emojis sueltos). Por defecto
+   * no: una fila SAC es un caso, igual que en las planillas que llenaba el equipo.
+   */
+  incluirRuido?: boolean;
 }
 
 /**
@@ -124,6 +137,7 @@ export function buildSacRows(
 ): SacRowsResult {
   const rows: SacRow[] = [];
   let droppedNoDate = 0;
+  let droppedNoise = 0;
 
   for (const interaction of interactions) {
     if (interaction.brandId !== brand.id) continue;
@@ -136,6 +150,11 @@ export function buildSacRows(
     }
     if (options.from && fecha < options.from) continue;
     if (options.to && fecha > options.to) continue;
+    // Lo marcado a mano manda; si nadie lo marcó, las mismas reglas del reporte mensual.
+    if (!options.incluirRuido && !esCasoSac(interaction)) {
+      droppedNoise += 1;
+      continue;
+    }
 
     rows.push({
       brandKey: brand.id,
@@ -145,7 +164,7 @@ export function buildSacRows(
       canal: brand.account.handle || brand.account.name,
       usuario: usuarioDe(interaction),
       reclamo: interaction.text ?? "",
-      categoria: interaction.category ?? "",
+      categoria: etiquetaMotivo(interaction.sacTriage?.categoria ?? interaction.category ?? ""),
       tonalidad: TONALIDAD[interaction.sentiment] ?? "",
       estado: ESTADO[interaction.status] ?? interaction.status,
       observacion: observacionDe(interaction),
@@ -154,5 +173,5 @@ export function buildSacRows(
   }
 
   rows.sort((left, right) => (right.fechaComentario ?? "").localeCompare(left.fechaComentario ?? ""));
-  return { rows, droppedNoDate };
+  return { rows, droppedNoDate, droppedNoise };
 }

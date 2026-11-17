@@ -31,6 +31,26 @@ export const inboxChangesQuerySchema = z.object({
   since: z.string().trim().min(3).max(64),
 }).strict();
 
+const MONTH_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Integración METRIQ: reporte o Excel de un mes, de todas las marcas o de una. */
+export const integrationMonthQuerySchema = z.object({
+  month: z.string().trim().regex(MONTH_KEY, "month debe ser AAAA-MM."),
+  brandId: z.string().trim().min(1).max(120).optional(),
+  volumen: z.enum(["gestionado", "bruto"]).default("gestionado"),
+}).strict();
+
+/** Integración METRIQ: totales por mes de un rango (máximo 24 meses). */
+export const integrationTotalsQuerySchema = z.object({
+  from: z.string().trim().regex(MONTH_KEY, "from debe ser AAAA-MM."),
+  to: z.string().trim().regex(MONTH_KEY, "to debe ser AAAA-MM."),
+  brandId: z.string().trim().min(1).max(120).optional(),
+}).strict().refine((value) => value.from <= value.to, { message: "El rango de meses está invertido." })
+  .refine((value) => {
+    const months = (key: string) => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7));
+    return months(value.to) - months(value.from) < 24;
+  }, { message: "El rango no puede superar 24 meses." });
+
 /** Reporte mensual: mes YYYY-MM y qué cuenta como volumen. */
 export const sacMonthlyReportQuerySchema = z.object({
   month: z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Usa el formato AAAA-MM."),
@@ -387,6 +407,8 @@ export const sacRowsQuerySchema = z.object({
   brandId: z.string().trim().min(1).max(120),
   from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD.").optional(),
   to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD.").optional(),
+  /** "true" agrega el ruido social (reacciones, menciones); por defecto solo casos SAC. */
+  incluirRuido: z.enum(["true", "false"]).optional(),
 }).strict().refine((value) => !value.from || !value.to || value.from <= value.to, {
   message: "El rango de fechas está invertido.",
 });

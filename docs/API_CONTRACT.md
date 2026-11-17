@@ -65,6 +65,10 @@ Solo Admin, sin delegación posible: usuarios y roles, credenciales y variables 
 
 Además del rol, la API aplica scope por marca en listados, métricas, sincronización, detalle, respuestas, estados, exportación y administración de cuentas. Si el usuario solicita una marca fuera de `X-SAC-Brand-Ids`, responde `403 FORBIDDEN`.
 
+## Integración de solo lectura para MetriQ
+
+Rutas `GET /api/integrations/*` con la clave `SAC_FLOW_SERVICE_API_KEY` (`Authorization: Bearer` o `X-API-Key`; admite varias claves separadas por comas para rotar), independientes de la sesión de usuario y de solo lectura (`405` para otros métodos): `sac-brands` (marcas activas con `datosDesde`/`datosHasta`), `sac-rows` (filas SAC con el formato de MetriQ; solo casos SAC salvo `incluirRuido=true`, estados `Pendiente | En proceso | Resuelto | Derivado`), `sac-totals` (totales por mes, máximo 24 meses), `sac-report` (cifras de Reportes del mes, solo agregados) y `sac-export` (Excel del mes). Todas informan `meta.lastSyncAt`, `meta.lastSyncStatus` y `meta.generatedAt`. Contrato completo con ejemplos: [INTEGRACION_METRIQ.md](INTEGRACION_METRIQ.md).
+
 ## Contrato de Automation Studio
 
 Las respuestas del módulo general usan `{ data, meta }`. `meta` incluye `externalNodesDisabled` y `metricoolMutationsDisabled`. Las credenciales nunca incluyen `encryptedData`; las variables secretas muestran un placeholder; input, output y node runs redactan claves sensibles.

@@ -162,3 +162,73 @@ describe("Superficie de integración", () => {
     expect(response.statusCode).toBe(409);
   });
 });
+
+describe("Integración METRIQ: reporte, totales, Excel y frescura", () => {
+  const headers = { authorization: `Bearer ${SERVICE_KEY}` };
+  const thisMonth = () => new Date().toISOString().slice(0, 7);
+
+  it("acepta dos claves a la vez para rotarla sin cortes", async () => {
+    const otra = "segunda-clave-de-integracion-para-rotar-5678";
+    const app = await makeApp({ serviceKey: `${SERVICE_KEY},${otra}` });
+    for (const key of [SERVICE_KEY, otra]) {
+      const response = await app.inject({ method: "GET", url: "/api/integrations/sac-brands", headers: { "x-api-key": key } });
+      expect(response.statusCode).toBe(200);
+    }
+  });
+
+  it("informa desde cuándo hay datos de cada marca y la última sincronización", async () => {
+    const app = await makeApp({ serviceKey: SERVICE_KEY });
+    const payload = (await app.inject({ method: "GET", url: "/api/integrations/sac-brands", headers })).json();
+    expect(payload.data[0]).toMatchObject({ brandKey: expect.any(String), datosDesde: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+    expect(payload.meta).toHaveProperty("lastSyncAt");
+    expect(payload.meta).toHaveProperty("generatedAt");
+  });
+
+  it("las filas traen solo casos SAC y cuentan el ruido aparte", async () => {
+    const app = await makeApp({ serviceKey: SERVICE_KEY });
+    const casos = (await app.inject({ method: "GET", url: "/api/integrations/sac-rows?brandId=brand-01", headers })).json();
+    const todo = (await app.inject({ method: "GET", url: "/api/integrations/sac-rows?brandId=brand-01&incluirRuido=true", headers })).json();
+    expect(todo.data.rows.length).toBe(casos.data.rows.length + casos.meta.droppedNoise);
+    expect(todo.meta.droppedNoise).toBe(0);
+  });
+
+  it("entrega el reporte del mes con las cifras de Reportes y sin datos de clientes", async () => {
+    const app = await makeApp({ serviceKey: SERVICE_KEY });
+    const response = await app.inject({ method: "GET", url: `/api/integrations/sac-report?month=${thisMonth()}&brandId=brand-01`, headers });
+    expect(response.statusCode).toBe(200);
+    const data = response.json().data;
+    expect(data.brands).toHaveLength(1);
+    expect(data.brands[0].figures).toMatchObject({
+      casosSac: expect.any(Number),
+      volumenBruto: expect.any(Number),
+      clasificacion: { manual: expect.any(Number), ia: expect.any(Number), reglas: expect.any(Number) },
+    });
+    expect(response.body).not.toContain("@cliente_");
+  });
+
+  it("entrega totales por mes y valida el rango", async () => {
+    const app = await makeApp({ serviceKey: SERVICE_KEY });
+    const month = thisMonth();
+    const response = await app.inject({ method: "GET", url: `/api/integrations/sac-totals?from=${month}&to=${month}&brandId=brand-01`, headers });
+    expect(response.statusCode).toBe(200);
+    const months = response.json().data[0].months;
+    expect(months).toHaveLength(1);
+    expect(months[0]).toMatchObject({ monthKey: month, recibidos: expect.any(Number), casosSac: expect.any(Number), ruido: expect.any(Number) });
+    const tooLong = await app.inject({ method: "GET", url: "/api/integrations/sac-totals?from=2024-01&to=2026-12", headers });
+    expect(tooLong.statusCode).toBe(400);
+  });
+
+  it("descarga el Excel del mes", async () => {
+    const app = await makeApp({ serviceKey: SERVICE_KEY });
+    const response = await app.inject({ method: "GET", url: `/api/integrations/sac-export?month=${thisMonth()}&brandId=brand-01`, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("spreadsheetml");
+    expect(response.rawPayload.subarray(0, 2).toString()).toBe("PK");
+  });
+
+  it("responde 404 para una marca inexistente", async () => {
+    const app = await makeApp({ serviceKey: SERVICE_KEY });
+    const response = await app.inject({ method: "GET", url: `/api/integrations/sac-report?month=${thisMonth()}&brandId=no-existe`, headers });
+    expect(response.statusCode).toBe(404);
+  });
+});

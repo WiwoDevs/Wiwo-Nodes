@@ -79,6 +79,8 @@ import {
   workflowUpdateSchema,
   sacMonthlyReportQuerySchema,
   inboxChangesQuerySchema,
+  integrationMonthQuerySchema,
+  integrationTotalsQuerySchema,
   interactionTriageSchema,
   interactionBulkTriageSchema,
 } from "./schemas.js";
@@ -1766,7 +1768,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         });
       }
       const received = extractApiKey(request.headers as Record<string, unknown>);
-      if (!config.serviceApiKey || !received || !safeTokenEqual(received, config.serviceApiKey)) {
+      if (!received || !config.serviceApiKeys.some((key) => safeTokenEqual(received, key))) {
         return reply.code(401).send({
           error: { code: "SERVICE_KEY_REQUIRED", message: "Clave de integración inválida o ausente.", requestId: request.id },
           meta: apiMeta(config),
@@ -1857,6 +1859,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   /**
+   * Frescura de los datos para METRIQ: la última sincronización con Metricool registrada,
+   * para que el consumidor muestre "datos al …" y detecte una sincronización detenida.
+   */
+  const integrationFreshness = async () => {
+    const runs = await repository.listRuns();
+    const latest = runs
+      .filter((run) => run.kind === "sync")
+      .sort((left, right) => Date.parse(right.finishedAt || right.startedAt) - Date.parse(left.finishedAt || left.startedAt))[0];
+    return {
+      generatedAt: new Date().toISOString(),
+      lastSyncAt: latest ? latest.finishedAt || latest.startedAt : null,
+      lastSyncStatus: latest?.status ?? null,
+    };
+  };
+
+  /**
    * Filas SAC para METRIQ. Devuelve la bandeja de una marca proyectada al mismo formato
    * que hoy leen sus planillas de Google Sheets, de modo que el consumidor no cambia su
    * manera de trabajar: solo cambia de dónde vienen las filas.
@@ -1869,9 +1887,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (!brand.active || !brand.account.active) {
       throw new ApiError(409, "BRAND_INACTIVE", "La marca está desactivada en Wiwo Nodes.");
     }
-    const { rows, droppedNoDate } = buildSacRows(brand, store.interactions, {
+    const { rows, droppedNoDate, droppedNoise } = buildSacRows(brand, store.interactions, {
       from: query.from,
       to: query.to,
+      incluirRuido: query.incluirRuido === "true",
     });
     return {
       data: {
@@ -1883,9 +1902,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         ...apiMeta(config),
         count: rows.length,
         droppedNoDate,
+        droppedNoise,
+        incluirRuido: query.incluirRuido === "true",
         from: query.from,
         to: query.to,
-        generatedAt: new Date().toISOString(),
+        ...(await integrationFreshness()),
       },
     };
   });
@@ -1895,16 +1916,126 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const store = await repository.snapshot();
     const brands = store.brands
       .filter((brand) => brand.active && brand.account.active)
+      .map((brand) => {
+        const inbound = store.interactions.filter((item) => item.brandId === brand.id && item.direction === "inbound");
+        const dates = inbound.map((item) => item.createdAt.slice(0, 10)).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+        return {
+          brandKey: brand.id,
+          brandLabel: brand.name,
+          handle: brand.account.handle,
+          channels: brand.account.channels,
+          interactions: inbound.length,
+          // Desde cuándo Nodes tiene mensajes de la marca: antes, METRIQ sigue con la planilla.
+          datosDesde: dates[0] ?? null,
+          datosHasta: dates.at(-1) ?? null,
+        };
+      })
+      .sort((left, right) => left.brandLabel.localeCompare(right.brandLabel, "es"));
+    return { data: brands, meta: { ...apiMeta(config), count: brands.length, ...(await integrationFreshness()) } };
+  });
+
+  /** Marcas activas pedidas: una (404 si no existe o está desactivada) o todas. */
+  const integrationBrands = async (brandId: string | undefined) => {
+    const catalog = await repository.snapshotCatalog();
+    const active = catalog.brands.filter((brand) => brand.active && brand.account.active);
+    if (!brandId) return active;
+    const brand = catalog.brands.find((item) => item.id === brandId);
+    if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
+    if (!brand.active || !brand.account.active) {
+      throw new ApiError(409, "BRAND_INACTIVE", "La marca está desactivada en Wiwo Nodes.");
+    }
+    return [brand];
+  };
+
+  /**
+   * Reporte SAC del mes para METRIQ: las mismas cifras que la sección Reportes (casos,
+   * recibidos, ruido, respondidos, cobertura, variación, motivos, tono, canales, avisos y
+   * origen de la clasificación). Solo agregados: sin mensajes ni datos de clientes.
+   */
+  app.get("/api/integrations/sac-report", async (request) => {
+    const query = integrationMonthQuerySchema.parse(request.query);
+    const period = monthPeriod(query.month);
+    const brands = await integrationBrands(query.brandId);
+    const interactions = await repository.listInteractions(query.brandId ? { brandId: query.brandId } : {});
+    const reports = brands
       .map((brand) => ({
         brandKey: brand.id,
         brandLabel: brand.name,
         handle: brand.account.handle,
-        channels: brand.account.channels,
-        interactions: store.interactions.filter((item) =>
-          item.brandId === brand.id && item.direction === "inbound").length,
+        figures: buildSacReport(brand, interactions, {
+          from: period.from,
+          to: period.to,
+          previous: period.previous,
+          label: period.label,
+          volumen: query.volumen,
+        }),
       }))
-      .sort((left, right) => left.brandLabel.localeCompare(right.brandLabel, "es"));
-    return { data: brands, meta: { ...apiMeta(config), count: brands.length } };
+      .sort((left, right) => right.figures.casosSac - left.figures.casosSac || left.brandLabel.localeCompare(right.brandLabel, "es"));
+    return {
+      data: {
+        ...period,
+        volumen: query.volumen,
+        brands: reports,
+        warnings: duplicateAccountGroups(brands).map((names) =>
+          `Cuentas con el mismo usuario: ${names.join(", ")}. Sus mensajes se cuentan dos veces.`),
+      },
+      meta: { ...apiMeta(config), count: reports.length, ...(await integrationFreshness()) },
+    };
+  });
+
+  /**
+   * Totales por mes para METRIQ (reemplaza la pestaña "Total interacciones" de las planillas):
+   * recibidos, casos SAC, ruido, respondidos y cobertura de cada mes del rango, por marca.
+   */
+  app.get("/api/integrations/sac-totals", async (request) => {
+    const query = integrationTotalsQuerySchema.parse(request.query);
+    const brands = await integrationBrands(query.brandId);
+    const interactions = await repository.listInteractions(query.brandId ? { brandId: query.brandId } : {});
+    const months: string[] = [];
+    for (let key = query.from; key <= query.to;) {
+      months.push(key);
+      const [year, month] = key.split("-").map(Number) as [number, number];
+      key = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
+    }
+    const data = brands.map((brand) => ({
+      brandKey: brand.id,
+      brandLabel: brand.name,
+      months: months.map((monthKey) => {
+        const period = monthPeriod(monthKey);
+        const figures = buildSacReport(brand, interactions, { from: period.from, to: period.to, label: period.label });
+        return {
+          monthKey,
+          label: period.label,
+          recibidos: figures.volumenBruto,
+          casosSac: figures.casosSac,
+          ruido: Math.max(0, figures.volumenBruto - figures.casosSac),
+          respondidos: figures.respondidos,
+          coberturaPct: figures.coberturaPct,
+          derivados: figures.derivados,
+        };
+      }),
+    }));
+    return {
+      data,
+      meta: { ...apiMeta(config), from: query.from, to: query.to, count: data.length, ...(await integrationFreshness()) },
+    };
+  });
+
+  /** Excel del mes para METRIQ: el mismo archivo que se descarga desde Reportes (días UTC). */
+  app.get("/api/integrations/sac-export", async (request, reply) => {
+    const query = integrationMonthQuerySchema.parse(request.query);
+    const period = monthPeriod(query.month);
+    if (query.brandId) await integrationBrands(query.brandId);
+    const workbook = await buildInteractionsWorkbook(repository, {
+      from: `${period.from}T00:00:00.000Z`,
+      to: `${period.to}T23:59:59.999Z`,
+      ...(query.brandId ? { brandId: query.brandId } : {}),
+    });
+    return reply
+      .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      .header("Content-Disposition", `attachment; filename="sac-${query.brandId ?? "todas"}-${query.month}.xlsx"`)
+      .header("Cache-Control", "no-store")
+      .send(workbook);
   });
 
   /** Configuración pública del inicio de sesión. No contiene secretos. */

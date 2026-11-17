@@ -94,6 +94,11 @@ const ETIQUETA_MOTIVO: Record<string, string> = {
   no_aplica: "Otros",
 };
 
+/** Etiqueta legible de una categoría (`reclamo` → "Reclamos"); la categoría tal cual si no tiene. */
+export function etiquetaMotivo(categoria: string): string {
+  return ETIQUETA_MOTIVO[categoria] ?? categoria;
+}
+
 /** Ancho útil de la columna de motivos, en caracteres. Ver `ETIQUETA_MOTIVO`. */
 export const MAX_ETIQUETA_MOTIVO = 15;
 

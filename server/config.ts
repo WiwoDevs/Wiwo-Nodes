@@ -104,7 +104,11 @@ export interface AppConfig {
    * la sesión de usuario porque un consumidor como METRIQ no tiene navegador ni cookie;
    * solo habilita lecturas y nunca alcanza al resto de la API.
    */
-  serviceApiKey?: string;
+  /**
+   * Claves de lectura de las rutas de integración (METRIQ). Admite varias, separadas por
+   * comas, para rotar sin cortes: se agrega la nueva, METRIQ la adopta y se retira la vieja.
+   */
+  serviceApiKeys: string[];
   serveFrontend: boolean;
   frontendDir: string;
 }
@@ -243,9 +247,12 @@ export function loadConfig(
   if (authMode === "google" && production && !sessionSecret) {
     throw new Error("SAC_FLOW_AUTH_MODE=google en producción requiere SAC_FLOW_AUTH_SESSION_SECRET.");
   }
-  const serviceApiKey = env.SAC_FLOW_SERVICE_API_KEY?.trim() || undefined;
-  if (serviceApiKey && serviceApiKey.length < 32) {
-    throw new Error("SAC_FLOW_SERVICE_API_KEY debe tener al menos 32 caracteres.");
+  const serviceApiKeys = (env.SAC_FLOW_SERVICE_API_KEY ?? "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+  if (serviceApiKeys.some((key) => key.length < 32)) {
+    throw new Error("Cada clave de SAC_FLOW_SERVICE_API_KEY debe tener al menos 32 caracteres.");
   }
   const auth: IdentityConfig = {
     enabled: authMode !== "local",
@@ -386,7 +393,7 @@ export function loadConfig(
       },
     },
     auth,
-    serviceApiKey,
+    serviceApiKeys,
     serveFrontend: parseBoolean(env.SERVE_FRONTEND, production),
     frontendDir: path.resolve(env.FRONTEND_DIR || path.join(cwd, "dist", "client")),
   };
