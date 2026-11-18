@@ -4,6 +4,8 @@ import {
   Buildings,
   CheckCircle,
   CloudArrowDown,
+  Eye,
+  EyeSlash,
   FloppyDisk,
   FolderOpen,
   LinkSimple,
@@ -80,10 +82,12 @@ export interface AccountsViewProps {
   canSync?: boolean;
   onCreateBrand?: (input: BrandAdminInput) => void | Promise<void>;
   onUpdateBrand?: (account: BrandAccount, input: BrandAdminInput) => void | Promise<void>;
-  onDeactivateBrand?: (account: BrandAccount) => void | Promise<void>;
+  /** Admin principal: puede ocultar y volver a mostrar clientes; ve los ocultos aparte. */
+  canHide?: boolean;
+  onSetBrandHidden?: (account: BrandAccount, hidden: boolean) => Promise<void>;
   /** Importa marcas del catálogo de Metricool (solo admin). */
   onImportMetricoolBrands?: (blogIds: string[], instagramProvider: MetricoolInstagramProvider) => Promise<MetricoolImportResult>;
-  /** Desactiva varias marcas de una vez (p. ej. las de ejemplo sin referencia a Metricool). */
+  /** Oculta varias marcas de una vez (p. ej. las de ejemplo sin referencia a Metricool). */
   onDeactivateBrands?: (accounts: BrandAccount[]) => Promise<void>;
   onSyncAccount?: (account: BrandAccount) => void | Promise<void>;
   onSaveMetricoolAccount?: (
@@ -208,7 +212,8 @@ export function AccountsView({
   canSync = true,
   onCreateBrand,
   onUpdateBrand,
-  onDeactivateBrand,
+  canHide = false,
+  onSetBrandHidden,
   onSyncAccount,
   onSaveMetricoolAccount,
   onDisconnectMetricoolAccount,
@@ -240,8 +245,8 @@ export function AccountsView({
   );
   const [workbookAccountId, setWorkbookAccountId] = useState<string | null>(null);
 
-  // Las marcas desactivadas (p. ej. las de ejemplo retiradas en live) no cuentan como alertas:
-  // se ven aparte, en el filtro "Desactivadas", para poder reactivarlas.
+  // Los clientes ocultos no cuentan como alertas ni se operan. Solo el admin principal los
+  // recibe de la API y los ve aparte, en el filtro "Ocultos", para volver a mostrarlos.
   const activeAccounts = useMemo(() => accounts.filter((account) => !isInactiveAccount(account)), [accounts]);
   const inactiveCount = accounts.length - activeAccounts.length;
 
@@ -329,22 +334,34 @@ export function AccountsView({
     }
   };
 
-  const deactivateBrandAccount = async () => {
-    if (!brandDialogAccount) return;
-    const confirmed = await confirmAction({
-      title: `¿Desactivar ${brandDialogAccount.name}?`,
-      message: "No se borra el historial: deja de sincronizar, sus conversaciones salen de la operación y se quita de la automatización."
-        + "\n\nSe conserva su vínculo con Metricool para que no vuelva a importarse sola. Puedes reactivarla cuando quieras.",
-      confirmLabel: "Desactivar",
-      tone: "danger",
-    });
-    if (!confirmed) return;
+  /** Pide confirmación y oculta o vuelve a mostrar el cliente. true si se hizo. */
+  const confirmVisibility = async (account: BrandAccount, hidden: boolean): Promise<boolean> => {
+    if (!onSetBrandHidden) return false;
+    const confirmed = await confirmAction(hidden
+      ? {
+        title: `¿Ocultar ${account.name}?`,
+        message: "Deja de sincronizar con Metricool y desaparece para todo el equipo: bandeja, Inicio, Reportes y MetriQ. No se borra nada."
+          + "\n\nSe conserva su vínculo con Metricool para que no vuelva a importarse solo. Puedes volver a mostrarlo desde el filtro «Ocultos».",
+        confirmLabel: "Ocultar",
+        tone: "danger",
+      }
+      : {
+        title: `¿Volver a mostrar ${account.name}?`,
+        message: "Vuelve a la bandeja, Reportes y MetriQ con todo su historial, y la próxima sincronización trae lo que llegó mientras estuvo oculto.",
+        confirmLabel: "Mostrar",
+      });
+    if (!confirmed) return false;
     try {
-      await onDeactivateBrand?.(brandDialogAccount);
-      closeBrandDialog();
+      await onSetBrandHidden(account, hidden);
+      return true;
     } catch {
-      // El contenedor muestra el error en el toast y dejamos el formulario abierto.
+      // El contenedor muestra el error en el toast.
+      return false;
     }
+  };
+
+  const hideFromDialog = async () => {
+    if (brandDialogAccount && await confirmVisibility(brandDialogAccount, true)) closeBrandDialog();
   };
 
   const openCredentialDialog = (account?: BrandAccount) => {
@@ -519,12 +536,12 @@ export function AccountsView({
             <option value="healthy">Operativas</option>
             <option value="attention">Con atención</option>
             <option value="disconnected">Desconectadas</option>
-            {inactiveCount > 0 || healthFilter === "inactive" ? <option value="inactive">Desactivadas ({inactiveCount})</option> : null}
+            {canHide && (inactiveCount > 0 || healthFilter === "inactive") ? <option value="inactive">Ocultos ({inactiveCount})</option> : null}
           </select>
         </label>
         <p className="accounts-toolbar__count" aria-live="polite">
           {healthFilter === "inactive"
-            ? `${visibleAccounts.length} desactivada${visibleAccounts.length === 1 ? "" : "s"}`
+            ? `${visibleAccounts.length} oculto${visibleAccounts.length === 1 ? "" : "s"}`
             : `${visibleAccounts.length} de ${activeAccounts.length} cuentas activas`}
         </p>
       </div>
@@ -666,6 +683,31 @@ export function AccountsView({
                               Sincronizar
                             </button>
                           )}
+                          {canHide && onSetBrandHidden ? (
+                            isInactiveAccount(account) ? (
+                              <button
+                                className="row-action row-action--primary"
+                                type="button"
+                                onClick={() => void confirmVisibility(account, false)}
+                                disabled={isSavingBrand}
+                                title="Vuelve a sincronizar y a aparecer en la operación, Reportes y MetriQ"
+                              >
+                                <Eye size={15} weight="bold" aria-hidden="true" />
+                                Mostrar
+                              </button>
+                            ) : (
+                              <button
+                                className="row-action"
+                                type="button"
+                                onClick={() => void confirmVisibility(account, true)}
+                                disabled={isSavingBrand}
+                                title="Deja de sincronizar y desaparece para el equipo; no borra nada"
+                              >
+                                <EyeSlash size={15} weight="bold" aria-hidden="true" />
+                                Ocultar
+                              </button>
+                            )
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -821,7 +863,7 @@ export function AccountsView({
               ))}
             </fieldset>
 
-            {brandDialogMode === "edit" ? (
+            {brandDialogMode === "edit" && canHide ? (
               <fieldset className="brand-admin-options brand-admin-options--stacked">
                 <legend>Estado operacional</legend>
                 <label>
@@ -859,15 +901,15 @@ export function AccountsView({
             )}
 
             <footer className="brand-admin-footer">
-              {brandDialogMode === "edit" && brandDialogAccount ? (
+              {brandDialogMode === "edit" && brandDialogAccount && canHide && onSetBrandHidden ? (
                 <button
                   className="button button--danger"
                   type="button"
-                  onClick={deactivateBrandAccount}
-                  disabled={isSavingBrand || brandDialogAccount.brandActive === false}
+                  onClick={() => void hideFromDialog()}
+                  disabled={isSavingBrand || isInactiveAccount(brandDialogAccount)}
                 >
-                  <Trash size={16} weight="bold" aria-hidden="true" />
-                  Desactivar
+                  <EyeSlash size={16} weight="bold" aria-hidden="true" />
+                  Ocultar cliente
                 </button>
               ) : <span />}
               <span className="brand-admin-footer__actions">
@@ -894,7 +936,7 @@ export function AccountsView({
           accounts={accounts}
           onClose={() => setImportOpen(false)}
           onImport={onImportMetricoolBrands}
-          onDeactivate={async (targets) => { await onDeactivateBrands?.(targets); }}
+          onDeactivate={onDeactivateBrands}
         />
       ) : null}
 

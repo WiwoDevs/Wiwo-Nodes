@@ -1419,6 +1419,69 @@ export async function deactivateBrand(brandId: string): Promise<void> {
   if (!response.ok) await throwApiError(response);
 }
 
+/** Oculta o vuelve a mostrar un cliente (solo admin principal). */
+export async function setBrandVisibility(brandId: string, hidden: boolean): Promise<void> {
+  const response = await fetch(`${API_BASE}/brands/${encodeURIComponent(brandId)}/visibility`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hidden }),
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
+export type ManualRecordsChannel = "tiktok" | "linkedin";
+
+/** Resultado de revisar o cargar el Excel BD SAC de TikTok/LinkedIn. */
+export interface ManualRecordsSummary {
+  dryRun: boolean;
+  hoja: string;
+  leidas: number;
+  nuevas: number;
+  creadas: number;
+  yaCargadas: number;
+  yaEnNodes: number;
+  repetidasEnArchivo: number;
+  otraRed: number;
+  invalidas: number;
+  problemas: Array<{ fila: number; motivo: string }>;
+  porRed: Record<ManualRecordsChannel, number>;
+  porTipo: Record<"dm" | "comment", number>;
+  desde?: string;
+  hasta?: string;
+}
+
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+export async function uploadManualRecords(
+  brandId: string,
+  file: File,
+  options: { dryRun: boolean; red?: ManualRecordsChannel },
+): Promise<ManualRecordsSummary> {
+  const query = new URLSearchParams({ dryRun: String(options.dryRun), archivo: file.name.slice(0, 200) });
+  if (options.red) query.set("red", options.red);
+  const response = await fetch(`${API_BASE}/brands/${encodeURIComponent(brandId)}/manual-records?${query}`, {
+    method: "POST",
+    headers: { "Content-Type": XLSX_CONTENT_TYPE },
+    body: file,
+  });
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: ManualRecordsSummary };
+  return payload.data;
+}
+
+export async function downloadManualRecordsTemplate(): Promise<void> {
+  const response = await fetch(`${API_BASE}/manual-records/template`);
+  if (!response.ok) await throwApiError(response);
+  const blob = await response.blob();
+  const anchor = document.createElement("a");
+  anchor.href = URL.createObjectURL(blob);
+  anchor.download = "plantilla-bd-sac-tiktok-linkedin.xlsx";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(anchor.href);
+}
+
 export async function saveInteractionReply(
   interactionId: string,
   text: string,

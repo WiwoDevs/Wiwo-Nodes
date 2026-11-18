@@ -106,6 +106,18 @@ export const brandParamsSchema = z.object({
   brandId: z.string().trim().min(1).max(100),
 }).strict();
 
+/** Ocultar (true) o volver a mostrar (false) un cliente. */
+export const brandVisibilitySchema = z.object({
+  hidden: z.boolean(),
+}).strict();
+
+/** Carga manual del Excel BD SAC: red por defecto para filas sin "Plataforma" y si solo se revisa. */
+export const manualRecordsQuerySchema = z.object({
+  red: z.enum(["tiktok", "linkedin"]).optional(),
+  dryRun: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  archivo: z.string().trim().max(200).optional(),
+}).strict();
+
 export const brandWorkbookUpdateSchema = z.object({
   spreadsheetUrl: z.string().trim().url().max(500),
 }).strict();

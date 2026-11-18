@@ -99,6 +99,30 @@ export function etiquetaMotivo(categoria: string): string {
   return ETIQUETA_MOTIVO[categoria] ?? categoria;
 }
 
+function claveDeTexto(valor: string): string {
+  return valor
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Categoría de una etiqueta escrita a mano en una planilla ("Reclamos", "despacho", "Pago"):
+ * la clave o la etiqueta de la tabla de motivos, en singular o plural. undefined si no
+ * corresponde a ninguna (p. ej. "Experiencia general"), para que decidan las reglas.
+ */
+export function categoriaDesdeEtiqueta(texto: string): string | undefined {
+  const clave = claveDeTexto(texto);
+  if (!clave) return undefined;
+  for (const [categoria, etiqueta] of Object.entries(ETIQUETA_MOTIVO)) {
+    const deEtiqueta = claveDeTexto(etiqueta);
+    if (clave === categoria || clave === deEtiqueta || clave === deEtiqueta.replace(/s$/, "")) return categoria;
+  }
+  return undefined;
+}
+
 /** Ancho útil de la columna de motivos, en caracteres. Ver `ETIQUETA_MOTIVO`. */
 export const MAX_ETIQUETA_MOTIVO = 15;
 

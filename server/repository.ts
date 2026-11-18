@@ -134,6 +134,7 @@ function fromActiveBrands(interactions: Interaction[], store: DataStore): Intera
 function matchesInteraction(interaction: Interaction, filters: InteractionFilters): boolean {
   if (filters.brandId && interaction.brandId !== filters.brandId) return false;
   if (filters.brandIds && !filters.brandIds.includes(interaction.brandId)) return false;
+  if (filters.excludeSources?.includes(interaction.source)) return false;
   if (filters.accountId && interaction.accountId !== filters.accountId) return false;
   if (filters.channel && interaction.channel !== filters.channel) return false;
   if (filters.type && interaction.type !== filters.type) return false;

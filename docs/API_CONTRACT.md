@@ -547,19 +547,20 @@ Devuelve el contexto seguro que la UI usa para ajustar acciones de solo lectura,
     "role": "agent",
     "brandIds": ["brand-01"],
     "source": "google",
-    "email": "agente@example.test"
+    "email": "agente@example.test",
+    "masterAdmin": false
   },
   "meta": { "demoMode": false, "mode": "live" }
 }
 ```
 
-`brandIds` puede ser `"all"`. `source` indica el origen de la identidad (`local`, `trusted_headers`, `google` o `dev`); `email` solo aparece con sesión de Google o de prueba local y alimenta el menú de perfil. Esta respuesta informa la experiencia visual, pero la autorización sigue aplicándose en cada endpoint servidor.
+`brandIds` puede ser `"all"`. `source` indica el origen de la identidad (`local`, `trusted_headers`, `google` o `dev`); `email` solo aparece con sesión de Google o de prueba local y alimenta el menú de perfil. `masterAdmin` es `true` solo para un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`; sin inicio de sesión propio, el admin local), el único que oculta o muestra clientes. Esta respuesta informa la experiencia visual, pero la autorización sigue aplicándose en cada endpoint servidor.
 
 ### `GET /api/brands`
 
 Respuesta: `{ data: PublicBrand[], meta: { demoMode, mode, count } }`.
 
-Un store nuevo devuelve 20 marcas demo cuando el actor tiene scope completo. Con contexto de actor, la lista se filtra por `X-SAC-Brand-Ids`. La API omite las referencias privadas de Metricool.
+Un store nuevo devuelve 20 marcas demo cuando el actor tiene scope completo. Con contexto de actor, la lista se filtra por `X-SAC-Brand-Ids`. La API omite las referencias privadas de Metricool. Los clientes ocultos (`active: false` o `account.active: false`) solo se devuelven al admin principal, para que pueda volver a mostrarlos; para el resto del equipo no existen.
 
 ### `POST /api/brands`
 
@@ -607,19 +608,61 @@ Actualiza metadatos operativos de una marca/cuenta. No cambia `brandId` ni `acco
 }
 ```
 
-Todos los campos son opcionales, pero debe enviarse al menos uno. Requiere rol `admin` y acceso a la marca. Si el nuevo handle ya existe en otra cuenta, responde `409 ACCOUNT_HANDLE_ALREADY_EXISTS`.
+Todos los campos son opcionales, pero debe enviarse al menos uno. Requiere `brands.manage` y acceso a la marca. Si el nuevo handle ya existe en otra cuenta, responde `409 ACCOUNT_HANDLE_ALREADY_EXISTS`. Cambiar `active` o `accountActive` (ocultar o mostrar) exige además admin principal: si no, `403 MASTER_ADMIN_REQUIRED`; enviarlos con el mismo valor que ya tienen no cuenta como cambio.
 
 Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, updated: true, externalWrites: false } }`.
 
+### `PUT /api/brands/:brandId/visibility`
+
+Oculta (`{ "hidden": true }`) o vuelve a mostrar (`{ "hidden": false }`) un cliente. Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. No borra historial ni contacta a Metricool.
+
+Un cliente oculto (`active` y `account.active` en `false`):
+
+- deja de sincronizar con Metricool (la referencia se conserva, así que la vinculación automática no lo vuelve a crear);
+- sale de la bandeja, Inicio, el resumen, Reportes y las rutas de integración de METRIQ (`sac-brands` lo omite; pedirlo por `brandId` responde `409 BRAND_INACTIVE`);
+- deja de aparecer en `GET /api/brands` para todos salvo el admin principal;
+- al ocultarlo se retira de `autoReplyAccountIds` y se apaga `autoReplyEnabled` si la allowlist queda vacía.
+
+Al mostrarlo vuelve con todo su historial y la sincronización siguiente trae lo que llegó mientras estuvo oculto.
+
+Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, hidden, externalWrites: false } }`.
+
 ### `DELETE /api/brands/:brandId`
 
-Desactiva la marca y su cuenta de forma recuperable. No borra historial, interacciones ni runs; tampoco contacta a Metricool. Además:
+Equivale a `PUT /api/brands/:brandId/visibility` con `{ "hidden": true }` y se conserva por compatibilidad. Mismas reglas: solo admin principal, no borra historial ni contacta a Metricool.
 
-- conserva la referencia Metricool de la cuenta: la marca deja de sincronizar por estar inactiva y la vinculación automática del catálogo no la vuelve a crear;
-- retira la cuenta de `autoReplyAccountIds`;
-- apaga `autoReplyEnabled` si la allowlist queda vacía.
+Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, deactivated: true, hidden: true, autoReplyRemoved: true, externalWrites: false } }`.
 
-Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, deactivated: true, autoReplyRemoved: true, externalWrites: false } }`.
+### `POST /api/brands/:brandId/manual-records`
+
+Carga manual del Excel BD SAC de una marca, para las redes que Metricool no trae (TikTok y LinkedIn). Requiere el permiso `records.import` ("Cargar registros manuales"; por defecto Supervisor y Admin) y acceso a la marca. El cuerpo es el archivo `.xlsx` tal cual, con `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (máximo 8 MB y 20.000 filas); otro tipo responde `415 UNSUPPORTED_MEDIA_TYPE` y un archivo ilegible o sin las columnas de la planilla, `422 MANUAL_RECORDS_FORMAT_INVALID`. Una marca oculta responde `409 BRAND_INACTIVE`.
+
+Query:
+
+- `dryRun=true|false` (por defecto `true`): con `true` solo revisa y cuenta; con `false` guarda los casos nuevos.
+- `red=tiktok|linkedin` (opcional): red para las filas sin "Plataforma".
+- `archivo` (opcional): nombre del archivo, para la auditoría.
+
+Lee la pestaña "Histórico" si existe (si no, la primera hoja cuyas primeras filas tengan los encabezados) con las columnas de la planilla: "Fecha comentario" y "Reclamo / Mensaje" obligatorias; "Nombre usuario cliente", "Plataforma / RRSS", "Canal" (DM o comentario), "Clasificación / Categoría comentario", "Tonalidad" y "Estado" opcionales. Las filas de otras redes se omiten (ya llegan por Metricool). Cada fila válida se guarda como interacción entrante `source: "planilla"`, marcada a mano como caso SAC (`sacTriage.modelo = "manual"`), con el estado de la planilla (Resuelto, Pendiente, En proceso, Derivado). No duplica: la misma fila ya cargada (huella por marca, fecha, usuario y texto en `externalId`) se cuenta como `yaCargadas`, y el mismo texto que Metricool ya trajo para esa red (mismo día, o hasta 3 días si es distintivo) como `yaEnNodes`.
+
+Estos casos cuentan en Reportes, en el Excel de interacciones y en las rutas de METRIQ, pero no en la bandeja, Inicio ni `GET /api/stats/summary`: ya se atendieron fuera de Nodes y no se responden desde aquí. No escribe en Metricool.
+
+```json
+{
+  "data": {
+    "dryRun": true, "hoja": "Histórico", "leidas": 120, "nuevas": 112, "creadas": 0,
+    "yaCargadas": 0, "yaEnNodes": 3, "repetidasEnArchivo": 1, "otraRed": 2, "invalidas": 2,
+    "problemas": [{ "fila": 14, "motivo": "Fecha vacía o con formato no reconocido (usa DD/MM/AAAA)." }],
+    "porRed": { "tiktok": 98, "linkedin": 14 }, "porTipo": { "comment": 90, "dm": 22 },
+    "desde": "2026-10-01", "hasta": "2026-10-31"
+  },
+  "meta": { "demoMode": false, "mode": "live", "externalWrites": false }
+}
+```
+
+### `GET /api/manual-records/template`
+
+Plantilla vacía del Excel BD SAC (pestaña "Histórico" más una hoja "Cómo llenar"). Requiere `records.import`.
 
 ### `GET /api/accounts/:accountId/metricool`
 
@@ -732,7 +775,7 @@ Metricool informa 7 días para responder DMs y 24 horas para comentarios en Inst
 
 ### `GET /api/inbox/contacts`
 
-Contrato optimizado de la bandeja. Cada contacto incluye `latestInboundAt` (último mensaje del cliente), usado para el plazo de respuesta. Aplica el scope de marca del actor antes de agrupar y pagina después de construir contactos. Una fila representa una persona dentro de la misma cuenta y plataforma; nunca fusiona marcas o redes. La identidad pública `contactKey` es un SHA-256 opaco y no revela el ID social.
+Contrato optimizado de la bandeja. Cada contacto incluye `latestInboundAt` (último mensaje del cliente), usado para el plazo de respuesta. Aplica el scope de marca del actor antes de agrupar y pagina después de construir contactos. No incluye clientes ocultos ni los casos cargados a mano desde el Excel BD SAC (`source: "planilla"`); lo mismo vale para `/api/inbox/posts`, `/api/inbox/changes`, `/api/interactions`, `/api/stats/summary`, el marcado en lote y el archivado de vencidos. Una fila representa una persona dentro de la misma cuenta y plataforma; nunca fusiona marcas o redes. La identidad pública `contactKey` es un SHA-256 opaco y no revela el ID social.
 
 Acepta `page` y `pageSize` con las mismas reglas de `/api/interactions`. Primero filtra interacciones y luego agrupa el subconjunto resultante; por eso los recuentos representan los mensajes que cumplen los filtros, no necesariamente todo el historial del contacto. La bandeja principal carga el conjunto autorizado sin filtros de servidor y aplica sus filtros sobre los contactos ya agregados.
 
@@ -893,7 +936,7 @@ Cifras del informe SAC mensual de cada marca activa dentro del alcance del actor
 
 ### `PUT /api/interactions/:id/triage`
 
-Marca a mano si un mensaje entrante cuenta como caso SAC en el reporte mensual (permiso `inbox.triage`, alcance de marca). Cuerpo `{ esCasoSac: boolean | null, requiereDerivacion?: boolean, expectedVersion }`; `null` quita la marca manual y vuelve a la decisión automática (IA si existe, si no reglas). La marca manual manda sobre la IA y las reglas, queda en `sacTriage` con `modelo: "manual"` y `marcadoPor`, y deja una entrada `classified` en la auditoría. No cambia el estado del caso ni escribe en Metricool. Responde el estado del caso más `reportTriage`. `GET /api/interactions/:id` también incluye `reportTriage: { esCasoSac, requiereDerivacion, source: "manual" | "ia" | "reglas", marcadoPor?, clasificadoEn? }`.
+Marca a mano si un mensaje entrante cuenta como caso SAC en el reporte mensual (permiso `inbox.triage`, alcance de marca). Cuerpo `{ esCasoSac: boolean | null, requiereDerivacion?: boolean, expectedVersion }`; `null` quita la marca manual y vuelve a la decisión automática (IA si existe, si no reglas). La marca manual manda sobre la IA y las reglas, queda en `sacTriage` con `modelo: "manual"` y `marcadoPor` (en PostgreSQL, columna `interactions.sac_triage`, migración `0019_manual_records_and_triage.sql`; antes de esa migración la marca no se guardaba en PostgreSQL), y deja una entrada `classified` en la auditoría. No cambia el estado del caso ni escribe en Metricool. Responde el estado del caso más `reportTriage`. `GET /api/interactions/:id` también incluye `reportTriage: { esCasoSac, requiereDerivacion, source: "manual" | "ia" | "reglas", marcadoPor?, clasificadoEn? }`.
 
 ### `POST /api/interactions/triage`
 
@@ -1226,6 +1269,10 @@ El worker reclama jobs en PostgreSQL con lease y `FOR UPDATE SKIP LOCKED`, recup
 | 400 | `INVALID_STATUS_REASON` | El motivo no corresponde al estado solicitado |
 | 400 | `STATUS_REASON_NOTE_REQUIRED` | El motivo `other` requiere nota |
 | 403 | `ORIGIN_NOT_ALLOWED` | Mutación originada en un sitio no autorizado |
+| 403 | `MASTER_ADMIN_REQUIRED` | Acción solo de admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`): ocultar o mostrar clientes, dar el rol Admin, editar roles |
+| 409 | `BRAND_INACTIVE` | La marca está oculta (integración METRIQ, carga manual) |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | La carga manual no llegó como archivo `.xlsx` |
+| 422 | `MANUAL_RECORDS_FORMAT_INVALID` | El Excel de la carga manual no se pudo leer o no tiene las columnas de la planilla BD SAC |
 | 429 | `RATE_LIMITED` | Límite de solicitudes excedido |
 | 429 | `DELIVERY_DEFERRED` | Entrega esperando su `nextAttemptAt` |
 | 429 | `METRICOOL_RATE_LIMITED` | 429 explícito; entrega durable reprogramada según `Retry-After` |

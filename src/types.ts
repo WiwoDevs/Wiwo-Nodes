@@ -22,6 +22,8 @@ export interface SessionActor {
   source?: "local" | "trusted_headers" | "google" | "dev" | "service";
   /** Correo de la sesión, solo con inicio de sesión de Google o prueba local. */
   email?: string;
+  /** Admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS): el único que oculta o muestra clientes. */
+  masterAdmin?: boolean;
 }
 
 /** Rol asignable desde "Usuarios y roles": id de un rol (de base o propio) o "none" (sin acceso). */

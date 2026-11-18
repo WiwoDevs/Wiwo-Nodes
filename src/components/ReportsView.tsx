@@ -11,6 +11,7 @@ import {
   ArrowsClockwise,
   ChatCircleText,
   CheckCircle,
+  FileArrowUp,
   FileXls,
   Info,
   PresentationChart,
@@ -19,9 +20,14 @@ import {
 } from "@phosphor-icons/react";
 import { downloadExport, loadSacMonthlyReport } from "../lib/api";
 import type { InboxSyncStatus, SacMonthlyReport, SacReportBrand } from "../types";
+import { ManualRecordsDialog, type ManualRecordsBrandOption } from "./ManualRecordsDialog";
 
 type ReportsViewProps = {
   canExport: boolean;
+  /** Permiso "Cargar registros manuales": subir el Excel BD SAC de TikTok y LinkedIn. */
+  canImportRecords?: boolean;
+  /** Marcas visibles a las que se les puede cargar el Excel. */
+  importBrands?: ManualRecordsBrandOption[];
   inboxSync?: InboxSyncStatus;
   onToast: (toast: { tone: "success" | "warning"; title: string; detail: string }) => void;
 };
@@ -37,6 +43,8 @@ const CHANNEL_LABEL: Record<string, string> = {
   fb_publico: "Facebook · comentarios",
   tt_privado: "TikTok · mensajes",
   tt_publico: "TikTok · comentarios",
+  linkedin_privado: "LinkedIn · mensajes",
+  linkedin_publico: "LinkedIn · comentarios",
 };
 
 /** Últimos 12 meses, del más reciente al más antiguo; por defecto el mes pasado (el que se reporta). */
@@ -217,7 +225,8 @@ function coverageTone(pct: number): string {
   return pct < 30 ? " is-low" : pct < 60 ? " is-mid" : "";
 }
 
-export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps) {
+export function ReportsView({ canExport, canImportRecords = false, importBrands = [], inboxSync, onToast }: ReportsViewProps) {
+  const [importOpen, setImportOpen] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "casos", desc: true });
   const months = useMemo(() => recentMonths(), []);
   const [month, setMonth] = useState(months[1]?.value ?? months[0]!.value);
@@ -340,6 +349,17 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
             <ArrowsClockwise size={16} weight="bold" className={loading ? "spin" : undefined} aria-hidden="true" />
             Recalcular
           </button>
+          {canImportRecords && importBrands.length ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => setImportOpen(true)}
+              title="Subir el Excel BD SAC con los casos de TikTok y LinkedIn que Metricool no trae"
+            >
+              <FileArrowUp size={16} weight="bold" aria-hidden="true" />
+              Cargar TikTok/LinkedIn
+            </button>
+          ) : null}
           {canExport ? (
             <button className="button button--primary" type="button" onClick={() => void exportMonth(selected?.brandId)} disabled={!report || exporting}>
               <FileXls size={17} weight="bold" aria-hidden="true" />
@@ -457,6 +477,22 @@ export function ReportsView({ canExport, inboxSync, onToast }: ReportsViewProps)
           </article>
         </>
       )}
+
+      {importOpen ? (
+        <ManualRecordsDialog
+          brands={importBrands}
+          onClose={() => setImportOpen(false)}
+          onLoaded={(summary, brandName) => {
+            setImportOpen(false);
+            onToast({
+              tone: "success",
+              title: `${summary.creadas.toLocaleString("es-CL")} caso(s) de ${brandName} cargados`,
+              detail: "Ya cuentan en Reportes y llegan a MetriQ. No aparecen en la bandeja.",
+            });
+            void load();
+          }}
+        />
+      ) : null}
     </section>
   );
 }

@@ -16,9 +16,9 @@ Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo 
 | **Bandeja SAC** | Una fila por persona y cuenta, ordenada por lo que vence antes. Tiene filtros que se recuerdan, buscador de cuentas, **Mis casos**, **Tomar siguiente**, atajos `J`/`K`/`R`/`E`, archivado de casos vencidos y exportación a Excel. | Todos |
 | **Gestión DMs** / **Gestión comentarios** | Trabajo por cuenta: cola y conversación lado a lado. Los comentarios se agrupan por publicación. | Todos |
 | **Resumen SAC** | Totales y rendimiento por marca. | Supervisor, Admin |
-| **Reportes** | Cifras del **informe SAC mensual** por marca: casos, respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales. Muestra avisos de datos antes de presentar y descarga el Excel del mes. | Supervisor, Admin |
+| **Reportes** | Cifras del **informe SAC mensual** por marca: casos, respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales. Muestra avisos de datos antes de presentar y descarga el Excel del mes. **Cargar TikTok/LinkedIn** sube el Excel BD SAC con los casos que Metricool no trae (permiso *Cargar registros manuales*). | Supervisor, Admin |
 | **Flujo SAC** | Reglas del protocolo SAC, versiones y publicación. | Supervisor, Admin |
-| **Cuentas** | Estado de marcas y cuentas, y su centro documental. Solo Admin puede crear, editar, desactivar o conectar marcas con Metricool. | Supervisor (lectura), Admin |
+| **Cuentas** | Estado de marcas y cuentas, y su centro documental. Solo Admin puede crear, editar o conectar marcas con Metricool. Solo el **admin principal** puede **ocultar** un cliente (deja de sincronizar y desaparece de la bandeja, Reportes y MetriQ, sin borrar nada) y volver a mostrarlo desde el filtro **Ocultos**. | Supervisor (lectura), Admin |
 | **Automatización**, **Ejecuciones**, **Plantillas** | Editor visual de automatizaciones, historial y plantillas. | Admin |
 | **Credenciales**, **Usuarios** | Credenciales cifradas; personas, roles y permisos. | Admin |
 | **Configuración** | Ajustes del flujo y diagnóstico de la integración. | Supervisor, Admin |
@@ -33,7 +33,7 @@ El menú y los botones se muestran según los **permisos** de cada persona, no s
 | **Agente** | Lo anterior, más responder, tomar y soltar casos, notas internas, cambiar estados y actualizar desde Metricool. |
 | **Supervisor** | Lo anterior, más asignar casos a otros, archivar vencidos, exportar, ver métricas y reportes, conciliar envíos y ajustar el flujo SAC. |
 | **Admin asignado** | Rol Admin dado desde la app. Administra usuarios, credenciales y envío automático, pero **no** puede dar el rol Admin, cambiar a otro admin, editar roles ni otorgar permisos sensibles. |
-| **Admin principal** | Correos en `SAC_FLOW_AUTH_ADMIN_EMAILS`. Puede todo y no se puede cambiar desde la app. |
+| **Admin principal** | Correos en `SAC_FLOW_AUTH_ADMIN_EMAILS`. Puede todo, incluido ocultar y mostrar clientes, y no se puede cambiar desde la app. |
 
 - Lector, Agente y Supervisor son **editables**, y se pueden crear roles propios a partir de ellos. A una persona en particular se le pueden sumar o quitar permisos.
 - **Permisos sensibles** (solo los otorga un admin principal): *Gestionar marcas*, *Editar automatizaciones*, *Publicar el flujo SAC*, *Archivar vencidos en lote* y *Exportar a Excel*.
@@ -57,6 +57,8 @@ La sección **Reportes** calcula, por mes y marca, las mismas cifras del informe
 - Respondidos y cobertura.
 - Variación contra el mes anterior, que se marca como *no comparable* si ese mes está incompleto.
 - Motivos, tono y canales.
+
+**TikTok y LinkedIn** no llegan por Metricool. Con **Cargar TikTok/LinkedIn** se sube el Excel BD SAC de la marca (un caso por fila, como la planilla de siempre). Primero se revisa qué entra y qué se omite, y recién al confirmar se guarda. Esos casos cuentan en el reporte y llegan a MetriQ, pero no aparecen en la bandeja porque ya se atendieron fuera de Nodes. Subir el mismo archivo otra vez no duplica nada.
 
 Antes de presentar, la sección avisa de datos dudosos: mensajes sin clasificar, cuentas duplicadas (dos marcas apuntando al mismo usuario) o una sincronización detenida. El Excel del mes, de todas las marcas o de una, usa los mismos días (UTC) que las cifras.
 

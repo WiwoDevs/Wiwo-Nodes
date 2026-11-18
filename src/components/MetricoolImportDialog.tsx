@@ -35,7 +35,8 @@ type MetricoolImportDialogProps = {
   accounts: BrandAccount[];
   onClose: () => void;
   onImport: (blogIds: string[], instagramProvider: MetricoolInstagramProvider) => Promise<MetricoolImportResult>;
-  onDeactivate: (accounts: BrandAccount[]) => Promise<void>;
+  /** Solo para el admin principal: ocultar marcas sin conexión (p. ej. las de ejemplo). */
+  onDeactivate?: (accounts: BrandAccount[]) => Promise<void>;
 };
 
 export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivate }: MetricoolImportDialogProps) {
@@ -107,11 +108,11 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
 
   async function handleRetire() {
     const targets = unlinked.filter((account) => toRetire.has(account.id));
-    if (!targets.length || retiring) return;
+    if (!targets.length || retiring || !onDeactivate) return;
     const confirmed = await confirmAction({
-      title: `¿Desactivar ${targets.length} marca(s) sin conexión a Metricool?`,
-      message: "No se borra su historial: dejan de aparecer en la operación y en la sincronización.",
-      confirmLabel: "Desactivar",
+      title: `¿Ocultar ${targets.length} marca(s) sin conexión a Metricool?`,
+      message: "No se borra su historial: dejan de aparecer en la operación, en Reportes y en MetriQ. Puedes volver a mostrarlas desde Cuentas.",
+      confirmLabel: "Ocultar",
       tone: "danger",
     });
     if (!confirmed) return;
@@ -237,11 +238,11 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
           </>
         )}
 
-        {unlinked.length ? (
+        {unlinked.length && onDeactivate ? (
           <section className="metricool-import__retire" aria-labelledby="metricool-retire-title">
             <h3 id="metricool-retire-title">Marcas sin conexión a Metricool</h3>
             <p>
-              Estas marcas no tienen referencia a Metricool, así que nunca sincronizan (por ejemplo, las de ejemplo). Desactivarlas no borra su historial.
+              Estas marcas no tienen referencia a Metricool, así que nunca sincronizan (por ejemplo, las de ejemplo). Ocultarlas no borra su historial.
             </p>
             <ul className="metricool-import__list metricool-import__list--compact">
               {unlinked.map((account) => (
@@ -271,7 +272,7 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
                 {toRetire.size === unlinked.length ? "Quitar selección" : "Seleccionar todas"}
               </button>
               <button className="button button--danger" type="button" onClick={() => void handleRetire()} disabled={!toRetire.size || retiring}>
-                {retiring ? "Desactivando…" : `Desactivar ${toRetire.size} marca(s)`}
+                {retiring ? "Ocultando…" : `Ocultar ${toRetire.size} marca(s)`}
               </button>
             </div>
           </section>

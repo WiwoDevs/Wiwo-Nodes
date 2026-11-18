@@ -709,6 +709,8 @@ export interface StoreRecordCounts {
 export interface InteractionFilters {
   brandId?: string;
   brandIds?: string[];
+  /** Orígenes que no se listan (la operación excluye "planilla": registros cargados a mano). */
+  excludeSources?: Interaction["source"][];
   accountId?: string;
   channel?: Channel;
   type?: InteractionType;

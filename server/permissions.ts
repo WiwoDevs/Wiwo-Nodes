@@ -24,6 +24,7 @@ export const PERMISSION_KEYS = [
   "automations.run",
   "automations.edit",
   "brands.manage",
+  "records.import",
 ] as const;
 
 export type Permission = (typeof PERMISSION_KEYS)[number];
@@ -45,6 +46,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { key: "export.xlsx", group: "Reportes", label: "Exportar a Excel", description: "Descargar el Excel de interacciones por período y marca." },
   { key: "metrics.read", group: "Reportes", label: "Ver métricas y cola", description: "Ver métricas técnicas y la cola de trabajos de sincronización." },
   { key: "deliveries.reconcile", group: "Reportes", label: "Conciliar envíos", description: "Marcar el resultado real de un envío dudoso." },
+  { key: "records.import", group: "Reportes", label: "Cargar registros manuales", description: "Subir el Excel BD SAC con los casos de TikTok y LinkedIn que Metricool no trae; cuentan en Reportes y METRIQ." },
   { key: "workflow.edit", group: "Flujo y automatizaciones", label: "Ajustar el flujo SAC", description: "Cambiar reglas del flujo SAC, sin activar el envío automático." },
   { key: "workflow.publish", group: "Flujo y automatizaciones", label: "Publicar el flujo SAC", description: "Publicar una versión del flujo SAC o volver a una anterior." },
   { key: "automations.run", group: "Flujo y automatizaciones", label: "Ejecutar automatizaciones", description: "Probar y reintentar flujos y automatizaciones, y llamar webhooks." },
@@ -83,7 +85,7 @@ const AGENT_DEFAULTS: Permission[] = ["inbox.reply", "inbox.triage", "inbox.assi
 export const DEFAULT_ROLE_PERMISSIONS: Record<BaseRole, Permission[]> = {
   viewer: [],
   agent: AGENT_DEFAULTS,
-  supervisor: [...AGENT_DEFAULTS, "inbox.assign_others", "inbox.archive_expired", "export.xlsx", "metrics.read", "deliveries.reconcile", "workflow.edit"],
+  supervisor: [...AGENT_DEFAULTS, "inbox.assign_others", "inbox.archive_expired", "export.xlsx", "metrics.read", "deliveries.reconcile", "workflow.edit", "records.import"],
 };
 
 export const BUILT_IN_ROLE_NAMES: Record<ActorRole, string> = {

@@ -35,6 +35,8 @@ Las claves no se escriben en archivos versionados, tickets ni chats.
 - **Categoría:** etiqueta legible ("Reclamos", "Despachos", "Precios"…), las mismas del reporte de Nodes.
 - **Fechas y meses en días UTC**, igual que el reporte mensual de Nodes.
 - **Desde cuándo hay datos:** Nodes solo tiene lo que sincronizó desde que se conectó cada marca (`datosDesde` en `sac-brands`). Para los meses anteriores, MetriQ debe seguir leyendo la planilla.
+- **TikTok y LinkedIn cargados a mano:** Metricool no trae esas redes. El equipo sube en Nodes (Reportes → Cargar TikTok/LinkedIn) el Excel BD SAC, y esos casos llegan por estas mismas rutas como filas con `plataforma` "TikTok" o "LinkedIn", con el estado y la tonalidad de la planilla. MetriQ no necesita hacer nada distinto para leerlos.
+- **Clientes ocultos:** un admin principal puede ocultar en Nodes los clientes que no se reportan. Un cliente oculto no aparece en `sac-brands` ni en los totales y reportes de todas las marcas, y pedirlo por `brandId` responde `409 BRAND_INACTIVE`. Si vuelve a mostrarse, reaparece con todo su historial.
 - **Frescura:** las respuestas traen `meta.lastSyncAt` y `meta.lastSyncStatus` (última sincronización con Metricool) y `meta.generatedAt`.
 
 ## Rutas

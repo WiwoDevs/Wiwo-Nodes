@@ -5825,6 +5825,32 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
 
 .profile-popover__signout:hover:not(:disabled) { background: var(--hover); }
 
+/* Carga manual del Excel BD SAC (Reportes) -------------------------------------- */
+.account-credentials-panel.manual-records {
+  width: min(600px, 94vw);
+  max-height: min(88vh, 860px);
+  overflow-y: auto;
+  background: var(--surface-overlay);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+.manual-records .form-field input[type="file"] { height: auto; padding: 8px 10px; }
+.manual-records .form-field small .text-button { display: inline-flex; align-items: center; gap: 4px; padding: 0; font-size: 11.5px; }
+.manual-records__summary { display: grid; gap: 8px; }
+.manual-records .manual-records__meta { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.manual-records__problems {
+  display: grid;
+  max-height: 160px;
+  margin: 0;
+  padding: 10px 12px 10px 28px;
+  gap: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
 /* Importar marcas desde Metricool (Cuentas) ------------------------------------- */
 .account-credentials-panel.metricool-import {
   width: min(640px, 94vw);

@@ -13,6 +13,12 @@ import { ZodError } from "zod";
 import { loadConfig, resolveMetricoolAccount, type AppConfig } from "./config.js";
 import { buildInteractionsWorkbook } from "./excel-export.js";
 import { buildBrandWorkbookExport, inspectBrandWorkbook } from "./brand-workbook.js";
+import {
+  buildManualRecords,
+  buildManualRecordsTemplate,
+  MAX_MANUAL_RECORDS_BYTES,
+  readManualRecordsWorkbook,
+} from "./manual-records.js";
 import { buildBrandQaTemplate, inspectBrandQaWorkbook } from "./brand-qa-workbook.js";
 import {
   MetricoolClient,
@@ -49,7 +55,9 @@ import {
   brandResourceCreateSchema,
   brandResourceParamsSchema,
   brandUpdateSchema,
+  brandVisibilitySchema,
   brandWorkbookUpdateSchema,
+  manualRecordsQuerySchema,
   executionListQuerySchema,
   executionParamsSchema,
   idempotencyKeySchema,
@@ -525,6 +533,19 @@ function scopedInteractionFilters(actor: ActorContext, brands: Brand[], filters:
     ...filters,
     brandIds: actor.brandIds.filter((brandId) => knownBrandIds.has(brandId)),
   };
+}
+
+/**
+ * Lo que se opera en la bandeja, Inicio y el resumen: sin los registros cargados a mano desde
+ * el Excel BD SAC. Esos casos ya se atendieron fuera de Nodes (TikTok, LinkedIn) y no se pueden
+ * responder desde aquí; cuentan en Reportes y METRIQ, no como trabajo pendiente.
+ */
+const OPERATIONAL_EXCLUDED_SOURCES: Interaction["source"][] = ["planilla"];
+
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function operationalInteractionFilters(actor: ActorContext, brands: Brand[], filters: InteractionFilters): InteractionFilters {
+  return { ...scopedInteractionFilters(actor, brands, filters), excludeSources: OPERATIONAL_EXCLUDED_SOURCES };
 }
 
 function filterBrandsForActor(actor: ActorContext, brands: Brand[]): Brand[] {
@@ -1686,6 +1707,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, async (_request: FastifyRequest, body: string) =>
     Object.fromEntries(new URLSearchParams(body)),
   );
+  // El Excel BD SAC de la carga manual llega como archivo crudo (sin multipart).
+  app.addContentTypeParser(
+    XLSX_CONTENT_TYPE,
+    { parseAs: "buffer", bodyLimit: MAX_MANUAL_RECORDS_BYTES },
+    async (_request: FastifyRequest, body: Buffer) => body,
+  );
 
   const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 
@@ -2347,6 +2374,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede crear, editar o restablecer roles.");
     }
   };
+  /**
+   * Ocultar o mostrar clientes define qué marcas existen para todo el equipo (sincronización,
+   * operación, Reportes y METRIQ): solo un admin principal, nunca un admin asignado en la app.
+   */
+  const canHideBrands = (actor: ActorContext) => actor.role === "admin" && isMasterAdmin(identityConfig, actor.email);
+  const requireBrandVisibilityAdmin = (actor: ActorContext) => {
+    if (!canHideBrands(actor)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede ocultar o mostrar clientes.");
+    }
+  };
   const masterOnlyError = (granted: Permission[], subject: string) => {
     const labels = granted.map((key) => PERMISSION_CATALOG.find((permission) => permission.key === key)?.label ?? key);
     return new ApiError(403, "MASTER_ONLY_PERMISSION", `${subject} da permisos que solo un admin principal puede otorgar: ${labels.join(", ")}.`);
@@ -2525,6 +2562,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         brandIds: actor.brandIds,
         source: actor.source,
         ...(actor.email ? { email: actor.email } : {}),
+        // Admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS): el único que oculta o muestra clientes.
+        masterAdmin: actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
       },
       meta: apiMeta(config),
     };
@@ -2540,9 +2579,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const brands = await repository.listBrands((accountId, _storedConfigured, stored) =>
       metricoolAccountState(config, accountId, stored),
     );
-    const visibleBrands = actor.brandIds === "all"
+    const scoped = actor.brandIds === "all"
       ? brands
       : brands.filter((brand) => actor.brandIds.includes(brand.id));
+    // Un cliente oculto no existe para el equipo: solo el admin principal lo ve, para poder
+    // volver a mostrarlo.
+    const visibleBrands = canHideBrands(actor)
+      ? scoped
+      : scoped.filter((brand) => brand.active && brand.account.active);
     return { data: visibleBrands, meta: { ...apiMeta(config), count: visibleBrands.length } };
   });
 
@@ -2727,6 +2771,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           );
         }
       }
+      const visibilityChanges = (body.active !== undefined && body.active !== brand.active)
+        || (body.accountActive !== undefined && body.accountActive !== brand.account.active);
+      if (visibilityChanges) requireBrandVisibilityAdmin(actor);
       if (body.name !== undefined) brand.name = body.name;
       if (body.color !== undefined) brand.color = body.color;
       if (body.active !== undefined) brand.active = body.active;
@@ -2743,28 +2790,107 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     };
   });
 
-  app.delete("/api/brands/:brandId", async (request) => {
-    const actor = requirePermission(config, request, "brands.manage");
-    const { brandId } = brandParamsSchema.parse(request.params);
-    assertBrandAccess(actor, brandId);
-    const updated = await repository.mutateCatalog((store) => {
-      const brand = store.brands.find((item) => item.id === brandId);
-      if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
-      brand.active = false;
-      brand.account.active = false;
-      // La referencia a Metricool se conserva: la marca deja de sincronizar por estar
-      // inactiva, y la vinculación automática no la vuelve a crear.
+  /**
+   * Oculta o vuelve a mostrar un cliente. Oculto deja de sincronizar con Metricool y sale de
+   * la operación, de Reportes y de METRIQ; su historial se conserva y vuelve entero al
+   * mostrarlo (la sincronización siguiente lo pone al día). La referencia a Metricool se
+   * conserva para que la vinculación automática no lo vuelva a crear.
+   */
+  const setBrandHidden = (brandId: string, hidden: boolean) => repository.mutateCatalog((store) => {
+    const brand = store.brands.find((item) => item.id === brandId);
+    if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
+    brand.active = !hidden;
+    brand.account.active = !hidden;
+    if (hidden) {
       store.workflow.autoReplyAccountIds = store.workflow.autoReplyAccountIds.filter((id) => id !== brand.account.id);
       if (store.workflow.autoReplyEnabled && store.workflow.autoReplyAccountIds.length === 0) {
         store.workflow.autoReplyEnabled = false;
       }
-      store.workflow.updatedAt = new Date().toISOString();
-      return brand;
-    });
+    }
+    store.workflow.updatedAt = new Date().toISOString();
+    return brand;
+  });
+
+  app.put("/api/brands/:brandId/visibility", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    requireBrandVisibilityAdmin(actor);
+    const { brandId } = brandParamsSchema.parse(request.params);
+    assertBrandAccess(actor, brandId);
+    const body = brandVisibilitySchema.parse(request.body);
+    const updated = await setBrandHidden(brandId, body.hidden);
     return {
       data: publicBrand(config, updated),
-      meta: { ...apiMeta(config), deactivated: true, autoReplyRemoved: true, externalWrites: false },
+      meta: { ...apiMeta(config), hidden: body.hidden, externalWrites: false },
     };
+  });
+
+  /** Equivale a ocultar el cliente (se conserva por compatibilidad). */
+  app.delete("/api/brands/:brandId", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    requireBrandVisibilityAdmin(actor);
+    const { brandId } = brandParamsSchema.parse(request.params);
+    assertBrandAccess(actor, brandId);
+    const updated = await setBrandHidden(brandId, true);
+    return {
+      data: publicBrand(config, updated),
+      meta: { ...apiMeta(config), deactivated: true, hidden: true, autoReplyRemoved: true, externalWrites: false },
+    };
+  });
+
+  /**
+   * Carga manual del Excel BD SAC de una marca (TikTok y LinkedIn, que Metricool no trae).
+   * `dryRun=true` (por defecto) solo revisa y cuenta; `dryRun=false` guarda los registros
+   * nuevos. No escribe en Metricool ni crea trabajo en la bandeja: cuentan en Reportes y METRIQ.
+   */
+  app.post("/api/brands/:brandId/manual-records", { bodyLimit: MAX_MANUAL_RECORDS_BYTES }, async (request) => {
+    const actor = requirePermission(config, request, "records.import");
+    const { brandId } = brandParamsSchema.parse(request.params);
+    assertBrandAccess(actor, brandId);
+    const query = manualRecordsQuerySchema.parse(request.query);
+    if (!Buffer.isBuffer(request.body)) {
+      throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", `Sube el archivo como Excel .xlsx (${XLSX_CONTENT_TYPE}).`);
+    }
+    const catalog = await repository.snapshotCatalog();
+    const brand = catalog.brands.find((item) => item.id === brandId);
+    if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
+    if (!brand.active || !brand.account.active) {
+      throw new ApiError(409, "BRAND_INACTIVE", "La marca está oculta: vuelve a mostrarla antes de cargarle registros.");
+    }
+    const leido = await readManualRecordsWorkbook(request.body).catch((error) => {
+      throw new ApiError(422, "MANUAL_RECORDS_FORMAT_INVALID", error instanceof Error ? error.message : "No se pudo leer el archivo.");
+    });
+    const result = buildManualRecords({
+      brand,
+      hoja: leido.hoja,
+      filas: leido.filas,
+      existentes: await repository.listInteractions({ brandId }),
+      redPorDefecto: query.red,
+      archivo: (query.archivo || "Excel BD SAC").replace(/[\u0000-\u001f"]/g, ""),
+      actor: { userId: actor.userId, displayName: actor.displayName },
+    });
+    const { nuevas, ...resumen } = result;
+    let creadas = 0;
+    let yaCargadas = resumen.yaCargadas;
+    if (!query.dryRun && nuevas.length) {
+      const inserted = await repository.insertInteractions(nuevas);
+      creadas = inserted.created.length;
+      // Otra carga simultánea pudo guardar las mismas filas: también cuentan como ya cargadas.
+      yaCargadas += inserted.duplicates;
+    }
+    return {
+      data: { ...resumen, yaCargadas, nuevas: nuevas.length, creadas, dryRun: query.dryRun },
+      meta: { ...apiMeta(config), externalWrites: false },
+    };
+  });
+
+  /** Plantilla vacía del Excel BD SAC para la carga manual. */
+  app.get("/api/manual-records/template", async (request, reply) => {
+    requirePermission(config, request, "records.import");
+    const bytes = await buildManualRecordsTemplate();
+    return reply
+      .header("Content-Disposition", 'attachment; filename="plantilla-bd-sac-tiktok-linkedin.xlsx"')
+      .type(XLSX_CONTENT_TYPE)
+      .send(bytes);
   });
 
   app.get("/api/brands/:brandId/workbook", async (request) => {
@@ -3081,7 +3207,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     }
     // Una sola lectura por revisión, compartida por todos los navegadores que piden el cambio.
     if (!deltaSource || deltaSource.revision !== changes.revision) {
-      const interactions = repository.listInteractions({});
+      const interactions = repository.listInteractions({ excludeSources: OPERATIONAL_EXCLUDED_SOURCES });
       deltaSource = { revision: changes.revision, interactions };
       interactions.catch(() => { if (deltaSource?.interactions === interactions) deltaSource = undefined; });
     }
@@ -3149,7 +3275,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const { page, pageSize, ...filters } = query;
     assertDateRange(filters.from, filters.to);
     const snapshot = await repository.snapshotCatalog();
-    const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, filters);
+    const scopedFilters = operationalInteractionFilters(actor, snapshot.brands, filters);
     const contacts = await cachedInboxContacts(scopedFilters);
     const total = contacts.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -3166,7 +3292,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const query = inboxPostListQuerySchema.parse(request.query);
     const { page, pageSize, pendingOnly, ...filters } = query;
     const snapshot = await repository.snapshotCatalog();
-    const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, {
+    const scopedFilters = operationalInteractionFilters(actor, snapshot.brands, {
       ...filters,
       type: "comment",
     });
@@ -3194,7 +3320,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const { postKey } = inboxPostParamsSchema.parse(request.params);
     const { page, pageSize, pendingOnly } = inboxPostCommentsQuerySchema.parse(request.query);
     const snapshot = await repository.snapshotCatalog();
-    const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, { type: "comment" });
+    const scopedFilters = operationalInteractionFilters(actor, snapshot.brands, { type: "comment" });
     const allComments = await repository.listInteractions(scopedFilters);
     const post = groupInboxPosts(allComments).find((item) => item.postKey === postKey);
     if (!post) throw new ApiError(404, "INBOX_POST_NOT_FOUND", "La publicación no existe o no está disponible para este usuario.");
@@ -3223,7 +3349,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const { page, pageSize, ...filters } = query;
     assertDateRange(filters.from, filters.to);
     const snapshot = await repository.snapshotCatalog();
-    const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, filters);
+    const scopedFilters = operationalInteractionFilters(actor, snapshot.brands, filters);
     const interactions = await repository.listInteractions(scopedFilters);
     const total = interactions.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -3297,7 +3423,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const body = interactionBulkTriageSchema.parse(request.body);
     const snapshot = await repository.snapshotCatalog();
     const keys = new Set(body.contactKeys);
-    const targets = (await repository.listInteractions(scopedInteractionFilters(actor, snapshot.brands, {})))
+    const targets = (await repository.listInteractions(operationalInteractionFilters(actor, snapshot.brands, {})))
       .filter((item) => item.direction === "inbound" && keys.has(contactKeyFor(item)) && !esTriajeManual(item));
     const ids = targets.map((item) => item.id);
     const updated = ids.length
@@ -3416,7 +3542,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const filters = interactionFiltersSchema.parse(request.query);
     assertDateRange(filters.from, filters.to);
     const snapshot = await repository.snapshotCatalog();
-    const scopedFilters = scopedInteractionFilters(actor, snapshot.brands, filters);
+    const scopedFilters = operationalInteractionFilters(actor, snapshot.brands, filters);
     return { data: await repository.stats(scopedFilters), meta: apiMeta(config) };
   });
 
@@ -4380,7 +4506,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const actor = requirePermission(config, request, "inbox.archive_expired");
     const body = archiveExpiredSchema.parse(request.body ?? {});
     const snapshot = await repository.snapshotCatalog();
-    const scoped = scopedInteractionFilters(actor, snapshot.brands, {
+    const scoped = operationalInteractionFilters(actor, snapshot.brands, {
       ...(body.accountId ? { accountId: body.accountId } : {}),
     });
     const candidates = expiredOpenInteractions(await repository.listInteractions(scoped))

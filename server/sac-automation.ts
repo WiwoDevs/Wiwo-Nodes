@@ -69,6 +69,12 @@ function canonical(value: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+/** Intención por reglas (sin IA) de un texto suelto; undefined si ninguna regla aplica. */
+export function intentFromText(text: string): string | undefined {
+  const value = normalized(text);
+  return INTENT_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(value)))?.intent;
+}
+
 function classify(interaction: Interaction): {
   intent: string;
   sentiment: Sentiment;

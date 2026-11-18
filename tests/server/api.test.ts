@@ -965,6 +965,7 @@ describe("SAC Flow API", () => {
       permissions: [],
       brandIds: ["brand-01"],
       source: "trusted_headers",
+      masterAdmin: false,
     });
   });
 
@@ -1303,13 +1304,21 @@ describe("SAC Flow API", () => {
     });
     expect(workflow.json().data).toMatchObject({ autoReplyEnabled: false, autoReplyAccountIds: [] });
 
+    // Oculta: el equipo ya no la ve; solo el admin principal, para poder volver a mostrarla.
     const brands = await app.inject({
       method: "GET",
       url: "/api/brands",
       headers: scopedActor("viewer", "*"),
     });
-    expect(brands.json().data).toHaveLength(21);
-    expect(brands.json().data.find((brand: { id: string }) => brand.id === "brand-21")).toMatchObject({
+    expect(brands.json().data).toHaveLength(20);
+    expect(brands.json().data.some((brand: { id: string }) => brand.id === "brand-21")).toBe(false);
+    const masterBrands = await app.inject({
+      method: "GET",
+      url: "/api/brands",
+      headers: scopedActor("admin", "*"),
+    });
+    expect(masterBrands.json().data).toHaveLength(21);
+    expect(masterBrands.json().data.find((brand: { id: string }) => brand.id === "brand-21")).toMatchObject({
       active: false,
       account: { active: false },
     });

@@ -18,7 +18,8 @@ export type Permission =
   | "workflow.publish"
   | "automations.run"
   | "automations.edit"
-  | "brands.manage";
+  | "brands.manage"
+  | "records.import";
 
 /** Por si un servidor anterior no envía permisos: lo que permitía cada nivel. */
 const LEGACY_DEFAULTS: Record<Exclude<SessionActor["role"], "admin">, Permission[]> = {
@@ -27,6 +28,7 @@ const LEGACY_DEFAULTS: Record<Exclude<SessionActor["role"], "admin">, Permission
   supervisor: [
     "inbox.reply", "inbox.triage", "inbox.assign", "sync.run", "automations.run",
     "inbox.assign_others", "inbox.archive_expired", "export.xlsx", "metrics.read", "deliveries.reconcile", "workflow.edit",
+    "records.import",
   ],
 };
 

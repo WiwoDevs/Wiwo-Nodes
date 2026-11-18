@@ -54,6 +54,7 @@ import {
   connectBrandWorkbook,
   createBrand,
   deactivateBrand,
+  setBrandVisibility,
   importMetricoolBrands,
   archiveExpiredInteractions,
   deleteInteractionDraft,
@@ -512,6 +513,13 @@ export function App({ onSignOut, sessionActor }: {
     () => visibleData.accounts.filter((account) => account.brandActive !== false && account.accountActive !== false),
     [visibleData.accounts],
   );
+  /** Marcas visibles para la carga manual de TikTok/LinkedIn, por nombre. */
+  const manualImportBrands = useMemo(
+    () => operationalAccounts
+      .map((account) => ({ brandId: account.brandId ?? account.id, name: account.name, handle: account.accountHandle }))
+      .sort((left, right) => left.name.localeCompare(right.name, "es")),
+    [operationalAccounts],
+  );
   const selectedManualAccount = visibleData.accounts.find((account) => account.id === manualAccountId);
   /** Casos por atender por cuenta y superficie: en plazo y total (para el selector de cuenta). */
   const manualPendingCounts = useMemo(() => {
@@ -553,7 +561,10 @@ export function App({ onSignOut, sessionActor }: {
   const canEditAutomations = allowed("automations.edit");
   const canReadMetrics = allowed("metrics.read");
   const canManageBrands = allowed("brands.manage");
+  const canImportRecords = allowed("records.import");
   const canAdmin = !connectionIssue && visibleData.actor.role === "admin";
+  // Ocultar o mostrar clientes: solo el admin principal del servidor, no uno asignado en la app.
+  const canHideBrands = canAdmin && visibleData.actor.masterAdmin === true;
   const isActive = visibleData.workflow.enabled;
   const platformSection = ({
     "platform-home": "home",
@@ -1612,25 +1623,32 @@ export function App({ onSignOut, sessionActor }: {
     }
     await refreshOperationalData();
     setToast(failed.length
-      ? { tone: "warning", title: `No se pudieron desactivar ${failed.length} marca(s)`, detail: failed.join(", ") }
-      : { tone: "success", title: `${accounts.length} marca(s) desactivada(s)`, detail: "No se borró historial; dejan de sincronizar y de aparecer en la operación." });
+      ? { tone: "warning", title: `No se pudieron ocultar ${failed.length} marca(s)`, detail: failed.join(", ") }
+      : { tone: "success", title: `${accounts.length} marca(s) oculta(s)`, detail: "No se borró historial; dejan de sincronizar y de aparecer en la operación, Reportes y MetriQ." });
   }
 
-  async function deactivateBrandAccount(account: BrandAccount) {
+  /** Oculta o vuelve a mostrar un cliente (solo admin principal). */
+  async function setBrandAccountHidden(account: BrandAccount, hidden: boolean) {
     if (isSavingBrand) return;
     setSavingBrand(true);
     try {
-      await deactivateBrand(account.brandId ?? account.id);
+      await setBrandVisibility(account.brandId ?? account.id, hidden);
       await refreshOperationalData();
-      setToast({
-        tone: "success",
-        title: `${account.name} desactivada`,
-        detail: "No se borró historial; deja de sincronizar y no se volverá a vincular automáticamente.",
-      });
+      setToast(hidden
+        ? {
+          tone: "success",
+          title: `${account.name} quedó oculto`,
+          detail: "Deja de sincronizar y sale de la bandeja, Reportes y MetriQ. Su historial se conserva para cuando vuelvas a mostrarlo.",
+        }
+        : {
+          tone: "success",
+          title: `${account.name} está visible de nuevo`,
+          detail: "Vuelve a la operación, Reportes y MetriQ; la próxima sincronización lo pone al día.",
+        });
     } catch (error) {
       setToast({
         tone: "warning",
-        title: "No se pudo desactivar la marca",
+        title: hidden ? "No se pudo ocultar el cliente" : "No se pudo mostrar el cliente",
         detail: error instanceof Error ? error.message : "Revisa la API real.",
       });
       throw error;
@@ -2057,7 +2075,13 @@ export function App({ onSignOut, sessionActor }: {
         ) : null}
         {view === "reports" ? (
           <div className="content-page">
-            <ReportsView canExport={canExport} inboxSync={visibleData.inboxSync} onToast={setToast} />
+            <ReportsView
+              canExport={canExport}
+              canImportRecords={canImportRecords}
+              importBrands={manualImportBrands}
+              inboxSync={visibleData.inboxSync}
+              onToast={setToast}
+            />
           </div>
         ) : null}
         {view === "interactions" ? (
@@ -2177,9 +2201,10 @@ export function App({ onSignOut, sessionActor }: {
               isSavingWorkbook={isSavingWorkbook}
               onCreateBrand={createBrandAccount}
               onUpdateBrand={updateBrandAccount}
-              onDeactivateBrand={deactivateBrandAccount}
+              canHide={canHideBrands}
+              onSetBrandHidden={canHideBrands ? setBrandAccountHidden : undefined}
               onImportMetricoolBrands={importBrandsFromMetricool}
-              onDeactivateBrands={deactivateBrandAccounts}
+              onDeactivateBrands={canHideBrands ? deactivateBrandAccounts : undefined}
               onSyncAccount={syncSingleAccount}
               onSaveMetricoolAccount={saveAccountMetricoolCredentials}
               onDisconnectMetricoolAccount={disconnectAccountMetricool}

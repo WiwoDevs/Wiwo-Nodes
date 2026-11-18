@@ -8,7 +8,7 @@ export const GOOGLE_SHEETS_HOST = "docs.google.com";
 const FIELD_ALIASES: Record<BrandWorkbookField, string[]> = {
   createdAt: ["fecha comentario", "fecha", "date", "created at"],
   link: ["links", "link", "enlace", "url"],
-  customerName: ["nombre usuario cliente", "nombre usuario", "cliente", "customer name"],
+  customerName: ["nombre usuario cliente", "nombre usuario", "cliente", "usuario", "customer name"],
   text: ["reclamo mensaje", "mensaje", "comentario", "message", "texto"],
   channel: ["plataforma rrss", "plataforma", "red social", "rrss", "platform"],
   type: ["canal", "tipo", "type"],
@@ -51,7 +51,7 @@ export function googleSpreadsheetId(input: string): string {
   return match[1];
 }
 
-function workbookMapping(headers: string[]): Partial<Record<BrandWorkbookField, number>> {
+export function workbookMapping(headers: string[]): Partial<Record<BrandWorkbookField, number>> {
   const normalized = headers.map(normalizeWorkbookHeader);
   return Object.fromEntries(
     Object.entries(FIELD_ALIASES).flatMap(([field, aliases]) => {

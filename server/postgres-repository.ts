@@ -155,6 +155,7 @@ type InteractionRow = {
   audit_trail: unknown;
   status_reason: unknown;
   automation_assessment: unknown;
+  sac_triage: unknown;
 };
 
 type WorkflowRunRow = {
@@ -294,6 +295,7 @@ function fromActiveBrands(interactions: Interaction[], store: Pick<DataStore, "b
 function matchesInteraction(interaction: Interaction, filters: InteractionFilters): boolean {
   if (filters.brandId && interaction.brandId !== filters.brandId) return false;
   if (filters.brandIds && !filters.brandIds.includes(interaction.brandId)) return false;
+  if (filters.excludeSources?.includes(interaction.source)) return false;
   if (filters.accountId && interaction.accountId !== filters.accountId) return false;
   if (filters.channel && interaction.channel !== filters.channel) return false;
   if (filters.type && interaction.type !== filters.type) return false;
@@ -465,14 +467,14 @@ const INTERACTION_INSERT_PREFIX = `INSERT INTO interactions
    direction, customer_name, customer_handle, body_text, category, sentiment, confidence,
    status, source, version, received_at, responded_at, metricool_ref, response_text, audit_trail,
    assigned_to_user_id, assigned_to_display_name, internal_notes, updated_at, status_reason,
-   automation_assessment)`;
+   automation_assessment, sac_triage)`;
 
 const INTERACTION_CASTS = [
   undefined, undefined, undefined, undefined, undefined, undefined, undefined,
   undefined, undefined, undefined, undefined, undefined, undefined, undefined,
   undefined, undefined, undefined, undefined, undefined, "jsonb", undefined, "jsonb",
   undefined, undefined, "jsonb", undefined, "jsonb",
-  "jsonb",
+  "jsonb", "jsonb",
 ] as const;
 
 function interactionRowValues(
@@ -510,6 +512,7 @@ function interactionRowValues(
     interaction.updatedAt,
     interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
     interaction.automation ? JSON.stringify(interaction.automation) : null,
+    interaction.sacTriage ? JSON.stringify(interaction.sacTriage) : null,
   ];
 }
 
@@ -969,7 +972,8 @@ export class PostgresRepository implements SacFlowRepository {
            internal_notes = $13::jsonb,
            updated_at = $14,
            status_reason = $15::jsonb,
-           automation_assessment = $16::jsonb
+           automation_assessment = $16::jsonb,
+           sac_triage = $17::jsonb
        WHERE organization_id = $1 AND interaction_key = $2`,
       [
         organizationId,
@@ -988,6 +992,7 @@ export class PostgresRepository implements SacFlowRepository {
         interaction.updatedAt,
         interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
         interaction.automation ? JSON.stringify(interaction.automation) : null,
+        interaction.sacTriage ? JSON.stringify(interaction.sacTriage) : null,
       ],
     );
   }
@@ -1029,10 +1034,10 @@ export class PostgresRepository implements SacFlowRepository {
               direction, customer_name, customer_handle, body_text, category, sentiment, confidence,
               status, source, version, received_at, responded_at, metricool_ref, response_text, audit_trail,
               assigned_to_user_id, assigned_to_display_name, internal_notes, updated_at, status_reason,
-              automation_assessment)
+              automation_assessment, sac_triage)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                    $17, $18, $19, $20::jsonb, $21, $22::jsonb, $23, $24, $25::jsonb, $26, $27::jsonb,
-                   $28::jsonb)
+                   $28::jsonb, $29::jsonb)
            ON CONFLICT (organization_id, social_account_id, kind, external_id) DO NOTHING`,
           [
             organizationId,
@@ -1063,6 +1068,7 @@ export class PostgresRepository implements SacFlowRepository {
             interaction.updatedAt,
             interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
             interaction.automation ? JSON.stringify(interaction.automation) : null,
+            interaction.sacTriage ? JSON.stringify(interaction.sacTriage) : null,
           ],
         );
         if (result.rowCount === 1) created.push(interaction);
@@ -2340,7 +2346,8 @@ export class PostgresRepository implements SacFlowRepository {
          i.metricool_ref,
          i.audit_trail,
          i.status_reason,
-         i.automation_assessment
+         i.automation_assessment,
+         i.sac_triage
        FROM interactions i
        JOIN brands b
          ON b.organization_id = i.organization_id
@@ -2381,6 +2388,7 @@ export class PostgresRepository implements SacFlowRepository {
       metricoolRef: asJson<Interaction["metricoolRef"]>(row.metricool_ref, undefined),
       statusReason: asJson<Interaction["statusReason"]>(row.status_reason, undefined),
       automation: asJson<Interaction["automation"]>(row.automation_assessment, undefined),
+      sacTriage: asJson<Interaction["sacTriage"]>(row.sac_triage, undefined),
       audit: asJson<InteractionAuditEntry[]>(row.audit_trail, []),
     }));
   }
@@ -3070,6 +3078,7 @@ export class PostgresRepository implements SacFlowRepository {
       "customer_handle", "body_text", "category", "sentiment", "confidence", "status", "source", "version",
       "received_at", "responded_at", "metricool_ref", "response_text", "audit_trail", "assigned_to_user_id",
       "assigned_to_display_name", "internal_notes", "updated_at", "status_reason", "automation_assessment",
+      "sac_triage",
     ];
     const returned = await insertRowsBatched<{ id: string; interaction_key: string }>(
       client,

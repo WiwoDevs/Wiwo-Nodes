@@ -61,6 +61,13 @@ Los umbrales son una base de staging. Techlab debe ajustarlos con el volumen rea
 
 El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo SAC ni `/reply`. Si aparecen envíos al abrir, filtrar o seleccionar, detener la prueba y revisar requests/auditoría antes de continuar.
 
+## Clientes ocultos y carga manual de TikTok/LinkedIn
+
+- **Ocultar un cliente** (Cuentas → **Ocultar**; vuelve desde el filtro **Ocultos** → **Mostrar**) es solo del admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`). Oculto deja de sincronizar, sale de la bandeja, Inicio, Reportes y METRIQ, y no aparece en Cuentas para el resto del equipo. No borra nada; al mostrarlo vuelve con su historial y la sincronización siguiente trae lo pendiente. Si alguien dice que "desapareció" una marca, revisar primero el filtro **Ocultos** con un admin principal.
+- **Carga manual** (Reportes → **Cargar TikTok/LinkedIn**, permiso *Cargar registros manuales*): se sube el Excel BD SAC de la marca (.xlsx; desde Google Sheets: Archivo → Descargar → Microsoft Excel). Primero se revisa: la ventana dice cuántos casos nuevos hay por red, cuántos ya estaban cargados, cuántos ya llegaron por Metricool, cuántas filas son de otras redes y qué filas tienen problemas (con su número). Solo al confirmar se guardan.
+- Los casos cargados se guardan como `source: "planilla"` con la marca manual de caso SAC. Cuentan en Reportes, en el Excel y en METRIQ, pero no en la bandeja ni en los contadores de Inicio. Volver a subir el mismo archivo no duplica.
+- Si una carga salió mal (marca equivocada), no hay botón para deshacerla: los registros llevan en la auditoría el lote, la fila, el archivo y la persona (`ingested`, `metadata.lote`), y se pueden identificar en la base por `external_id LIKE 'planilla:%'` y `source = 'planilla'`. Borrar filas de producción requiere aprobación explícita y un respaldo previo.
+
 ## Respaldos de la base
 
 En producción, el servicio `backup` de `docker-compose.production.yml` respalda la base PostgreSQL completa con `pg_dump` (script `scripts/postgres-backup.sh`). La base guarda todo el historial: mensajes, borradores, respuestas, asignaciones, casos marcados a mano, marcas, usuarios y roles.
