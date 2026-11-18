@@ -38,6 +38,7 @@ import {
 import { ContentContext } from "./ContentContext";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb, BusyOrb } from "./ThinkingOrb";
+import { EmojiPicker } from "./EmojiPicker";
 
 type ManualSurfaceId = "all" | `${SocialPlatform}:${InteractionKind}`;
 type StatusAction = "resolved" | "escalated";
@@ -443,6 +444,7 @@ export function ManualManagementView({
   const [onlyPending, setOnlyPending] = useState(true);
   const [draftText, setDraftText] = useState("");
   const statusFormRef = useRef<HTMLFormElement>(null);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
   // Conversaciones en las que la persona ya confirmó enviar en esta sesión del navegador.
   const confirmedConversations = useRef<Set<string>>(readConfirmedConversations());
   const rememberConfirmedConversation = (conversation: string) => {
@@ -755,6 +757,21 @@ export function ManualManagementView({
   const updateDraft = (value: string) => {
     setDraftText(value);
     setDirty(true);
+  };
+
+  /** Inserta el emoji donde está el cursor (o reemplaza lo seleccionado) y deja el cursor después. */
+  const insertEmoji = (emoji: string) => {
+    const field = draftRef.current;
+    const start = field?.selectionStart ?? draftText.length;
+    const end = field?.selectionEnd ?? draftText.length;
+    const next = `${draftText.slice(0, start)}${emoji}${draftText.slice(end)}`;
+    if (next.length > 10_000) return;
+    updateDraft(next);
+    const caret = start + emoji.length;
+    requestAnimationFrame(() => {
+      field?.focus({ preventScroll: true });
+      field?.setSelectionRange(caret, caret);
+    });
   };
 
   const sendDisabled = !visibleDetail
@@ -1252,7 +1269,9 @@ export function ManualManagementView({
                         Fuera del plazo recomendado de Meta. Puedes intentar responder manualmente, pero la plataforma podría rechazar la entrega.
                       </p>
                     ) : null}
+                    <div className="manual-inbox-composer__field">
                     <textarea
+                      ref={draftRef}
                       id="manual-inbox-draft"
                       value={draftText}
                       onChange={(event) => updateDraft(event.target.value)}
@@ -1270,6 +1289,8 @@ export function ManualManagementView({
                         ? "Escribe otro mensaje para esta conversación (Ctrl + Enter para enviar)"
                         : "Escribe una respuesta humana para este caso"}
                     />
+                    <EmojiPicker onPick={insertEmoji} disabled={!canWrite || isSaving || composerLocked} />
+                    </div>
                     <small className={`manual-inbox-draft-state${isDraftDirty ? " is-dirty" : ""}`} aria-live="polite">
                       {isDraftDirty
                         ? "Cambios locales sin guardar; se pedirá confirmación antes de cambiar de caso."

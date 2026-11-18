@@ -14,7 +14,7 @@ Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo 
 | --- | --- | --- |
 | **Inicio** | Lo que necesita atención primero. El Agente ve *sus* casos en plazo y **Tomar siguiente**. El Supervisor suma el panel **Equipo** (carga por persona). El Admin suma el panel **Sistema** (sincronización, envío automático y trabajos fallidos). | Todos |
 | **Bandeja SAC** | Una fila por persona y cuenta, ordenada por lo que vence antes. Tiene filtros que se recuerdan, buscador de cuentas, **Mis casos**, **Tomar siguiente**, atajos `J`/`K`/`R`/`E`, archivado de casos vencidos y exportación a Excel. | Todos |
-| **Gestión DMs** / **Gestión comentarios** | Trabajo por cuenta: cola y conversación lado a lado. Los comentarios se agrupan por publicación. | Todos |
+| **Gestión DMs** / **Gestión comentarios** | Trabajo por cuenta: cola y conversación lado a lado, con quién tiene a cargo cada chat o post y un botón de emojis al escribir. Los comentarios se agrupan por publicación (Instagram, Facebook, TikTok, LinkedIn y YouTube). | Todos |
 | **Resumen SAC** | Totales y rendimiento por marca. | Supervisor, Admin |
 | **Reportes** | Cifras del **informe SAC mensual** por marca: casos, respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales. Muestra avisos de datos antes de presentar y descarga el Excel del mes. **Cargar TikTok/LinkedIn** sube el Excel BD SAC con los casos que Metricool no trae (permiso *Cargar registros manuales*). | Supervisor, Admin |
 | **Flujo SAC** | Reglas del protocolo SAC, versiones y publicación. | Supervisor, Admin |
@@ -58,7 +58,7 @@ La sección **Reportes** calcula, por mes y marca, las mismas cifras del informe
 - Variación contra el mes anterior, que se marca como *no comparable* si ese mes está incompleto.
 - Motivos, tono y canales.
 
-**TikTok y LinkedIn** no llegan por Metricool. Con **Cargar TikTok/LinkedIn** se sube el Excel BD SAC de la marca (un caso por fila, como la planilla de siempre). Primero se revisa qué entra y qué se omite, y recién al confirmar se guarda. Esos casos cuentan en el reporte y llegan a MetriQ, pero no aparecen en la bandeja porque ya se atendieron fuera de Nodes. Subir el mismo archivo otra vez no duplica nada.
+**TikTok y LinkedIn:** Metricool trae sus comentarios (TikTok solo de cuentas Business), que entran a la bandeja y a Gestión comentarios como los de las demás redes, pero no sus DMs ni lo que el equipo lleva en la planilla. Para eso, con **Cargar TikTok/LinkedIn** se sube el Excel BD SAC de la marca (un caso por fila, como la planilla de siempre). Primero se revisa qué entra y qué se omite, y recién al confirmar se guarda. Esos casos cuentan en el reporte y llegan a MetriQ, pero no aparecen en la bandeja porque ya se atendieron fuera de Nodes. Subir el mismo archivo otra vez no duplica nada.
 
 Antes de presentar, la sección avisa de datos dudosos: mensajes sin clasificar, cuentas duplicadas (dos marcas apuntando al mismo usuario) o una sincronización detenida. El Excel del mes, de todas las marcas o de una, usa los mismos días (UTC) que las cifras.
 

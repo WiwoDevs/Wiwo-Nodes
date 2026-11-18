@@ -635,7 +635,7 @@ Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, deactivated: true, hidd
 
 ### `POST /api/brands/:brandId/manual-records`
 
-Carga manual del Excel BD SAC de una marca, para las redes que Metricool no trae (TikTok y LinkedIn). Requiere el permiso `records.import` ("Cargar registros manuales"; por defecto Supervisor y Admin) y acceso a la marca. El cuerpo es el archivo `.xlsx` tal cual, con `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (máximo 8 MB y 20.000 filas); otro tipo responde `415 UNSUPPORTED_MEDIA_TYPE` y un archivo ilegible o sin las columnas de la planilla, `422 MANUAL_RECORDS_FORMAT_INVALID`. Una marca oculta responde `409 BRAND_INACTIVE`.
+Carga manual del Excel BD SAC de una marca, para lo de TikTok y LinkedIn que Metricool no trae (sus DMs y lo registrado en la planilla; los comentarios sí llegan por Metricool y no se duplican). Requiere el permiso `records.import` ("Cargar registros manuales"; por defecto Supervisor y Admin) y acceso a la marca. El cuerpo es el archivo `.xlsx` tal cual, con `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (máximo 8 MB y 20.000 filas); otro tipo responde `415 UNSUPPORTED_MEDIA_TYPE` y un archivo ilegible o sin las columnas de la planilla, `422 MANUAL_RECORDS_FORMAT_INVALID`. Una marca oculta responde `409 BRAND_INACTIVE`.
 
 Query:
 
