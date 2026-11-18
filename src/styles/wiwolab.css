@@ -639,3 +639,46 @@ select option,
   height: 100dvh;
   overflow: hidden;
 }
+
+/* Detalle de caso: el resto de la app se difumina detrás del panel y un clic fuera lo cierra. */
+.case-detail-backdrop {
+  position: fixed;
+  z-index: 34;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  animation: case-detail-backdrop-in 180ms ease-out;
+}
+
+:root[data-theme="light"] .case-detail-backdrop { background: rgba(31, 31, 31, 0.22); }
+
+@keyframes case-detail-backdrop-in { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .case-detail-backdrop { animation: none; }
+}
+
+/* Gestión DMs/comentarios: quién tiene a cargo el chat o el post abierto, junto al estado. */
+.manual-inbox-owner {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 260px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--lab-primary-line);
+  border-radius: var(--shape-full);
+  color: var(--ink);
+  background: var(--lab-primary-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.manual-inbox-owner svg { flex: none; color: var(--lab-primary); }
+.manual-inbox-owner__label { color: var(--muted); }
+.manual-inbox-owner strong { overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
+.manual-inbox-owner--none { border-color: var(--border); background: var(--lab-muted); }
+.manual-inbox-owner--none svg { color: var(--muted); }
+.manual-inbox-owner--none strong { color: var(--muted); font-weight: 500; }

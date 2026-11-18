@@ -2247,6 +2247,7 @@ export function App({ onSignOut, sessionActor }: {
               postCommentsError={manualCommentsIssue}
               canWrite={canOperate}
               canRefresh={canSync}
+              currentUserId={visibleData.actor.userId}
               lastUpdatedAt={inboxCheckedAt ?? lastInboxRefreshAt}
               refreshIssue={manualCommentsIssue || inboxRefreshIssue}
               statusReasons={visibleData.statusReasons}

@@ -86,6 +86,8 @@ export interface ManualManagementViewProps {
   isRefreshing?: boolean;
   canWrite?: boolean;
   canRefresh?: boolean;
+  /** Persona que usa la vista: su caso asignado se muestra como «Tú». */
+  currentUserId?: string;
   lastUpdatedAt?: string;
   refreshIssue?: string | null;
   statusReasons: StatusReasonCatalog;
@@ -408,6 +410,7 @@ export function ManualManagementView({
   isRefreshing = false,
   canWrite = true,
   canRefresh = true,
+  currentUserId,
   lastUpdatedAt,
   refreshIssue = null,
   statusReasons,
@@ -1087,6 +1090,13 @@ export function ManualManagementView({
                       </div>
                     </div>
                     <div className="manual-inbox-conversation-header__actions">
+                      <ManualOwnerChip
+                        owners={isCommentSurface
+                          ? [visibleDetail, ...selectedPendingComments].map((interaction) => interaction.assignedTo)
+                          : [visibleDetail.assignedTo]}
+                        currentUserId={currentUserId}
+                        scope={isCommentSurface ? "post" : "chat"}
+                      />
                       <span className={`manual-inbox-status manual-inbox-status--${visibleDetail.status}`}>
                         {statusLabel(visibleDetail)}
                       </span>
@@ -1420,5 +1430,29 @@ export function ManualManagementView({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Quién tiene a cargo el chat o la publicación abierta (lo mismo que muestra la Bandeja SAC). En un post
+ * reúne a los responsables de sus comentarios abiertos, sin repetir; la persona que usa la vista es «Tú».
+ */
+function ManualOwnerChip({ owners, currentUserId, scope }: {
+  owners: Array<{ userId: string; displayName: string } | undefined>;
+  currentUserId?: string;
+  scope: "chat" | "post";
+}) {
+  const unique = [...new Map(owners.filter((owner): owner is { userId: string; displayName: string } => Boolean(owner)).map((owner) => [owner.userId, owner])).values()];
+  const names = unique.map((owner) => (owner.userId === currentUserId ? "Tú" : owner.displayName));
+  const label = names.length ? names.join(", ") : "Sin asignar";
+  const title = names.length
+    ? `${scope === "post" ? "Responsables de los comentarios abiertos de este post" : "Responsable actual de este chat"}: ${label}`
+    : scope === "post" ? "Nadie tiene a cargo los comentarios abiertos de este post" : "Nadie tiene a cargo este chat";
+  return (
+    <span className={`manual-inbox-owner${names.length ? "" : " manual-inbox-owner--none"}`} title={title}>
+      {names.length ? <UserFocus size={15} weight="duotone" aria-hidden="true" /> : <UserPlus size={15} weight="duotone" aria-hidden="true" />}
+      <span className="manual-inbox-owner__label">A cargo:</span>
+      <strong>{label}</strong>
+    </span>
   );
 }

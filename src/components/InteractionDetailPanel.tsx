@@ -402,13 +402,30 @@ export function InteractionDetailPanel({
     openEscalate: () => openStatusForm("escalated"),
   };
 
+  // Clic fuera del panel: lo cierra, pero una respuesta sin guardar no se pierde por un clic accidental.
+  const closeFromBackdrop = async () => {
+    if (draftDirtyRef.current) {
+      const confirmed = await confirmAction({
+        title: "¿Cerrar sin guardar la respuesta?",
+        message: "Tienes cambios en la respuesta que no se han guardado. Si cierras el detalle, se descartan.",
+        confirmLabel: "Cerrar y descartar",
+        cancelLabel: "Seguir editando",
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
+    onClose();
+  };
+
   return (
+    <>
+    <div className="case-detail-backdrop" aria-hidden="true" onClick={() => void closeFromBackdrop()} />
     <aside
       ref={panelRef}
       className="case-detail-panel"
       aria-label="Detalle de conversación"
       role="dialog"
-      aria-modal="false"
+      aria-modal="true"
       tabIndex={-1}
     >
       <header className="case-detail-panel__header">
@@ -1030,5 +1047,6 @@ export function InteractionDetailPanel({
         </div>
       )}
     </aside>
+    </>
   );
 }
