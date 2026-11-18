@@ -4013,8 +4013,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (interaction.direction !== "inbound") {
       throw new ApiError(409, "INVALID_DIRECTION", "Solo se puede responder a interacciones entrantes.");
     }
-    const answeredByDetectedTeamResponse = interaction.audit.some((entry) =>
-      entry.action === "status_changed" && entry.metadata?.reason === "OUTBOUND_MESSAGE_DETECTED");
+    // Solo cuenta si fue el último cambio de estado: una persona pudo reabrir el caso después.
+    const lastStatusChange = [...interaction.audit].reverse().find((entry) => entry.action === "status_changed");
+    const answeredByDetectedTeamResponse = lastStatusChange?.metadata?.reason === "OUTBOUND_MESSAGE_DETECTED";
     // Un borrador sobre un caso respondido o resuelto lo devolvería a "borrador", borraría el
     // registro de lo enviado y abriría la puerta a una segunda respuesta al cliente.
     if (body.mode === "draft" && (answeredByDetectedTeamResponse || ["replied", "resolved"].includes(interaction.status))) {

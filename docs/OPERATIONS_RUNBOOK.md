@@ -61,6 +61,12 @@ Los umbrales son una base de staging. Techlab debe ajustarlos con el volumen rea
 
 El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo SAC ni `/reply`. Si aparecen envíos al abrir, filtrar o seleccionar, detener la prueba y revisar requests/auditoría antes de continuar.
 
+## Casos cerrados por la cuenta y "Reabrir caso"
+
+- Cuando la cuenta manda un mensaje después del del cliente, Nodes marca el caso **Respondido por el equipo** y bloquea la respuesta para no contestar dos veces. Los saludos automáticos de Meta (respuesta instantánea, mensaje de ausencia, bots) no cuentan: un texto que la cuenta mandó igual en 3 o más conversaciones dentro de los 60 s del mensaje del cliente se ignora y el caso sigue pendiente.
+- Si aun así un caso quedó cerrado y el cliente necesita respuesta (por ejemplo, un saludo automático que se repite poco), **Reabrir caso** (en el aviso "Este caso ya no requiere respuesta" de Gestión DMs/comentarios o en el detalle de la Bandeja; permiso *Notas y estados*) vuelve a pendiente el último mensaje del cliente y lo deja seleccionado. Queda en la auditoría quién lo reabrió y la sincronización no lo vuelve a cerrar por la respuesta anterior.
+- Este cambio no reabre solo los casos que ya estaban cerrados por un saludo automático antes del despliegue; esos se reabren a mano o con una corrección de datos aprobada.
+
 ## Clientes ocultos y carga manual de TikTok/LinkedIn
 
 - **Ocultar un cliente** (Cuentas → **Ocultar**; vuelve desde el filtro **Ocultos** → **Mostrar**) es solo del admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`). Oculto deja de sincronizar, sale de la bandeja, Inicio, Reportes y METRIQ, y no aparece en Cuentas para el resto del equipo. No borra nada; al mostrarlo vuelve con su historial y la sincronización siguiente trae lo pendiente. Si alguien dice que "desapareció" una marca, revisar primero el filtro **Ocultos** con un admin principal.

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise,
+  ArrowCounterClockwise,
   ArrowLeft,
   ArrowSquareOut,
   Buildings,
@@ -94,6 +95,8 @@ export interface ManualManagementViewProps {
   onSendReply: (detail: InteractionDetail, text: string) => boolean | Promise<boolean>;
   onResolve: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => boolean | Promise<boolean>;
   onEscalate: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => boolean | Promise<boolean>;
+  /** Vuelve a pendiente un caso cerrado (p. ej. por un saludo automático) para poder responderlo. */
+  onReopen?: (interactionId: string) => boolean | Promise<boolean>;
   onChangeAssignment: (detail: InteractionDetail) => void | Promise<void>;
   onOpenFullDetail?: (interaction: Interaction) => void | Promise<void>;
   onDraftDirtyChange?: (dirty: boolean) => void;
@@ -401,6 +404,7 @@ export function ManualManagementView({
   onSendReply,
   onResolve,
   onEscalate,
+  onReopen,
   onChangeAssignment,
   onOpenFullDetail,
   onDraftDirtyChange,
@@ -605,6 +609,13 @@ export function ManualManagementView({
   }, [visibleDetail?.id, timeline.length]);
   const aiRecommendation = visibleDetail?.automation?.proposal?.text?.trim() || "";
   const caseClosed = visibleDetail ? detailIsClosed(visibleDetail) : true;
+  // Si lo seleccionado es el mensaje de la cuenta, "Reabrir" vuelve a pendiente el último
+  // mensaje del cliente de esa conversación.
+  const reopenTargetId = visibleDetail && caseClosed
+    ? visibleDetail.direction === "inbound"
+      ? visibleDetail.id
+      : timeline.filter((message) => message.direction === "inbound").at(-1)?.id
+    : undefined;
   const latestDelivery = visibleDetail?.deliveries[0];
   const deliveryBlocksSend = latestDelivery
     ? ["pending", "sending", "uncertain"].includes(latestDelivery.status)
@@ -1158,7 +1169,27 @@ export function ManualManagementView({
                     </small>
 
                     {caseClosed ? (
-                      <p className="manual-inbox-closed-note">Este caso ya no requiere respuesta.</p>
+                      <p className="manual-inbox-closed-note">
+                        Este caso ya no requiere respuesta.
+                        {onReopen && reopenTargetId ? (
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={isSaving}
+                            onClick={async () => {
+                              const confirmed = await confirmAction({
+                                title: "¿Reabrir este caso?",
+                                message: "El último mensaje del cliente vuelve a pendiente para que puedas responderlo. Queda registrado quién lo reabrió.",
+                                confirmLabel: "Reabrir",
+                              });
+                              if (confirmed) await onReopen(reopenTargetId);
+                            }}
+                          >
+                            <ArrowCounterClockwise size={14} weight="bold" aria-hidden="true" />
+                            Reabrir caso
+                          </button>
+                        ) : null}
+                      </p>
                     ) : null}
 
                     <div className="manual-inbox-composer__actions">

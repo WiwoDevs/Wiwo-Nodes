@@ -133,6 +133,67 @@ function interactionTimestamp(interaction: Interaction): number {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+/**
+ * Saludo automático de la cuenta (respuesta instantánea de Meta, mensaje de ausencia, bot):
+ * el mismo texto en al menos tres conversaciones de la cuenta, enviado a los pocos segundos
+ * del mensaje del cliente. No es una respuesta del equipo, así que no cierra el caso. Una
+ * respuesta guardada que usa una persona ("¡Con gusto!") llega minutos después y sí cuenta.
+ */
+const AUTOMATIC_REPLY_MIN_CONVERSATIONS = 3;
+const AUTOMATIC_REPLY_MAX_DELAY_MS = 60_000;
+
+function replyFingerprint(interaction: Interaction): string {
+  return `${interaction.accountId}|${normalized(interaction.text).replace(/\s+/g, " ")}`;
+}
+
+function repeatedOutboundTexts(threads: Iterable<Interaction[]>): Set<string> {
+  const conversations = new Map<string, Set<string>>();
+  for (const messages of threads) {
+    for (const message of messages) {
+      if (message.direction !== "outbound" || !message.text.trim()) continue;
+      const fingerprint = replyFingerprint(message);
+      const keys = conversations.get(fingerprint) ?? new Set<string>();
+      keys.add(conversationKey(message));
+      conversations.set(fingerprint, keys);
+    }
+  }
+  return new Set([...conversations].filter(([, keys]) => keys.size >= AUTOMATIC_REPLY_MIN_CONVERSATIONS).map(([fingerprint]) => fingerprint));
+}
+
+/** Ids de los mensajes salientes de un hilo ordenado que son saludos automáticos. */
+function automaticReplyIds(ordered: Interaction[], repeated: ReadonlySet<string>): Set<string> {
+  const automatic = new Set<string>();
+  let lastInboundAt: number | undefined;
+  for (const message of ordered) {
+    if (message.direction === "inbound") {
+      lastInboundAt = interactionTimestamp(message);
+      continue;
+    }
+    if (lastInboundAt === undefined || !repeated.has(replyFingerprint(message))) continue;
+    if (interactionTimestamp(message) - lastInboundAt <= AUTOMATIC_REPLY_MAX_DELAY_MS) automatic.add(message.id);
+  }
+  return automatic;
+}
+
+/**
+ * Cuándo una persona devolvió el caso a pendiente a mano (p. ej. lo reabrió para responderlo):
+ * las respuestas de la cuenta anteriores a ese momento ya no lo cierran; manda su decisión,
+ * aunque después guarde un borrador o lo escale. Se lee del historial, que no cambia con eso.
+ */
+function manualPendingSince(message: Interaction): number | undefined {
+  for (let index = message.audit.length - 1; index >= 0; index -= 1) {
+    const entry = message.audit[index];
+    if (entry?.action !== "status_changed") continue;
+    // Se cerró otra vez por una respuesta detectada después de reabrirlo: ya no hay reapertura vigente.
+    if (entry.metadata?.reason === "OUTBOUND_MESSAGE_DETECTED") return undefined;
+    if (entry.actor === "agent" && entry.metadata?.status === "pending") {
+      const at = Date.parse(entry.at);
+      return Number.isFinite(at) ? at : undefined;
+    }
+  }
+  return undefined;
+}
+
 export function detectConversationResponses(
   interactions: Interaction[],
   accountIds?: ReadonlySet<string>,
@@ -147,23 +208,38 @@ export function detectConversationResponses(
   }
 
   const detected: DetectedConversationResponse[] = [];
+  const repeated = repeatedOutboundTexts(threads.values());
   for (const messages of threads.values()) {
     const ordered = [...messages].sort((left, right) =>
       interactionTimestamp(left) - interactionTimestamp(right)
       || (left.direction === right.direction ? left.id.localeCompare(right.id) : left.direction === "inbound" ? -1 : 1));
-    let nextOutbound: Interaction | undefined;
+    const automatic = automaticReplyIds(ordered, repeated);
+    // Respuestas reales de la cuenta posteriores al mensaje que se recorre, de la más nueva a
+    // la más antigua (el último elemento es la más cercana).
+    const laterReplies: Interaction[] = [];
     for (let index = ordered.length - 1; index >= 0; index -= 1) {
       const message = ordered[index];
       if (!message) continue;
       if (message.direction === "outbound") {
-        nextOutbound = message;
+        // Un saludo automático no es la respuesta del equipo: se busca la siguiente real.
+        if (!automatic.has(message.id)) laterReplies.push(message);
         continue;
       }
-      if (!nextOutbound || !OPEN_RESPONSE_STATUSES.has(message.status)) continue;
+      if (!laterReplies.length || !OPEN_RESPONSE_STATUSES.has(message.status)) continue;
+      const since = manualPendingSince(message);
+      let reply: Interaction | undefined;
+      for (let position = laterReplies.length - 1; position >= 0; position -= 1) {
+        const candidate = laterReplies[position]!;
+        if (since === undefined || interactionTimestamp(candidate) > since) {
+          reply = candidate;
+          break;
+        }
+      }
+      if (!reply) continue;
       detected.push({
         interactionId: message.id,
-        outboundInteractionId: nextOutbound.id,
-        respondedAt: nextOutbound.createdAt,
+        outboundInteractionId: reply.id,
+        respondedAt: reply.createdAt,
       });
     }
   }

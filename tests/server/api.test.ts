@@ -2593,6 +2593,32 @@ describe("SAC Flow API", () => {
     });
     expect(staleDraft.statusCode).toBe(409);
     expect(staleDraft.json().error.code).toBe("CASE_ALREADY_CLOSED");
+
+    // Una persona lo reabre: vuelve a pendiente, admite borrador y la sincronización siguiente
+    // no lo cierra otra vez por la misma respuesta de antes.
+    const reopened = await app.inject({
+      method: "PATCH",
+      url: `/api/interactions/${inbound!.id}/status`,
+      headers: authHeaders,
+      payload: { status: "pending", reasonCode: "reopened", expectedVersion: inbound!.version },
+    });
+    expect(reopened.statusCode).toBe(200);
+    const afterReopen = await app.sacFlow.repository.findInteraction(inbound!.id);
+    const draft = await app.inject({
+      method: "POST",
+      url: `/api/interactions/${inbound!.id}/reply`,
+      headers: authHeaders,
+      payload: { text: "Borrador después de reabrir", mode: "draft", expectedVersion: afterReopen!.version },
+    });
+    expect(draft.statusCode).toBe(200);
+    const resync = await app.inject({
+      method: "POST",
+      url: "/api/sync",
+      headers: { ...authHeaders, "idempotency-key": "team-response-after-reopen" },
+      payload: { accountIds: ["account-01"] },
+    });
+    expect(resync.statusCode).toBe(200);
+    expect((await app.sacFlow.repository.findInteraction(inbound!.id))?.status).toBe("drafted");
   });
 
   it("reconciles an existing inbound DM when a later sync discovers the team reply", async () => {

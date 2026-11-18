@@ -1,6 +1,7 @@
 import { can } from "../lib/permissions";
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowCounterClockwise,
   ArrowRight,
   CaretDown,
   CaretUp,
@@ -51,6 +52,8 @@ export interface InteractionDetailPanelProps {
   ) => void | Promise<void>;
   onResolve: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => void | Promise<void>;
   onEscalate: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => void | Promise<void>;
+  /** Vuelve a pendiente un caso cerrado (p. ej. por un saludo automático) para poder responderlo. */
+  onReopen?: (interactionId: string) => boolean | Promise<boolean>;
   onChangeAssignment: (detail: InteractionDetail) => void | Promise<void>;
   onAddInternalNote: (detail: InteractionDetail, text: string) => boolean | Promise<boolean>;
   /** Marca a mano si el mensaje cuenta como caso SAC en el reporte; `null` vuelve a lo automático. */
@@ -213,6 +216,7 @@ export function InteractionDetailPanel({
   onReconcileDelivery,
   onResolve,
   onEscalate,
+  onReopen,
   onChangeAssignment,
   onAddInternalNote,
   onSetTriage,
@@ -352,6 +356,28 @@ export function InteractionDetailPanel({
       : detail?.status === "resolved"
         ? "El caso está resuelto; no hay una respuesta pendiente."
         : "No hay una respuesta pendiente.";
+
+  // Un caso cerrado se puede volver a pendiente para responderlo (p. ej. si lo cerró un saludo
+  // automático de la cuenta y el cliente sigue sin respuesta real).
+  // Si el caso abierto es el mensaje de la cuenta, se reabre el último mensaje del cliente.
+  const reopenTargetId = detail && caseClosed
+    ? detail.direction === "inbound"
+      ? detail.id
+      : [...detail.conversationHistory]
+        .filter((message) => message.direction === "inbound")
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .at(-1)?.id
+    : undefined;
+  const canReopen = Boolean(reopenTargetId && onReopen && canTriage);
+  const reopenCase = async () => {
+    if (!reopenTargetId || !onReopen) return;
+    const confirmed = await confirmAction({
+      title: "¿Reabrir este caso?",
+      message: "El último mensaje del cliente vuelve a pendiente para que puedas responderlo. Queda registrado quién lo reabrió.",
+      confirmLabel: "Reabrir",
+    });
+    if (confirmed) await onReopen(reopenTargetId);
+  };
 
   const openStatusForm = (intent: "escalated" | "resolved") => {
     setStatusIntent(intent);
@@ -611,6 +637,12 @@ export function InteractionDetailPanel({
                 ? "Respuesta manual disponible · fuera del plazo recomendado de Metricool/Meta"
                 : `Respuesta manual disponible · plazo recomendado hasta ${formatDate(new Date(providerReplyDeadline).toISOString())}`}
             </small>
+            {canReopen ? (
+              <button className="button button--secondary case-reopen-button" type="button" onClick={() => void reopenCase()} disabled={isSaving}>
+                <ArrowCounterClockwise size={15} weight="bold" aria-hidden="true" />
+                Reabrir caso
+              </button>
+            ) : null}
           </section>
 
           {historyExpanded ? (

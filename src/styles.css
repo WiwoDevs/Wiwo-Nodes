@@ -5136,7 +5136,9 @@ a:focus-visible {
 .manual-inbox-composer > textarea { min-height: 44px; max-height: 62px; padding: 7px 9px; line-height: 1.38; resize: vertical; }
 .manual-inbox-draft-state { color: var(--muted); font-size: 11px; }
 .manual-inbox-draft-state.is-dirty { color: var(--accent-text); font-weight: 750; }
-.manual-inbox-closed-note { margin: 0; padding: 8px 10px; border-radius: 8px; color: var(--ink-2); background: var(--surface-soft); font-size: 12px; }
+.manual-inbox-closed-note { display: flex; margin: 0; padding: 8px 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; border-radius: 8px; color: var(--ink-2); background: var(--surface-soft); font-size: 12px; }
+.manual-inbox-closed-note .text-button { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; }
+.case-reopen-button { justify-self: start; margin-top: 8px; }
 .manual-inbox-composer__actions {
   position: sticky;
   z-index: 3;

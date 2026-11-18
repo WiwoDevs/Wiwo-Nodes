@@ -1067,7 +1067,7 @@ export function App({ onSignOut, sessionActor }: {
   }
 
   async function openInteractionDetail(
-    interaction: Interaction,
+    interaction: Pick<Interaction, "id">,
     presentation: "panel" | "embedded" = "panel",
   ) {
     const requestSequence = ++detailRequestSequence.current;
@@ -1351,6 +1351,36 @@ export function App({ onSignOut, sessionActor }: {
       setToast({
         tone: "warning",
         title: "No se pudo escalar el caso",
+        detail: error instanceof Error ? error.message : "Revisa la API real.",
+      });
+      return false;
+    } finally {
+      setMutatingInteraction(false);
+    }
+  }
+
+  /**
+   * Vuelve a pendiente el mensaje del cliente (el caso cerrado o el último mensaje entrante
+   * de esa conversación) y lo deja seleccionado para responderlo.
+   */
+  async function reopenInteraction(interactionId: string) {
+    if (isMutatingInteraction || isRunning) return false;
+    setMutatingInteraction(true);
+    try {
+      const current = await loadInteractionDetail(interactionId);
+      await updateInteractionStatus(interactionId, "pending", "reopened", undefined, current.version);
+      await syncInboxChanges();
+      await openInteractionDetail({ id: interactionId }, detailPresentation);
+      setToast({
+        tone: "success",
+        title: "Caso reabierto",
+        detail: "Volvió a pendiente: ya puedes responderlo.",
+      });
+      return true;
+    } catch (error) {
+      setToast({
+        tone: "warning",
+        title: "No se pudo reabrir el caso",
         detail: error instanceof Error ? error.message : "Revisa la API real.",
       });
       return false;
@@ -2185,6 +2215,7 @@ export function App({ onSignOut, sessionActor }: {
               onSendReply={sendDetailReply}
               onResolve={resolveInteraction}
               onEscalate={escalateInteraction}
+              onReopen={allowed("inbox.triage") ? reopenInteraction : undefined}
               onChangeAssignment={changeInteractionAssignment}
               onDraftDirtyChange={setManualDraftDirty}
             />
@@ -2270,6 +2301,7 @@ export function App({ onSignOut, sessionActor }: {
           onReconcileDelivery={reconcileDetailDelivery}
           onResolve={async (detail, reasonCode, reasonNote) => { await resolveInteraction(detail, reasonCode, reasonNote); }}
           onEscalate={async (detail, reasonCode, reasonNote) => { await escalateInteraction(detail, reasonCode, reasonNote); }}
+          onReopen={reopenInteraction}
           onChangeAssignment={changeInteractionAssignment}
           onAddInternalNote={addInternalNote}
           onSetTriage={setReportTriage}

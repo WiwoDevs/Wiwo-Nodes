@@ -307,6 +307,74 @@ describe("SAC automation protocol", () => {
   });
 });
 
+describe("automatic greetings and reopened cases", () => {
+  /** Un hilo de DM: el cliente escribe y la cuenta contesta `delaySeconds` después. */
+  function thread(conversation: string, customerText: string, reply: string, delaySeconds: number, at = "2026-08-13T13:00:00.000Z") {
+    const inbound = interaction(customerText);
+    inbound.id = `${conversation}-in`;
+    inbound.status = "pending";
+    inbound.createdAt = at;
+    inbound.metricoolRef = { conversationId: conversation };
+    const outbound: Interaction = {
+      ...interaction(reply),
+      id: `${conversation}-out`,
+      direction: "outbound",
+      status: "replied",
+      createdAt: new Date(Date.parse(at) + delaySeconds * 1_000).toISOString(),
+      metricoolRef: { conversationId: conversation },
+    };
+    return [inbound, outbound];
+  }
+
+  const greeting = "¡Hola! Gracias por escribirnos. Intentaremos responderte lo antes posible.";
+
+  it("does not close a case with the account's instant greeting", () => {
+    const messages = ["a", "b", "c"].flatMap((id) => thread(id, `Consulta ${id} sobre mi pedido`, greeting, 4));
+    expect(detectConversationResponses(messages)).toEqual([]);
+  });
+
+  it("still closes a case answered with a saved reply a person sent minutes later", () => {
+    const messages = ["a", "b", "c"].flatMap((id) => thread(id, `Gracias por la ayuda ${id}`, "¡Con gusto!", 300));
+    expect(detectConversationResponses(messages).map((item) => item.interactionId).sort()).toEqual(["a-in", "b-in", "c-in"]);
+  });
+
+  it("counts the real reply that comes after the greeting", () => {
+    const messages = ["a", "b", "c"].flatMap((id) => thread(id, `Consulta ${id}`, greeting, 3));
+    const human: Interaction = {
+      ...interaction("Te ayudamos: tu pedido sale mañana."),
+      id: "a-human",
+      direction: "outbound",
+      status: "replied",
+      createdAt: "2026-08-13T13:20:00.000Z",
+      metricoolRef: { conversationId: "a" },
+    };
+    expect(detectConversationResponses([...messages, human])).toEqual([
+      { interactionId: "a-in", outboundInteractionId: "a-human", respondedAt: "2026-08-13T13:20:00.000Z" },
+    ]);
+  });
+
+  it("keeps a reopened case pending until the account sends a new reply", () => {
+    const [inbound, outbound] = thread("solo", "Hola", "¡Hola! ¿En qué puedo ayudarte hoy?", 41);
+    inbound!.audit = [{
+      id: "reopen",
+      at: "2026-08-13T13:10:00.000Z",
+      action: "status_changed",
+      actor: "agent",
+      detail: "Reabierto para responder",
+      metadata: { status: "pending", reasonCode: "reopened" },
+    }];
+    expect(detectConversationResponses([inbound!, outbound!])).toEqual([]);
+    // Guardar un borrador después de reabrirlo no lo devuelve a cerrado.
+    inbound!.status = "drafted";
+    expect(detectConversationResponses([inbound!, outbound!])).toEqual([]);
+
+    const later: Interaction = { ...outbound!, id: "solo-later", createdAt: "2026-08-13T13:15:00.000Z", text: "Te respondemos por aquí." };
+    expect(detectConversationResponses([inbound!, outbound!, later])).toEqual([
+      { interactionId: "solo-in", outboundInteractionId: "solo-later", respondedAt: "2026-08-13T13:15:00.000Z" },
+    ]);
+  });
+});
+
 describe("SAC draft wording", () => {
   it("greets only with something that looks like a real first name", () => {
     expect(greetingName({ customerName: "Carmen Gloria Jara", customerHandle: "29845608475043638" })).toBe("Carmen");

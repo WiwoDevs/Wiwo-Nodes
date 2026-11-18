@@ -10,6 +10,8 @@ type StatusReasonCatalog = Record<"pending" | "escalated" | "resolved", StatusRe
 
 export const INTERACTION_STATUS_REASON_CATALOG: StatusReasonCatalog = {
   pending: [
+    // Una persona reabre un caso que quedó cerrado (p. ej. por un saludo automático) para responderlo.
+    { code: "reopened", label: "Reabierto para responder" },
     { code: "awaiting_customer", label: "Esperando respuesta del cliente" },
     { code: "awaiting_internal", label: "Esperando gestión interna" },
     { code: "awaiting_information", label: "Falta información" },
