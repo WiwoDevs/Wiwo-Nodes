@@ -307,6 +307,17 @@ function priorityLabel(priority: Interaction["priority"]): string {
   return "Normal";
 }
 
+const CONFIRMED_CONVERSATIONS_KEY = "wiwo-nodes:confirmed-conversations";
+
+function readConfirmedConversations(): Set<string> {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(CONFIRMED_CONVERSATIONS_KEY) || "[]");
+    return new Set(Array.isArray(stored) ? stored.filter((item): item is string => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
 function detailIsClosed(detail: InteractionDetail): boolean {
   return detail.direction === "outbound"
     || ["answered_by_team", "automated", "resolved"].includes(detail.status);
@@ -427,6 +438,16 @@ export function ManualManagementView({
   const [query, setQuery] = useState("");
   const [onlyPending, setOnlyPending] = useState(true);
   const [draftText, setDraftText] = useState("");
+  // Conversaciones en las que la persona ya confirmó enviar en esta sesión del navegador.
+  const confirmedConversations = useRef<Set<string>>(readConfirmedConversations());
+  const rememberConfirmedConversation = (conversation: string) => {
+    confirmedConversations.current.add(conversation);
+    try {
+      sessionStorage.setItem(CONFIRMED_CONVERSATIONS_KEY, JSON.stringify([...confirmedConversations.current].slice(-200)));
+    } catch {
+      // Sin almacenamiento de sesión: se recuerda solo mientras la vista esté abierta.
+    }
+  };
   const [isDraftDirty, setDraftDirty] = useState(false);
   const [statusAction, setStatusAction] = useState<StatusAction | null>(null);
   const [reasonCode, setReasonCode] = useState("");
@@ -739,24 +760,26 @@ export function ManualManagementView({
     || !selectedCommentIsOpen
     || visibleDetail.direction !== "inbound"
     || !draftText.trim();
-  /** Envía lo escrito (botón o Ctrl/Cmd + Enter), siempre con confirmación humana. */
+  /**
+   * Envía lo escrito (botón o Ctrl/Cmd + Enter). Como en un chat, la confirmación aparece solo
+   * la primera vez que se escribe en cada conversación durante la sesión del navegador; los
+   * mensajes siguientes a esa misma persona salen directo (cada envío sigue auditado).
+   */
   const sendFromComposer = async () => {
     if (!visibleDetail || sendDisabled) return;
     const text = draftText.trim();
-    const confirmed = await confirmAction(followUpOpen
-      ? {
-        title: `¿Enviar este mensaje a ${visibleDetail.customerName}?`,
-        message: "Va a la misma conversación y queda auditado.",
-        confirmLabel: "Enviar mensaje",
-      }
-      : {
-        title: `¿Enviar esta respuesta a ${visibleDetail.customerName}?`,
-        message: "La acción se realizará sobre el caso exacto seleccionado y quedará auditada.",
-        confirmLabel: "Enviar respuesta",
+    const conversation = visibleDetail.contactKey || `${visibleDetail.accountId}|${visibleDetail.customerHandle}`;
+    if (!confirmedConversations.current.has(conversation)) {
+      const confirmed = await confirmAction({
+        title: `¿Enviar mensajes a ${visibleDetail.customerName}?`,
+        message: "Se envían a esta conversación y cada envío queda auditado. Mientras tengas la sesión abierta, los siguientes mensajes a esta persona saldrán sin volver a preguntar.",
+        confirmLabel: "Enviar",
       });
-    if (!confirmed) return;
+      if (!confirmed) return;
+    }
     const sent = await onSendReply(visibleDetail, text);
     if (sent) {
+      rememberConfirmedConversation(conversation);
       // Como en un chat: el cuadro queda vacío y listo para el siguiente mensaje.
       setDraftText("");
       setDirty(false);

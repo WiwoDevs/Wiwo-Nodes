@@ -1054,7 +1054,7 @@ export async function loadInteractionDetail(interactionId: string): Promise<Inte
     fetchJson<{ data: ApiBrand[] }>("/brands"),
     fetchJson<{ data: ApiInteraction }>(`/interactions/${encodeURIComponent(interactionId)}`),
     fetchJson<{ data: ApiReplyDelivery[] }>(`/deliveries?interactionId=${encodeURIComponent(interactionId)}`),
-    fetchJson<{ data: ApiConversationMessage[] }>(`/interactions/${encodeURIComponent(interactionId)}/conversation?scope=contact`),
+    fetchJson<{ data: ApiConversationMessage[]; meta?: { contactKey?: string } }>(`/interactions/${encodeURIComponent(interactionId)}/conversation?scope=contact`),
   ]);
   const conversationHistory = conversationResponse.data.map((message) => ({
     id: message.id,
@@ -1067,7 +1067,15 @@ export async function loadInteractionDetail(interactionId: string): Promise<Inte
     contentContext: message.contentContext,
     postContext: message.postContext,
   }));
-  return mapInteractionDetail(detailResponse.data, brandsResponse.data, deliveriesResponse.data, conversationHistory);
+  // La persona del caso viaja con su historial: así la vista en vivo reconoce que un cambio en
+  // esa conversación (p. ej. la respuesta del chatbot) es del chat abierto y lo refresca, aunque
+  // la fila de la lista haya pasado a apuntar a otro mensaje.
+  return mapInteractionDetail(
+    { ...detailResponse.data, contactKey: detailResponse.data.contactKey ?? conversationResponse.meta?.contactKey },
+    brandsResponse.data,
+    deliveriesResponse.data,
+    conversationHistory,
+  );
 }
 
 function mapApiRun(value: unknown, newInteractionsOverride?: unknown): RunResult {

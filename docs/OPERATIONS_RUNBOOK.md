@@ -64,8 +64,9 @@ El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo S
 
 ## Seguir escribiendo en un DM (modo chat)
 
-- En Gestión DMs, un DM ya respondido no se bloquea: el cuadro sigue disponible ("Ya está respondido. Puedes seguir escribiendo") y cada mensaje se envía a la misma conversación, con la confirmación de siempre (Ctrl + Enter abre esa confirmación). No hace falta esperar a que el cliente escriba de nuevo.
-- Cuando no hay nada pendiente, el chat se abre en el último mensaje del cliente, no en la última respuesta de la cuenta.
+- En Gestión DMs, un DM ya respondido no se bloquea: el cuadro sigue disponible ("Ya está respondido. Puedes seguir escribiendo") y cada mensaje se envía a la misma conversación (botón o Ctrl + Enter). No hace falta esperar a que el cliente escriba de nuevo.
+- La confirmación aparece solo la primera vez que se envía en cada conversación durante la sesión del navegador; los mensajes siguientes a esa persona salen directo. Cada envío queda auditado igual.
+- Cuando no hay nada pendiente, el chat se abre en el último mensaje del cliente, no en la última respuesta de la cuenta. Si el cliente escribe de nuevo con el chat abierto, el chat pasa a su mensaje nuevo (salvo que haya texto sin enviar), y las respuestas del chatbot de la marca aparecen solas.
 - Sigue cerrado: un caso **resuelto** (se reabre con **Reabrir caso**), los comentarios (una respuesta pública por comentario) y cualquier caso con una entrega en curso o incierta.
 
 ## Casos cerrados por la cuenta y "Reabrir caso"

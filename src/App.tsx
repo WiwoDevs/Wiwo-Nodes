@@ -554,6 +554,9 @@ export function App({ onSignOut, sessionActor }: {
   // Persona del caso abierto: si cambia en vivo, se refresca su detalle.
   const selectedContactKeyRef = useRef<string | null>(null);
   selectedContactKeyRef.current = selectedContactKey;
+  // Estado actual para la vista en vivo (sus callbacks no se recrean en cada render).
+  const chatFollowRef = useRef({ manual: false, draftDirty: false, presentation: "panel" as "panel" | "embedded" });
+  chatFollowRef.current = { manual: isManualView(view), draftDirty: manualDraftDirty, presentation: detailPresentation };
   // Los controles siguen los permisos del rol; el servidor vuelve a validar cada acción.
   const allowed = (permission: Permission) => !connectionIssue && can(visibleData.actor, permission);
   const canOperate = allowed("inbox.reply");
@@ -696,8 +699,17 @@ export function App({ onSignOut, sessionActor }: {
           setLastInboxRefreshAt(at);
           const openKey = selectedContactKeyRef.current;
           const openId = selectedInteractionIdRef.current;
-          if (openId && openKey && changes.interactions.some((row) => row.contactKey === openKey)) {
-            void refreshInteractionDetail(openId);
+          const openRow = openKey ? changes.interactions.find((row) => row.contactKey === openKey) : undefined;
+          if (openId && openRow) {
+            // En Gestión DMs/comentarios el chat sigue al cliente: si escribió de nuevo, se pasa a
+            // su mensaje nuevo (salvo que haya texto sin enviar, que no se pierde). Si no, se
+            // refresca la conversación abierta (p. ej. para mostrar la respuesta del chatbot).
+            const follow = chatFollowRef.current;
+            if (follow.manual && !follow.draftDirty && openRow.kind === "dm" && openRow.id !== openId && openRow.direction === "inbound") {
+              void openInteractionDetail({ id: openRow.id }, follow.presentation);
+            } else {
+              void refreshInteractionDetail(openId);
+            }
           }
         }
         inboxRevisionRef.current = changes.revision;
