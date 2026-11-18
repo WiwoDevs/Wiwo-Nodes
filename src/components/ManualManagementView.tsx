@@ -438,6 +438,7 @@ export function ManualManagementView({
   const [query, setQuery] = useState("");
   const [onlyPending, setOnlyPending] = useState(true);
   const [draftText, setDraftText] = useState("");
+  const statusFormRef = useRef<HTMLFormElement>(null);
   // Conversaciones en las que la persona ya confirmó enviar en esta sesión del navegador.
   const confirmedConversations = useRef<Set<string>>(readConfirmedConversations());
   const rememberConfirmedConversation = (conversation: string) => {
@@ -792,6 +793,15 @@ export function ManualManagementView({
     setReasonCode(options[0]?.code || "");
     setReasonNote("");
   };
+
+  // Al abrir Resolver/Escalar, el formulario aparece al final del compositor: se lleva a la vista
+  // (en pantallas bajas quedaba debajo del borde) y se enfoca el motivo.
+  useEffect(() => {
+    if (!statusAction) return;
+    const form = statusFormRef.current;
+    form?.scrollIntoView({ block: "nearest" });
+    form?.querySelector<HTMLSelectElement>("select")?.focus({ preventScroll: true });
+  }, [statusAction]);
 
   const statusOptions = statusAction ? statusReasons[statusAction] : [];
   const selectedReason = statusOptions.find((option) => option.code === reasonCode);
@@ -1328,6 +1338,7 @@ export function ManualManagementView({
 
                     {statusAction ? (
                       <form
+                        ref={statusFormRef}
                         className="manual-inbox-status-form"
                         onSubmit={async (event) => {
                           event.preventDefault();
@@ -1351,21 +1362,31 @@ export function ManualManagementView({
                           <strong>{statusAction === "resolved" ? "Resolver caso" : "Escalar caso"}</strong>
                           <button type="button" onClick={() => setStatusAction(null)} aria-label="Cancelar cambio de estado"><X size={15} weight="bold" aria-hidden="true" /></button>
                         </header>
-                        <label htmlFor="manual-inbox-reason">Motivo</label>
-                        <select id="manual-inbox-reason" value={reasonCode} onChange={(event) => setReasonCode(event.target.value)} required>
-                          {statusOptions.map((option) => <option value={option.code} key={option.code}>{option.label}</option>)}
-                        </select>
-                        <label htmlFor="manual-inbox-reason-note">Nota interna</label>
-                        <textarea
-                          id="manual-inbox-reason-note"
-                          value={reasonNote}
-                          onChange={(event) => setReasonNote(event.target.value)}
-                          rows={2}
-                          maxLength={500}
-                          required={selectedReason?.noteRequired}
-                          placeholder={selectedReason?.noteRequired ? "Explica el motivo" : "Opcional"}
-                        />
-                        <button type="submit" disabled={isSaving || !reasonCode || Boolean(selectedReason?.noteRequired && !reasonNote.trim())}>
+                        <div className="manual-inbox-status-form__field">
+                          <label htmlFor="manual-inbox-reason">Motivo</label>
+                          <select id="manual-inbox-reason" value={reasonCode} onChange={(event) => setReasonCode(event.target.value)} required>
+                            {statusOptions.map((option) => <option value={option.code} key={option.code}>{option.label}</option>)}
+                          </select>
+                        </div>
+                        <div className="manual-inbox-status-form__field">
+                          <label htmlFor="manual-inbox-reason-note">
+                            Nota interna{selectedReason?.noteRequired ? "" : " (opcional)"}
+                          </label>
+                          <textarea
+                            id="manual-inbox-reason-note"
+                            value={reasonNote}
+                            onChange={(event) => setReasonNote(event.target.value)}
+                            rows={1}
+                            maxLength={500}
+                            required={selectedReason?.noteRequired}
+                            placeholder={selectedReason?.noteRequired ? "Explica el motivo" : "Agrega contexto para el equipo"}
+                          />
+                        </div>
+                        <button
+                          className="manual-inbox-status-form__submit"
+                          type="submit"
+                          disabled={isSaving || !reasonCode || Boolean(selectedReason?.noteRequired && !reasonNote.trim())}
+                        >
                           Confirmar
                         </button>
                       </form>

@@ -5176,10 +5176,13 @@ a:focus-visible {
 .manual-inbox-composer__actions .manual-inbox-composer__send { border-color: var(--accent); color: #ffffff; background: var(--accent); box-shadow: 0 5px 13px rgba(75,70,245,.2); }
 .manual-inbox-composer__actions .manual-inbox-composer__send:hover { color: #ffffff; background: var(--accent); }
 
+/* Resolver/Escalar: encabezado arriba y debajo una fila con Motivo, Nota y Confirmar, con las
+   etiquetas en la misma línea y los controles a la misma altura. */
 .manual-inbox-status-form {
   display: grid;
   grid-template-columns: minmax(150px, .8fr) minmax(180px, 1fr) auto;
-  gap: 6px 8px;
+  align-items: end;
+  gap: 8px 10px;
   padding: 10px;
   border: 1px solid var(--accent-line);
   border-radius: 9px;
@@ -5188,10 +5191,11 @@ a:focus-visible {
 .manual-inbox-status-form header { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; }
 .manual-inbox-status-form header strong { color: var(--ink); font-size: 12px; }
 .manual-inbox-status-form header button { min-width: 36px; min-height: 36px; padding: 0; }
-.manual-inbox-status-form label { align-self: end; color: var(--muted); font-size: 11px; font-weight: 750; }
-.manual-inbox-status-form select { min-height: 38px; grid-column: 1; padding: 0 9px; }
-.manual-inbox-status-form textarea { min-height: 38px; grid-column: 2; padding: 8px 9px; resize: vertical; }
-.manual-inbox-status-form > button { grid-column: 3; grid-row: 3; align-self: stretch; border-color: var(--accent); color: #ffffff; background: var(--accent); }
+.manual-inbox-status-form__field { display: grid; min-width: 0; align-content: end; gap: 5px; }
+.manual-inbox-status-form label { color: var(--muted); font-size: 11px; font-weight: 750; }
+.manual-inbox-status-form select { height: 38px; padding: 0 9px; }
+.manual-inbox-status-form textarea { height: 38px; min-height: 38px; max-height: 120px; padding: 8px 9px; line-height: 1.35; resize: vertical; }
+.manual-inbox-status-form .manual-inbox-status-form__submit { min-height: 38px; padding: 0 18px; border-color: var(--accent); color: #ffffff; background: var(--accent); }
 
 .manual-inbox-post-preview {
   margin: 12px;
@@ -5343,10 +5347,7 @@ a:focus-visible {
   .manual-inbox-composer__actions button { width: 100%; min-height: 44px; }
   .manual-inbox-composer__send { grid-column: 1 / -1; }
   .manual-inbox-status-form { grid-template-columns: minmax(0, 1fr); }
-  .manual-inbox-status-form header,
-  .manual-inbox-status-form select,
-  .manual-inbox-status-form textarea,
-  .manual-inbox-status-form > button { grid-column: auto; grid-row: auto; }
+  .manual-inbox-status-form .manual-inbox-status-form__submit { width: 100%; min-height: 44px; }
 }
 
 /* ---------- Pantalla de inicio de sesión ---------- */
