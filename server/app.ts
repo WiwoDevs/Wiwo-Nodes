@@ -58,6 +58,7 @@ import {
   brandVisibilitySchema,
   brandWorkbookUpdateSchema,
   manualRecordsQuerySchema,
+  liveSyncSchema,
   executionListQuerySchema,
   executionParamsSchema,
   idempotencyKeySchema,
@@ -895,6 +896,13 @@ function metricoolListItemCount(payload: unknown): number {
   return Array.isArray(data) ? data.length : 0;
 }
 
+/**
+ * Proveedor de Metricool que entregó datos la última vez por cuenta, red y superficie (p. ej.
+ * Instagram por credenciales en vez de por Facebook). Se prueba primero en la siguiente
+ * lectura: la lectura en vivo cada pocos segundos no gasta una llamada en el que viene vacío.
+ */
+const workingMetricoolProvider = new Map<string, MetricoolInboxProvider>();
+
 async function readMetricoolSurface(
   client: MetricoolGateway,
   account: MetricoolAccountReference,
@@ -905,18 +913,26 @@ async function readMetricoolSurface(
   provider: MetricoolInboxProvider;
   fallbackUsed: boolean;
 }> {
-  const candidates = metricoolProviderCandidates(channel, surface, account);
+  const configured = metricoolProviderCandidates(channel, surface, account);
+  const cacheKey = `${account.blogId}|${channel}|${surface}`;
+  const remembered = workingMetricoolProvider.get(cacheKey);
+  const candidates = remembered && configured.includes(remembered)
+    ? [remembered, ...configured.filter((provider) => provider !== remembered)]
+    : configured;
   let firstEmpty: { payload: unknown; provider: MetricoolInboxProvider } | undefined;
   let lastError: unknown;
 
-  for (const [index, provider] of candidates.entries()) {
+  for (const provider of candidates) {
     try {
       const payload = surface === "conversations"
         ? await client.listConversations(account, provider)
         : surface === "comments"
           ? await client.listPostComments(account, provider)
           : await client.listReviews(account, provider);
-      if (metricoolListItemCount(payload) > 0) return { payload, provider, fallbackUsed: index > 0 };
+      if (metricoolListItemCount(payload) > 0) {
+        workingMetricoolProvider.set(cacheKey, provider);
+        return { payload, provider, fallbackUsed: provider !== configured[0] };
+      }
       firstEmpty ||= { payload, provider };
     } catch (error) {
       lastError = error;
@@ -926,7 +942,7 @@ async function readMetricoolSurface(
   if (firstEmpty) {
     return {
       ...firstEmpty,
-      fallbackUsed: firstEmpty.provider !== candidates[0],
+      fallbackUsed: firstEmpty.provider !== configured[0],
     };
   }
   throw lastError || new Error("Metricool no devolvió una respuesta utilizable.");
@@ -972,6 +988,21 @@ interface SyncRequestBody {
   accountIds?: string[];
   limit?: number;
   since?: string;
+}
+
+/**
+ * Lectura en vivo: solo las superficies pedidas (p. ej. DMs de la cuenta abierta), con los
+ * canales ya conocidos de la cuenta y sin dejar un run en el historial de sincronizaciones.
+ */
+interface SyncExecutionOptions {
+  surfaces?: MetricoolInboxSurface[];
+  detectChannels?: boolean;
+  recordRun?: boolean;
+  /**
+   * Lectura liviana: si no entró nada nuevo no se reconcilia ni se relee la base, y lo nuevo
+   * se lee por id en vez de cargar toda la base (la lectura en vivo corre cada pocos segundos).
+   */
+  lightweight?: boolean;
 }
 
 /** "@Marca_CL " -> "marca_cl"; vacío si no hay usuario. */
@@ -1193,6 +1224,7 @@ async function executeSync(
   body: SyncRequestBody,
   retryOf?: string,
   preludeAudit: RunAuditStep[] = [],
+  options: SyncExecutionOptions = {},
 ): Promise<{ run: WorkflowRun; newInteractions: Interaction[] }> {
   const startedAt = new Date().toISOString();
   const store = await repository.snapshotCatalog();
@@ -1222,7 +1254,7 @@ async function executeSync(
         continue;
       }
       let syncChannels = brand.account.channels;
-      if (metricoolClient.getBrand) {
+      if (metricoolClient.getBrand && options.detectChannels !== false) {
         try {
           const detected = normalizeMetricoolConnectedChannels(await metricoolClient.getBrand(credentials));
           if (detected.length) {
@@ -1243,7 +1275,9 @@ async function executeSync(
         }
       }
       for (const channel of syncChannels) {
-        const surfaces = metricoolInboxSurfacesForChannel(channel);
+        const surfaces = metricoolInboxSurfacesForChannel(channel)
+          .filter((surface) => !options.surfaces || options.surfaces.includes(surface));
+        if (!surfaces.length) continue;
         const requests = surfaces.map((surface) =>
           readMetricoolSurface(metricoolClient, credentials, channel, surface));
         const results = await Promise.allSettled(requests);
@@ -1284,6 +1318,20 @@ async function executeSync(
     `${inserted.created.length} nuevas; ${inserted.duplicates} duplicadas.`,
     inserted.created.length,
   ));
+  if (options.lightweight && !inserted.created.length) {
+    // Nada nuevo: no cambió ningún hilo, así que no hay respuestas que reconciliar ni casos que evaluar.
+    const run = makeSyncRun(startedAt, config.demoMode, accountIds, store.workflow.version, {
+      fetched: incoming.length,
+      created: 0,
+      duplicates: inserted.duplicates,
+      drafted: 0,
+      replied: 0,
+      escalated: 0,
+      errors,
+    }, auditTrail);
+    run.requestedBy = actor.userId;
+    return { run, newInteractions: [] };
+  }
   const reconciledTeamResponses = await reconcileDetectedTeamResponses(repository, accountIds);
   if (reconciledTeamResponses) {
     auditTrail.push(auditStep(
@@ -1294,9 +1342,12 @@ async function executeSync(
     ));
   }
   const createdIds = new Set(inserted.created.map((interaction) => interaction.id));
-  const reconciledSnapshot = await repository.snapshot();
-  const protocolIds = reconciledSnapshot.interactions
-    .filter((interaction) => createdIds.has(interaction.id))
+  // La lectura liviana trae pocas novedades: se leen por id en vez de cargar toda la base.
+  const readCreated = async () => options.lightweight
+    ? (await Promise.all([...createdIds].map((id) => repository.findInteraction(id))))
+      .filter((interaction): interaction is Interaction => Boolean(interaction))
+    : (await repository.snapshot()).interactions.filter((interaction) => createdIds.has(interaction.id));
+  const protocolIds = (await readCreated())
     .filter((interaction) => interaction.direction === "inbound")
     .filter((interaction) => ["new", "pending", "drafted", "escalated"].includes(interaction.status))
     .map((interaction) => interaction.id);
@@ -1364,11 +1415,10 @@ async function executeSync(
   }, auditTrail);
   run.requestedBy = actor.userId;
   run.retryOf = retryOf;
-  await repository.recordRun(run);
-  const finalSnapshot = await repository.snapshot();
+  if (options.recordRun !== false) await repository.recordRun(run);
   return {
     run,
-    newInteractions: finalSnapshot.interactions.filter((interaction) => createdIds.has(interaction.id)),
+    newInteractions: await readCreated(),
   };
 }
 
@@ -1684,6 +1734,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   const inboxRevision = () => inboxChanges.revision();
   inboxChanges.onBump(() => inboxContactsCache.clear());
   const REVISION_NEUTRAL_PATHS = /^\/api\/(auth\/|session(\?|$))/;
+  /** Escrituras que terminaron sin cambiar nada (p. ej. una lectura en vivo sin mensajes nuevos). */
+  const unchangedRequests = new WeakSet<FastifyRequest>();
   // Cualquier escritura exitosa invalida la lista cacheada y avanza la revisión antes de
   // responder, para que el navegador que la pidió ya vea la revisión nueva.
   app.addHook("onSend", async (request, reply, payload) => {
@@ -1693,6 +1745,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       && reply.statusCode < 400
       && request.url.startsWith("/api/")
       && !REVISION_NEUTRAL_PATHS.test(request.url)
+      && !unchangedRequests.has(request)
     ) {
       inboxChanges.bump();
     }
@@ -3457,6 +3510,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           selected,
         )
       : store.interactions.filter((item) => item.brandId === selected.brandId && conversationKey(item) === key);
+    // La respuesta enviada desde Nodes queda anotada en el caso y, cuando Metricool la
+    // sincroniza, también llega como mensaje saliente: se muestra una sola vez.
+    const sameText = (left: string, right: string) => left.replace(/\s+/g, " ").trim() === right.replace(/\s+/g, " ").trim();
+    const syncedOutbound = selectedInteractions.filter((item) => item.direction === "outbound");
+    const alreadySynced = (text: string, at: string) => syncedOutbound.some((item) =>
+      sameText(item.text, text) && Math.abs(Date.parse(item.createdAt) - Date.parse(at)) <= 10 * 60_000);
     const allMessages = selectedInteractions
       .flatMap<ConversationMessage>((item) => {
         const publicItem = publicInboxInteraction(item);
@@ -3472,6 +3531,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           postContext: publicPostContext(item),
         };
         const sentReply = item.direction === "inbound" && item.responseText && item.respondedAt
+          && !alreadySynced(item.responseText, item.respondedAt)
           ? [{
               id: `${item.id}-reply`,
               direction: "outbound" as const,
@@ -3840,6 +3900,58 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return response;
   });
 
+  /**
+   * Lectura en vivo de la cuenta que alguien tiene abierta en Gestión DMs/comentarios: solo esa
+   * superficie y sin detectar plataformas, así tarda un par de segundos. No espera ni bloquea
+   * la sincronización completa, no deja un run en el historial y corre como mucho una vez cada
+   * 10 s por cuenta y superficie aunque la miren varias personas. Solo lee Metricool.
+   */
+  const LIVE_SYNC_MIN_INTERVAL_MS = 10_000;
+  /**
+   * Ventana de lo que procesa la lectura en vivo: lo nuevo es reciente por definición, y lo
+   * anterior lo cubre la sincronización completa del worker cada pocos minutos. Así cada lectura
+   * guarda unas pocas filas en vez de revisar el historial entero de la cuenta.
+   */
+  const LIVE_SYNC_WINDOW_MS = 6 * 60 * 60_000;
+  const liveSyncs = new Map<string, { at: number; running: boolean }>();
+  app.post("/api/sync/live", async (request) => {
+    const actor = requirePermission(config, request, "sync.run");
+    const body = liveSyncSchema.parse(request.body);
+    const key = `${body.accountId}|${body.surface}`;
+    const previous = liveSyncs.get(key);
+    const now = Date.now();
+    if (previous && (previous.running || now - previous.at < LIVE_SYNC_MIN_INTERVAL_MS)) {
+      unchangedRequests.add(request);
+      return {
+        data: { skipped: true, reason: previous.running ? "in_progress" : "recent", lastAt: new Date(previous.at).toISOString(), created: 0 },
+        meta: { ...apiMeta(config), externalWrites: false },
+      };
+    }
+    liveSyncs.set(key, { at: now, running: true });
+    try {
+      const result = await executeSync(
+        config,
+        repository,
+        metricoolClient,
+        actor,
+        { accountIds: [body.accountId], limit: 5_000, since: new Date(now - LIVE_SYNC_WINDOW_MS).toISOString() },
+        undefined,
+        [],
+        { surfaces: [body.surface], detectChannels: false, recordRun: false, lightweight: true },
+      );
+      const { created, replied, errors } = result.run.totals;
+      if (!created && !replied) unchangedRequests.add(request);
+      return {
+        data: { skipped: false, created, replied, errors, checkedAt: new Date().toISOString() },
+        meta: { ...apiMeta(config), externalWrites: false },
+      };
+    } finally {
+      // El intervalo cuenta desde el inicio de la lectura: con lecturas de unos segundos, el
+      // ritmo de 15 s del navegador no se salta una de cada dos.
+      liveSyncs.set(key, { at: now, running: false });
+    }
+  });
+
   app.post("/api/sync", async (request, reply) => {
     const actor = requirePermission(config, request, "sync.run");
     const body = syncSchema.parse(request.body ?? {});
@@ -4060,7 +4172,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           );
         }
       }
-      if (["replied", "resolved"].includes(interaction.status)) {
+      // En un DM ya respondido una persona puede seguir escribiendo, como en un chat: es otro
+      // mensaje a la misma conversación, pedido a propósito (`followUp`) y confirmado por ella.
+      // Un caso resuelto no: hay que reabrirlo. Un comentario recibe una sola respuesta.
+      const followUpAllowed = body.followUp
+        && body.approvedByHuman
+        && interaction.type === "dm"
+        && interaction.status === "replied";
+      if (["replied", "resolved"].includes(interaction.status) && !followUpAllowed) {
         throw new ApiError(409, "CASE_ALREADY_CLOSED", "La interacción ya fue respondida o cerrada.");
       }
       const accountAllowlisted = store.workflow.autoReplyAccountIds.includes(interaction.accountId);

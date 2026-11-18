@@ -46,6 +46,20 @@ function interaction(overrides: Partial<Interaction> = {}): Interaction {
   };
 }
 
+describe("inbox contacts: follow-up target", () => {
+  it("points an answered conversation at the customer's last message, not the account's", () => {
+    const question = interaction({ id: "dm-question", type: "dm", status: "replied", createdAt: "2026-11-18T14:02:35.000Z", metricoolRef: { conversationId: "c-1", actorId: "customer-1" } });
+    const answer = interaction({ id: "dm-answer", type: "dm", direction: "outbound", status: "replied", createdAt: "2026-11-18T14:03:16.000Z", metricoolRef: { conversationId: "c-1", actorId: "customer-1" } });
+    const [contact] = groupInboxContacts([question, answer]);
+    expect(contact).toMatchObject({ replyTarget: undefined, latestInboundId: "dm-question", latest: { id: "dm-answer" } });
+
+    const pending = interaction({ id: "dm-new", type: "dm", status: "pending", createdAt: "2026-11-18T14:05:00.000Z", metricoolRef: { conversationId: "c-1", actorId: "customer-1" } });
+    const [withPending] = groupInboxContacts([question, answer, pending]);
+    expect(withPending?.replyTarget?.id).toBe("dm-new");
+    expect(withPending?.latestInboundId).toBeUndefined();
+  });
+});
+
 describe("inbox contacts", () => {
   it("groups one person across comment threads while preserving an exact reply target", () => {
     const first = interaction({

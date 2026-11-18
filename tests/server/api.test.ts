@@ -2698,6 +2698,142 @@ describe("SAC Flow API", () => {
     expect(inbound?.automation).toBeUndefined();
   });
 
+  it("lets a person keep writing in an answered DM, never in a comment or a resolved case", async () => {
+    const { app } = await makeApp();
+    const snapshot = await app.sacFlow.repository.snapshot();
+    const dm = snapshot.interactions.find((item) => item.type === "dm" && item.direction === "inbound")!;
+    const comment = snapshot.interactions.find((item) => item.type === "comment" && item.direction === "inbound")!;
+    for (const item of [dm, comment]) {
+      await app.sacFlow.repository.updateInteraction(item.id, (current) => {
+        current.status = "replied";
+        current.responseText = "Primera respuesta";
+        current.respondedAt = "2026-11-18T14:00:00.000Z";
+      });
+    }
+    const send = async (id: string, payload: Record<string, unknown>) => {
+      const current = await app.sacFlow.repository.findInteraction(id);
+      return app.inject({
+        method: "POST",
+        url: `/api/interactions/${id}/reply`,
+        headers: authHeaders,
+        payload: { mode: "send", approvedByHuman: true, expectedVersion: current!.version, ...payload },
+      });
+    };
+
+    const withoutFlag = await send(dm.id, { text: "Te escribo de nuevo" });
+    expect(withoutFlag.statusCode).toBe(409);
+    expect(withoutFlag.json().error.code).toBe("CASE_ALREADY_CLOSED");
+
+    const followUp = await send(dm.id, { text: "Te escribo de nuevo", followUp: true });
+    expect(followUp.statusCode).toBe(200);
+    const another = await send(dm.id, { text: "Y un mensaje más", followUp: true });
+    expect(another.statusCode).toBe(200);
+    expect((await app.sacFlow.repository.findInteraction(dm.id))).toMatchObject({ status: "replied", responseText: "Y un mensaje más" });
+
+    const onComment = await send(comment.id, { text: "Segunda respuesta pública", followUp: true });
+    expect(onComment.statusCode).toBe(409);
+
+    await app.sacFlow.repository.updateInteraction(dm.id, (current) => { current.status = "resolved"; });
+    const onResolved = await send(dm.id, { text: "Después de resolver", followUp: true });
+    expect(onResolved.statusCode).toBe(409);
+  });
+
+  it("shows a reply sent from Nodes once even after Metricool syncs it back", async () => {
+    const { app } = await makeApp();
+    const base = (await app.sacFlow.repository.snapshot()).interactions.find((item) => item.accountId === "account-01" && item.direction === "inbound")!;
+    const sentAt = "2026-11-18T14:26:58.412Z";
+    const inbound = {
+      ...base,
+      id: "inbound-with-reply",
+      externalId: "inbound-with-reply",
+      type: "dm" as const,
+      channel: "instagram" as const,
+      createdAt: "2026-11-18T14:02:35.000Z",
+      status: "replied" as const,
+      responseText: "Mensaje de prueba",
+      respondedAt: sentAt,
+      metricoolRef: { conversationId: "conversation-dup" },
+      audit: [],
+      internalNotes: [],
+    };
+    const synced = {
+      ...inbound,
+      id: "outbound-synced",
+      externalId: "outbound-synced",
+      direction: "outbound" as const,
+      text: "Mensaje  de prueba",
+      createdAt: "2026-11-18T14:26:58.000Z",
+      responseText: undefined,
+      respondedAt: undefined,
+    };
+    await app.sacFlow.repository.insertInteractions([inbound, synced]);
+    const conversation = await app.inject({ method: "GET", url: "/api/interactions/inbound-with-reply/conversation", headers: authHeaders });
+    expect(conversation.statusCode).toBe(200);
+    const outbound = conversation.json().data.filter((message: { direction: string }) => message.direction === "outbound");
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0].id).toBe("outbound-synced");
+  });
+
+  it("reads the open account live: only that surface, no run, at most every 10 s", async () => {
+    const client: MetricoolGateway = {
+      getBrand: vi.fn(async () => ({})),
+      listConversations: vi.fn(async (_account, provider) => provider !== "INSTAGRAMBUSINESS" ? { data: [] } : {
+        data: [{
+          id: "conversation-live",
+          self: "brand-profile",
+          provider,
+          status: "PENDING",
+          participants: [{ id: "brand-profile", name: "Marca" }, { id: "customer-live", name: "Cliente" }],
+          messages: [{
+            id: "message-live-question",
+            from: "customer-live",
+            to: "brand-profile",
+            text: "¿Tienen la talla 42?",
+            publicationDateTime: new Date().toISOString(),
+          }],
+        }],
+      }),
+      listPostComments: vi.fn(async () => ({ data: [] })),
+      listReviews: vi.fn(async () => ({ data: [] })),
+      replyToConversation: vi.fn(async () => ({ ok: true })),
+      replyToPostComment: vi.fn(async () => ({ ok: true })),
+      replyToReview: vi.fn(async () => ({ ok: true })),
+    };
+    const { app } = await makeApp({
+      env: {
+        METRICOOL_MODE: "live",
+        METRICOOL_API_TOKEN: "configured-token",
+        METRICOOL_ACCOUNTS_JSON: JSON.stringify({
+          "account-01": { userId: "user-1", blogId: "blog-1", instagramProvider: "INSTAGRAMBUSINESS" },
+        }),
+      },
+      client,
+    });
+    const revision = async () => (await app.inject({ method: "GET", url: "/api/inbox/revision", headers: authHeaders })).json().data.revision;
+    const runsBefore = (await app.sacFlow.repository.snapshot()).runs.length;
+    const before = await revision();
+
+    const live = await app.inject({
+      method: "POST", url: "/api/sync/live", headers: authHeaders, payload: { accountId: "account-01", surface: "conversations" },
+    });
+    expect(live.statusCode).toBe(200);
+    expect(live.json().data).toMatchObject({ skipped: false, created: 1 });
+    expect(client.listPostComments).not.toHaveBeenCalled();
+    expect(client.getBrand).not.toHaveBeenCalled();
+    expect((await app.sacFlow.repository.snapshot()).runs.length).toBe(runsBefore);
+    const afterNew = await revision();
+    expect(afterNew).not.toBe(before);
+
+    // Otra persona mirando la misma cuenta un instante después no vuelve a leer Metricool.
+    const calls = vi.mocked(client.listConversations).mock.calls.length;
+    const again = await app.inject({
+      method: "POST", url: "/api/sync/live", headers: authHeaders, payload: { accountId: "account-01", surface: "conversations" },
+    });
+    expect(again.json().data).toMatchObject({ skipped: true, reason: "recent", created: 0 });
+    expect(vi.mocked(client.listConversations).mock.calls.length).toBe(calls);
+    expect(await revision()).toBe(afterNew);
+  });
+
   it("queries only the supported Inbox surfaces for every connected platform", async () => {
     const client: MetricoolGateway = {
       listConversations: vi.fn(async () => ({ data: [] })),

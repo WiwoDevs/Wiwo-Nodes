@@ -775,7 +775,7 @@ Metricool informa 7 días para responder DMs y 24 horas para comentarios en Inst
 
 ### `GET /api/inbox/contacts`
 
-Contrato optimizado de la bandeja. Cada contacto incluye `latestInboundAt` (último mensaje del cliente), usado para el plazo de respuesta. Aplica el scope de marca del actor antes de agrupar y pagina después de construir contactos. No incluye clientes ocultos ni los casos cargados a mano desde el Excel BD SAC (`source: "planilla"`); lo mismo vale para `/api/inbox/posts`, `/api/inbox/changes`, `/api/interactions`, `/api/stats/summary`, el marcado en lote y el archivado de vencidos. Una fila representa una persona dentro de la misma cuenta y plataforma; nunca fusiona marcas o redes. La identidad pública `contactKey` es un SHA-256 opaco y no revela el ID social.
+Contrato optimizado de la bandeja. Cada contacto incluye `latestInboundAt` (último mensaje del cliente), usado para el plazo de respuesta. Aplica el scope de marca del actor antes de agrupar y pagina después de construir contactos. Si la persona no tiene nada pendiente y lo último lo escribió la cuenta, el contacto trae `latestInboundId` (el último mensaje del cliente), para que el chat se abra ahí y se pueda seguir la conversación. No incluye clientes ocultos ni los casos cargados a mano desde el Excel BD SAC (`source: "planilla"`); lo mismo vale para `/api/inbox/posts`, `/api/inbox/changes`, `/api/interactions`, `/api/stats/summary`, el marcado en lote y el archivado de vencidos. Una fila representa una persona dentro de la misma cuenta y plataforma; nunca fusiona marcas o redes. La identidad pública `contactKey` es un SHA-256 opaco y no revela el ID social.
 
 Acepta `page` y `pageSize` con las mismas reglas de `/api/interactions`. Primero filtra interacciones y luego agrupa el subconjunto resultante; por eso los recuentos representan los mensajes que cumplen los filtros, no necesariamente todo el historial del contacto. La bandeja principal carga el conjunto autorizado sin filtros de servidor y aplica sus filtros sobre los contactos ya agregados.
 
@@ -1026,6 +1026,12 @@ Evalúa casos existentes y persiste solo el resultado local del protocolo: inten
 
 Antes de evaluar, el endpoint reconcilia los hilos que ya tienen un mensaje saliente posterior. Respuesta: `{ data: { interactions, reconciledTeamResponses, evaluated, drafted, escalated, autoReplyCandidates, queuedAutoReplies, queueSkippedCapacity, quarantined }, meta: { externalWrites: false, localWrites, outboundSendsDisabled, autoReplyDispatchMode, queuedAutoReplies, queueSkippedCapacity, autoReplyMaxPending } }`. `reconciledTeamResponses` indica cuántos casos quedaron **Respondidos por el equipo** en esa ejecución. `queuedAutoReplies` informa inserciones realmente persistidas, no solo candidatas. Si la cola alcanza `SAC_FLOW_AUTO_REPLY_MAX_PENDING`, las nuevas candidatas se contabilizan en `queueSkippedCapacity`, permanecen como casos locales y no se envían. La comprobación e inserción del cupo ocurren dentro de la misma sección crítica/transacción; dos instancias no pueden consumir el último cupo a la vez, y una repetición idempotente se reconoce antes de evaluar capacidad. En live exige `Idempotency-Key`. En `shadow`, una candidata segura se conserva como borrador. En `live`, si ambos cortacorrientes permiten mutaciones, la evaluación crea una entrega `pending`; el worker la despacha después usando la misma clave idempotente.
 
+### `POST /api/sync/live`
+
+Lectura en vivo de una cuenta: `{ "accountId": "account-01", "surface": "conversations" | "comments" }`. Requiere `sync.run`. Lee en Metricool solo esa superficie de esa cuenta, con los canales ya conocidos (sin detectar plataformas) y probando primero el proveedor que entregó datos la última vez; guarda lo nuevo, reconcilia respuestas de esa cuenta y evalúa el protocolo SAC de lo nuevo, igual que la sincronización completa. Solo procesa mensajes de las últimas 6 horas (lo anterior lo cubre la sincronización completa del worker) y, si no entró nada nuevo, no reconcilia ni relee la base: una lectura sin novedades tarda lo que tarda Metricool en responder. No usa ni espera el candado de `POST /api/sync`, no exige `Idempotency-Key` (la ingesta es idempotente) y no deja un run en el historial. Corre como mucho una vez cada 10 s por cuenta y superficie aunque la pidan varias personas: dentro de ese lapso, o si ya hay una en curso, responde `skipped: true` con `reason: "recent" | "in_progress"` y `lastAt`. Si no trajo nada nuevo, no avanza la revisión de la bandeja.
+
+Respuesta: `{ data: { skipped, created, replied, errors, checkedAt }, meta: { externalWrites: false } }`. Gestión DMs/comentarios la llama cada 15 s mientras la vista está abierta y visible, y también al pulsar **Actualizar cuenta**.
+
 ### `POST /api/sync`
 
 Lee y normaliza DMs/comentarios, deduplica por `(accountId, type, externalId)`, persiste los nuevos items y ejecuta obligatoriamente `sac-v1` antes de registrar el run. El protocolo crea borradores seguros o deriva revisión humana; el sync no envía respuestas a Metricool.
@@ -1079,6 +1085,7 @@ Reglas de body:
 - `approvedByHuman`: default `false`.
 - `confidence`: opcional 0–1; si falta, se usa la interacción.
 - `expectedVersion`: entero ≥ 1 obligatorio; un valor antiguo devuelve `409 INTERACTION_VERSION_CONFLICT` sin guardar cambios.
+- `followUp`: default `false`. Con `mode: "send"` y `approvedByHuman: true`, permite mandar otro mensaje en un **DM ya respondido** (`status: "replied"`), como en un chat: va a la misma conversación, crea una entrega nueva y deja ese texto como `responseText`. No aplica a comentarios (una respuesta por comentario) ni a casos `resolved` (hay que reabrirlos); sin `followUp` un caso respondido sigue respondiendo `409 CASE_ALREADY_CLOSED`. Una entrega en curso o incierta del caso o de la cuenta sigue bloqueando el envío.
 
 Comportamiento:
 

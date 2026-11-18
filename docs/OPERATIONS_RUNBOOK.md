@@ -45,6 +45,7 @@ Los umbrales son una base de staging. Techlab debe ajustarlos con el volumen rea
 - Apache debe dejar pasar el stream sin acumularlo: no aplicar compresión (`mod_deflate`) a `text/event-stream` y mantener un tiempo de espera del proxy mayor a 25 s (el latido). Si no, todo sigue funcionando con la consulta cada 10 s.
 - La lista se obtiene desde `/api/inbox/contacts`: cada fila representa una persona dentro de una cuenta y plataforma, pero las acciones usan el `replyTarget` exacto. Si el recuento de pendientes es mayor que uno, responder uno no debe cerrar los demás; la fila permanece y selecciona el siguiente caso pendiente tras actualizarse.
 - En comentarios, el contexto del post solo aparece si la sincronización recibió `root.element`. La ausencia de miniatura o enlace no debe remediarse fabricando una URL desde `postId`; verificar primero una sincronización reciente y luego el payload/permiso del proveedor.
+- **Gestión DMs/comentarios en vivo:** mientras la vista está abierta y la pestaña visible, la cuenta abierta se lee en Metricool cada 15 s (`POST /api/sync/live`, solo esa superficie, unos segundos). Lo nuevo aparece solo en la lista y en el chat abierto, y el encabezado muestra "En vivo · revisado hh:mm:ss". El servidor lee cada cuenta como mucho cada 10 s aunque la miren varias personas. El resto del portafolio sigue con la sincronización completa del worker cada 5 min. El retraso que queda es el de Metricool en recibir el mensaje desde Meta: Nodes no puede mostrar algo antes de que Metricool lo tenga.
 - `Actualizar ahora` exige rol agente, ejecuta una sincronización de lectura y después relee la bandeja. Un `409 SYNC_IN_PROGRESS` indica que el worker u otro operador ya inició una; esperar a que termine en vez de disparar múltiples reintentos.
 - El worker espera hasta 290 s la respuesta de cada sincronización programada (una del portafolio completo tarda ~2-3 min). Si al llegar su turno ya hay otra en curso (`409 SYNC_IN_PROGRESS`), la programada se da por cubierta: el job queda completado sin run propio y el log del worker registra `sync_job_skipped`. Por eso un choque de horarios ya no aparece como "trabajo fallido"; los `dead` de tipo `sync` que queden son fallos reales. Las sincronizaciones pedidas para cuentas puntuales siguen reintentándose.
 - Investigar una última sincronización `partial` o `failed` por cuenta y superficie. No borrar el histórico ni habilitar salidas para corregir un problema de lectura.
@@ -60,6 +61,12 @@ Los umbrales son una base de staging. Techlab debe ajustarlos con el volumen rea
 7. En mensajes con adjunto o historia, revisar la vista previa o el enlace antes de responder. Si el recurso expiró, usar el contexto textual disponible o abrir la conversación en la red social; no inferir el contenido ni automatizar el caso.
 
 El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo SAC ni `/reply`. Si aparecen envíos al abrir, filtrar o seleccionar, detener la prueba y revisar requests/auditoría antes de continuar.
+
+## Seguir escribiendo en un DM (modo chat)
+
+- En Gestión DMs, un DM ya respondido no se bloquea: el cuadro sigue disponible ("Ya está respondido. Puedes seguir escribiendo") y cada mensaje se envía a la misma conversación, con la confirmación de siempre (Ctrl + Enter abre esa confirmación). No hace falta esperar a que el cliente escriba de nuevo.
+- Cuando no hay nada pendiente, el chat se abre en el último mensaje del cliente, no en la última respuesta de la cuenta.
+- Sigue cerrado: un caso **resuelto** (se reabre con **Reabrir caso**), los comentarios (una respuesta pública por comentario) y cualquier caso con una entrega en curso o incierta.
 
 ## Casos cerrados por la cuenta y "Reabrir caso"
 

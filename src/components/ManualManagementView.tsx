@@ -91,6 +91,8 @@ export interface ManualManagementViewProps {
   onSelectAccount: (account: BrandAccount) => void | Promise<void>;
   onSelectInteraction: (interaction: Interaction) => void | Promise<void>;
   onRefreshAccount?: (account: BrandAccount) => void | Promise<void>;
+  /** Última lectura en vivo de esta cuenta en Metricool (cada ~15 s mientras la vista está abierta). */
+  liveCheckedAt?: string | null;
   onSaveDraft: (detail: InteractionDetail, text: string) => void | Promise<void>;
   onSendReply: (detail: InteractionDetail, text: string) => boolean | Promise<boolean>;
   onResolve: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => boolean | Promise<boolean>;
@@ -400,6 +402,7 @@ export function ManualManagementView({
   onSelectAccount,
   onSelectInteraction,
   onRefreshAccount,
+  liveCheckedAt,
   onSaveDraft,
   onSendReply,
   onResolve,
@@ -583,6 +586,12 @@ export function ManualManagementView({
     if (!list) return;
     const align = () => {
       const target = list.querySelector<HTMLElement>(".is-target");
+      // En pantallas angostas el historial no tiene scroll propio (se desplaza la página): se
+      // lleva a la vista el mensaje que se responde.
+      if (list.scrollHeight <= list.clientHeight + 1) {
+        (target ?? list.lastElementChild as HTMLElement | null)?.scrollIntoView({ block: "center" });
+        return;
+      }
       if (!target) {
         list.scrollTop = list.scrollHeight;
         return;
@@ -609,6 +618,14 @@ export function ManualManagementView({
   }, [visibleDetail?.id, timeline.length]);
   const aiRecommendation = visibleDetail?.automation?.proposal?.text?.trim() || "";
   const caseClosed = visibleDetail ? detailIsClosed(visibleDetail) : true;
+  // Un DM ya respondido sigue abierto como un chat: se puede mandar otro mensaje a la misma
+  // conversación sin esperar a que el cliente escriba. Resolver, escalar y borradores siguen
+  // siendo para casos abiertos; un caso resuelto se reabre antes.
+  const followUpOpen = Boolean(visibleDetail
+    && visibleDetail.kind === "dm"
+    && visibleDetail.direction === "inbound"
+    && visibleDetail.status === "answered_by_team");
+  const composerLocked = caseClosed && !followUpOpen;
   // Si lo seleccionado es el mensaje de la cuenta, "Reabrir" vuelve a pendiente el último
   // mensaje del cliente de esa conversación.
   const reopenTargetId = visibleDetail && caseClosed
@@ -644,8 +661,10 @@ export function ManualManagementView({
     const nextId = visibleDetail?.id ?? null;
     const changedDetail = nextId !== activeDetailIdRef.current;
     if (visibleDetail && (changedDetail || !draftDirtyRef.current)) {
-      // La recomendación debe ser una ayuda explícita, no un borrador implícito.
-      setDraftText(visibleDetail.responseText || "");
+      // La recomendación debe ser una ayuda explícita, no un borrador implícito. En un caso ya
+      // respondido, `responseText` es lo que se envió: el compositor queda vacío para seguir
+      // escribiendo, nunca con el mensaje anterior listo para mandarse dos veces.
+      setDraftText(detailIsClosed(visibleDetail) ? "" : visibleDetail.responseText || "");
       setDirty(false);
     } else if (!visibleDetail && !draftDirtyRef.current) {
       setDraftText("");
@@ -712,6 +731,38 @@ export function ManualManagementView({
     setDirty(true);
   };
 
+  const sendDisabled = !visibleDetail
+    || !canWrite
+    || isSaving
+    || composerLocked
+    || deliveryBlocksSend
+    || !selectedCommentIsOpen
+    || visibleDetail.direction !== "inbound"
+    || !draftText.trim();
+  /** Envía lo escrito (botón o Ctrl/Cmd + Enter), siempre con confirmación humana. */
+  const sendFromComposer = async () => {
+    if (!visibleDetail || sendDisabled) return;
+    const text = draftText.trim();
+    const confirmed = await confirmAction(followUpOpen
+      ? {
+        title: `¿Enviar este mensaje a ${visibleDetail.customerName}?`,
+        message: "Va a la misma conversación y queda auditado.",
+        confirmLabel: "Enviar mensaje",
+      }
+      : {
+        title: `¿Enviar esta respuesta a ${visibleDetail.customerName}?`,
+        message: "La acción se realizará sobre el caso exacto seleccionado y quedará auditada.",
+        confirmLabel: "Enviar respuesta",
+      });
+    if (!confirmed) return;
+    const sent = await onSendReply(visibleDetail, text);
+    if (sent) {
+      // Como en un chat: el cuadro queda vacío y listo para el siguiente mensaje.
+      setDraftText("");
+      setDirty(false);
+    }
+  };
+
   const openStatusAction = (action: StatusAction) => {
     const options = statusReasons[action];
     setStatusAction(action);
@@ -769,14 +820,18 @@ export function ManualManagementView({
               onClick={() => void onRefreshAccount(selectedAccount)}
               disabled={!canRefresh || isRefreshing || isSaving}
               aria-busy={isRefreshing}
-              title={!canRefresh ? "Requiere permisos de operación" : "Sincronizar únicamente esta cuenta"}
+              title={!canRefresh ? "Requiere permisos de operación" : "Leer ahora los mensajes nuevos de esta cuenta (se hace solo cada 15 s)"}
             >
               <ArrowClockwise size={17} weight="bold" aria-hidden="true" />
               {isRefreshing ? "Actualizando" : "Actualizar cuenta"}
             </button>
           ) : null}
           <div className="manual-inbox-refresh-status" aria-live="polite">
-            {lastUpdatedAt ? <small>Vista actualizada: {formatDateTime(lastUpdatedAt)}</small> : null}
+            {liveCheckedAt ? (
+              <small className="manual-inbox-live" title="La cuenta abierta se lee en Metricool cada 15 segundos; lo nuevo aparece solo.">
+                <i aria-hidden="true" />En vivo · revisado {new Date(liveCheckedAt).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              </small>
+            ) : lastUpdatedAt ? <small>Vista actualizada: {formatDateTime(lastUpdatedAt)}</small> : null}
             {refreshIssue ? <small className="is-warning"><WarningCircle size={14} weight="fill" aria-hidden="true" />{refreshIssue}</small> : null}
           </div>
         </div>
@@ -1157,10 +1212,19 @@ export function ManualManagementView({
                       id="manual-inbox-draft"
                       value={draftText}
                       onChange={(event) => updateDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        // Ctrl/Cmd + Enter envía (con la misma confirmación); Enter solo, salto de línea.
+                        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                          event.preventDefault();
+                          void sendFromComposer();
+                        }
+                      }}
                       rows={3}
                       maxLength={10_000}
-                      disabled={!canWrite || isSaving || caseClosed}
-                      placeholder="Escribe una respuesta humana para este caso"
+                      disabled={!canWrite || isSaving || composerLocked}
+                      placeholder={followUpOpen
+                        ? "Escribe otro mensaje para esta conversación (Ctrl + Enter para enviar)"
+                        : "Escribe una respuesta humana para este caso"}
                     />
                     <small className={`manual-inbox-draft-state${isDraftDirty ? " is-dirty" : ""}`} aria-live="polite">
                       {isDraftDirty
@@ -1170,7 +1234,9 @@ export function ManualManagementView({
 
                     {caseClosed ? (
                       <p className="manual-inbox-closed-note">
-                        Este caso ya no requiere respuesta.
+                        {followUpOpen
+                          ? "Ya está respondido. Puedes seguir escribiendo: va a la misma conversación."
+                          : "Este caso ya no requiere respuesta."}
                         {onReopen && reopenTargetId ? (
                           <button
                             type="button"
@@ -1229,19 +1295,8 @@ export function ManualManagementView({
                       <button
                         className="manual-inbox-composer__send"
                         type="button"
-                        onClick={async () => {
-                          const text = draftText.trim();
-                          if (!text) return;
-                          const confirmed = await confirmAction({
-                            title: `¿Enviar esta respuesta a ${visibleDetail.customerName}?`,
-                            message: "La acción se realizará sobre el caso exacto seleccionado y quedará auditada.",
-                            confirmLabel: "Enviar respuesta",
-                          });
-                          if (!confirmed) return;
-                          const sent = await onSendReply(visibleDetail, text);
-                          if (sent) setDirty(false);
-                        }}
-                        disabled={!canWrite || isSaving || caseClosed || deliveryBlocksSend || !selectedCommentIsOpen || visibleDetail.direction !== "inbound" || !draftText.trim()}
+                        onClick={() => void sendFromComposer()}
+                        disabled={sendDisabled}
                       >
                         <PaperPlaneTilt size={16} weight="bold" aria-hidden="true" />
                         Enviar manualmente

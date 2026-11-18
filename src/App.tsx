@@ -54,6 +54,7 @@ import {
   connectBrandWorkbook,
   createBrand,
   deactivateBrand,
+  liveSyncAccount,
   setBrandVisibility,
   importMetricoolBrands,
   archiveExpiredInteractions,
@@ -121,6 +122,8 @@ function isManualView(value: ViewId): value is ManualViewId {
 const INBOX_FULL_RELOAD_MS = 10 * 60_000;
 /** Sin avisos en vivo (proxy que los retiene), se pregunta por cambios cada 10 s. */
 const INBOX_FALLBACK_POLL_MS = 10_000;
+/** Cada cuánto se lee en Metricool la cuenta abierta en Gestión DMs/comentarios. */
+const LIVE_SYNC_INTERVAL_MS = 15_000;
 
 /** Reemplaza las filas que cambiaron (por persona) y agrega las nuevas al principio. */
 function mergeInboxRows(current: Interaction[], changed: Interaction[]): Interaction[] {
@@ -565,6 +568,43 @@ export function App({ onSignOut, sessionActor }: {
   const canAdmin = !connectionIssue && visibleData.actor.role === "admin";
   // Ocultar o mostrar clientes: solo el admin principal del servidor, no uno asignado en la app.
   const canHideBrands = canAdmin && visibleData.actor.masterAdmin === true;
+
+  /**
+   * Gestión DMs/comentarios en vivo: mientras la vista está abierta y visible, se lee en
+   * Metricool la cuenta abierta cada 15 s (el servidor la limita a una vez cada 10 s por cuenta
+   * aunque la miren varias personas). Lo nuevo llega a la pantalla por el aviso en vivo de la
+   * bandeja, que también refresca la conversación abierta.
+   */
+  const [liveCheckedAt, setLiveCheckedAt] = useState<string | null>(null);
+  const liveSyncBusyRef = useRef(false);
+  const liveAccountId = isManualView(view) && canSync && !connectionIssue ? selectedManualAccount?.id : undefined;
+  const liveSurface = view === "manual-comments" ? "comments" : "conversations";
+  useEffect(() => {
+    setLiveCheckedAt(null);
+    if (!liveAccountId) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled || document.visibilityState !== "visible" || !navigator.onLine || liveSyncBusyRef.current) return;
+      liveSyncBusyRef.current = true;
+      try {
+        const result = await liveSyncAccount(liveAccountId, liveSurface);
+        if (!cancelled) setLiveCheckedAt(result.checkedAt ?? result.lastAt ?? new Date().toISOString());
+      } catch {
+        // Sin red o Metricool ocupado: el próximo intento vuelve a probar, sin avisos molestos.
+      } finally {
+        liveSyncBusyRef.current = false;
+      }
+    };
+    void tick();
+    const intervalId = window.setInterval(() => void tick(), LIVE_SYNC_INTERVAL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") void tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [liveAccountId, liveSurface]);
   const isActive = visibleData.workflow.enabled;
   const platformSection = ({
     "platform-home": "home",
@@ -1274,13 +1314,15 @@ export function App({ onSignOut, sessionActor }: {
   async function sendDetailReply(detail: InteractionDetail, text: string) {
     if (isMutatingInteraction || isRunning) return false;
     setMutatingInteraction(true);
+    // Un DM ya respondido sigue abierto como un chat: el mensaje nuevo va a la misma conversación.
+    const followUp = detail.kind === "dm" && detail.direction === "inbound" && detail.status === "answered_by_team";
     try {
-      await saveInteractionReply(detail.id, text, "send", detail.version);
+      await saveInteractionReply(detail.id, text, "send", detail.version, { followUp });
       await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast({
         tone: "success",
-        title: "Respuesta procesada",
+        title: followUp ? "Mensaje enviado" : "Respuesta procesada",
         detail: `${detail.brandName} · envío confirmado y auditado.`,
       });
       return true;
@@ -1872,6 +1914,30 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
+  /** "Actualizar cuenta" en Gestión DMs/comentarios: la lectura en vivo, sin esperar la completa. */
+  async function refreshManualAccount(account: BrandAccount) {
+    if (liveSyncBusyRef.current) return;
+    liveSyncBusyRef.current = true;
+    setIsRunning(true);
+    try {
+      const result = await liveSyncAccount(account.id, view === "manual-comments" ? "comments" : "conversations");
+      setLiveCheckedAt(result.checkedAt ?? result.lastAt ?? new Date().toISOString());
+      await syncInboxChanges();
+      if (result.created) {
+        setToast({ tone: "success", title: `${account.name} al día`, detail: `${result.created} mensaje(s) nuevo(s).` });
+      }
+    } catch (error) {
+      setToast({
+        tone: "warning",
+        title: `No se pudo actualizar ${account.name}`,
+        detail: error instanceof Error ? error.message : "Revisa la API real.",
+      });
+    } finally {
+      liveSyncBusyRef.current = false;
+      setIsRunning(false);
+    }
+  }
+
   async function navigateToView(destination: ViewId) {
     if (!canSeeView(destination)) return;
     if (
@@ -2210,7 +2276,8 @@ export function App({ onSignOut, sessionActor }: {
                 setManualCommentsIssue(null);
                 setManualPostCommentsReloadToken((current) => current + 1);
               }}
-              onRefreshAccount={syncSingleAccount}
+              onRefreshAccount={refreshManualAccount}
+              liveCheckedAt={canSync ? liveCheckedAt : undefined}
               onSaveDraft={saveDetailDraft}
               onSendReply={sendDetailReply}
               onResolve={resolveInteraction}

@@ -265,12 +265,20 @@ export const syncSchema = z.object({
   since: optionalDate,
 }).strict().default({});
 
+/** Lectura en vivo de una cuenta: DMs o comentarios. */
+export const liveSyncSchema = z.object({
+  accountId: z.string().trim().min(1).max(120),
+  surface: z.enum(["conversations", "comments"]),
+}).strict();
+
 export const replySchema = z.object({
   text: z.string().trim().min(1).max(1_000),
   mode: z.enum(["draft", "send"]),
   approvedByHuman: z.boolean().default(false),
   confidence: z.number().min(0).max(1).optional(),
   expectedVersion: z.number().int().min(1),
+  /** Seguir escribiendo en un DM ya respondido (como en un chat). Solo con `mode: "send"`. */
+  followUp: z.boolean().default(false),
 }).strict();
 
 export const replyDeliveryParamsSchema = z.object({

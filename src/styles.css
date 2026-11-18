@@ -4621,6 +4621,23 @@ a:focus-visible {
 }
 .manual-inbox-refresh-status small { display: inline-flex; align-items: center; gap: 5px; font-size: inherit; }
 .manual-inbox-refresh-status .is-warning { color: var(--rose); }
+.manual-inbox-live i {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0 var(--green-soft);
+  animation: manual-inbox-live-pulse 2s ease-out infinite;
+}
+@keyframes manual-inbox-live-pulse {
+  0% { box-shadow: 0 0 0 0 var(--green-soft); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .manual-inbox-live i { animation: none; }
+}
 .manual-inbox-refresh {
   display: inline-flex;
   align-items: center;

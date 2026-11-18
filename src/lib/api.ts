@@ -139,6 +139,8 @@ type ApiInboxContact = {
   customerName: string;
   customerHandle: string;
   replyTarget?: ApiInteraction;
+  /** Sin caso pendiente y con la cuenta como último en escribir: el último mensaje del cliente. */
+  latestInboundId?: string;
   latestInboundAt?: string;
   latest: {
     id: string;
@@ -654,8 +656,11 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
     const brand = brandById.get(contact.brandId);
     const brandName = brand?.name ?? contact.brandId;
     const rawStatus = replyTarget?.status ?? contact.latest.status;
+    // El caso que se abre es siempre un mensaje del cliente cuando lo hay: el pendiente o, si
+    // la cuenta escribió al último, el último del cliente (para seguir la conversación).
+    const followUpId = !replyTarget ? contact.latestInboundId : undefined;
     return {
-      id: replyTarget?.id ?? contact.latest.id,
+      id: replyTarget?.id ?? followUpId ?? contact.latest.id,
       version: replyTarget?.version,
       contactKey: contact.contactKey,
       accountId: contact.accountId,
@@ -665,7 +670,7 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
       customerHandle: contact.customerHandle,
       platform: contact.channel,
       kind: replyTarget?.type ?? contact.latest.type,
-      direction: replyTarget?.direction ?? contact.latest.direction,
+      direction: replyTarget?.direction ?? (followUpId ? "inbound" : contact.latest.direction),
       preview: contact.latest.text,
       receivedAt: contact.latest.createdAt,
       latestInboundAt: contact.latestInboundAt,
@@ -1170,6 +1175,30 @@ export async function syncMetricool(accountIds?: string[]): Promise<RunResult> {
   return mapApiRun(data.run ?? data, data.newInteractions);
 }
 
+export interface LiveSyncResult {
+  skipped: boolean;
+  created: number;
+  replied?: number;
+  errors?: number;
+  checkedAt?: string;
+  lastAt?: string;
+}
+
+/**
+ * Lectura en vivo de la cuenta abierta (DMs o comentarios): rápida, sin esperar la
+ * sincronización completa. El servidor la limita a una cada 10 s por cuenta.
+ */
+export async function liveSyncAccount(accountId: string, surface: "conversations" | "comments"): Promise<LiveSyncResult> {
+  const response = await fetch(`${API_BASE}/sync/live`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accountId, surface }),
+  });
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: LiveSyncResult };
+  return payload.data;
+}
+
 export async function evaluateSacProtocol(interactionIds?: string[]): Promise<SacProtocolResult> {
   const total: SacProtocolResult = {
     evaluated: 0,
@@ -1487,6 +1516,7 @@ export async function saveInteractionReply(
   text: string,
   mode: "draft" | "send" = "draft",
   expectedVersion = 1,
+  options: { followUp?: boolean } = {},
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/interactions/${encodeURIComponent(interactionId)}/reply`, {
     method: "POST",
@@ -1499,6 +1529,7 @@ export async function saveInteractionReply(
       mode,
       approvedByHuman: mode === "send",
       expectedVersion,
+      ...(mode === "send" && options.followUp ? { followUp: true } : {}),
     }),
   });
   if (!response.ok) await throwApiError(response);

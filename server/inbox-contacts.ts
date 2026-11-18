@@ -55,6 +55,8 @@ export interface InboxContactSummary {
   customerName: string;
   customerHandle: string;
   replyTarget?: PublicInboxInteraction;
+  /** Sin caso pendiente y con la cuenta como último en escribir: el último mensaje del cliente. */
+  latestInboundId?: string;
   latest: InboxContactLatest;
   /** Último mensaje del cliente: desde ahí corre el plazo de respuesta de Meta. */
   latestInboundAt?: string;
@@ -325,6 +327,11 @@ export function groupInboxContacts(interactions: Interaction[]): InboxContactSum
       customerName: display.customerName,
       customerHandle: display.customerHandle,
       replyTarget: replyTarget ? publicInboxInteraction(replyTarget) : undefined,
+      // Sin nada pendiente y con la cuenta como último en escribir: el chat se abre en el último
+      // mensaje del cliente, para poder seguir la conversación desde ahí.
+      ...(!replyTarget && latest.direction === "outbound" && display.direction === "inbound"
+        ? { latestInboundId: display.id }
+        : {}),
       latestInboundAt: ordered.find((interaction) => interaction.direction === "inbound")?.createdAt,
       latest: {
         id: latest.id,
