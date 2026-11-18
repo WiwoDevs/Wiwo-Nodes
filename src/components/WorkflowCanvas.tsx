@@ -51,6 +51,7 @@ import type {
   ApiWorkflowEdge,
   ApiWorkflowNode,
 } from "../lib/api";
+import { BusyOrb } from "./ThinkingOrb";
 
 type NodeTone = "indigo" | "violet" | "green" | "blue" | "rose" | "slate";
 
@@ -820,7 +821,7 @@ export function WorkflowCanvas({
 
       <section className={`workflow-editor-toolbar ${isEditing ? "is-editing" : ""}`} aria-label="Controles de edición del flujo">
         <div className={`workflow-editor-mode is-${editorStatus}`} aria-live="polite">
-          {isSaving ? <ArrowsClockwise className="spin" size={16} /> : isEditing ? <PencilSimple size={16} /> : <LockSimple size={16} />}
+          {isSaving ? <BusyOrb /> : isEditing ? <PencilSimple size={16} /> : <LockSimple size={16} />}
           <span>
             {isSaving
               ? "Guardando..."

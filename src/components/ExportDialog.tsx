@@ -3,8 +3,9 @@
  * del navegador y se envían como ISO a /api/export/xlsx, que ya filtra por from/to/brandId.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ArrowsClockwise, DownloadSimple, FileXls, X } from "@phosphor-icons/react";
+import { DownloadSimple, FileXls, X } from "@phosphor-icons/react";
 import type { BrandAccount } from "../types";
+import { BusyOrb } from "./ThinkingOrb";
 
 export type ExportPeriod = "last_month" | "this_month" | "last_30_days" | "custom" | "all";
 
@@ -170,7 +171,7 @@ export function ExportDialog({ accounts, onClose, onExport }: ExportDialogProps)
         <div className="metricool-import__actions">
           <button className="button button--secondary" type="button" onClick={onClose} disabled={exporting}>Cancelar</button>
           <button className="button button--primary" type="button" onClick={() => void handleExport()} disabled={exporting || invalidRange}>
-            {exporting ? <ArrowsClockwise className="spin" size={16} aria-hidden="true" /> : <DownloadSimple size={16} weight="bold" aria-hidden="true" />}
+            {exporting ? <BusyOrb /> : <DownloadSimple size={16} weight="bold" aria-hidden="true" />}
             {exporting ? "Generando…" : "Descargar Excel"}
           </button>
         </div>

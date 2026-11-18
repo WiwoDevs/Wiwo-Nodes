@@ -96,6 +96,7 @@ import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, Int
 import { confirmAction } from "./lib/confirm";
 import { useMinuteTick } from "./lib/use-minute-tick";
 import { ConfirmHost } from "./components/ConfirmHost";
+import { OrbLoader, BusyOrb } from "./components/ThinkingOrb";
 
 const WorkflowCanvas = lazy(() =>
   import("./components/WorkflowCanvas").then((module) => ({ default: module.WorkflowCanvas })),
@@ -141,7 +142,7 @@ const navigation = [
   { id: "platform-home" as const, label: "Inicio", icon: House, group: "Operación SAC" },
   { id: "interactions" as const, label: "Bandeja SAC", icon: ChatCircleDots, badge: "0", group: "Operación SAC" },
   { id: "manual-dms" as const, label: "Gestión DMs", icon: ChatsCircle, group: "Operación SAC" },
-  { id: "manual-comments" as const, label: "Gestión comentarios", icon: ChatCircleText, group: "Operación SAC" },
+  { id: "manual-comments" as const, label: "Gestión comentarios", railLabel: "Gestión comen\u00ADtarios", icon: ChatCircleText, group: "Operación SAC" },
   { id: "dashboard" as const, label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
   { id: "reports" as const, label: "Reportes", icon: PresentationChart, group: "Operación SAC" },
   { id: "workflow" as const, label: "Flujo SAC", icon: GitBranch, group: "Operación SAC" },
@@ -149,7 +150,7 @@ const navigation = [
   // railLabel: guiones suaves (\\u00AD) donde partir las palabras más anchas que el riel; no
   // depende del diccionario de guionado del navegador.
   { id: "automations" as const, label: "Automatización", railLabel: "Automati\u00ADzación", icon: Lightning, group: "Automatización" },
-  { id: "automation-executions" as const, label: "Ejecuciones", icon: ClockCounterClockwise, group: "Automatización" },
+  { id: "automation-executions" as const, label: "Ejecuciones", railLabel: "Ejecu\u00ADciones", icon: ClockCounterClockwise, group: "Automatización" },
   { id: "templates" as const, label: "Plantillas", icon: SquaresFour, group: "Automatización" },
   { id: "credentials" as const, label: "Credenciales", railLabel: "Creden\u00ADciales", icon: Key, group: "Automatización", adminOnly: true },
   { id: "users" as const, label: "Usuarios", icon: UsersThree, group: "Sistema", adminOnly: true },
@@ -383,9 +384,8 @@ function EvaluationPanel({ validation, version, publishedVersion }: { validation
 
 function WorkflowLoading() {
   return (
-    <section className="workflow-loading" role="status" aria-live="polite">
-      <ArrowsClockwise className="spin" size={24} />
-      <span>Cargando editor del workflow…</span>
+    <section className="workflow-loading">
+      <OrbLoader />
     </section>
   );
 }
@@ -2049,7 +2049,7 @@ export function App({ onSignOut, sessionActor }: {
                   <TestTube size={17} /> Probar
                 </button>
                 <button className="button primary" onClick={() => execute("run")} disabled={isRunning || !canRunAutomations} title={!canRunAutomations ? "Tu rol no permite ejecutar el flujo" : undefined}>
-                  {isRunning ? <ArrowsClockwise className="spin" size={17} /> : <Play size={17} weight="fill" />}
+                  {isRunning ? <BusyOrb /> : <Play size={17} weight="fill" />}
                   {isRunning ? "Ejecutando" : "Ejecutar flujo"}
                 </button>
               </>
@@ -2080,7 +2080,7 @@ export function App({ onSignOut, sessionActor }: {
                 />
               </label>
               <button className="button secondary" type="submit" disabled={isOpeningSession || !accessKey.trim()}>
-                {isOpeningSession ? <ArrowsClockwise className="spin" size={16} /> : <Key size={16} />}
+                {isOpeningSession ? <BusyOrb /> : <Key size={16} />}
                 Acceder
               </button>
             </form>
@@ -2098,7 +2098,7 @@ export function App({ onSignOut, sessionActor }: {
               ))}
               <div className={`autosave-status is-${workflowEditorStatus}`} aria-live="polite">
                 {workflowEditorStatus === "saving" ? (
-                  <ArrowsClockwise className="spin" size={15} />
+                  <BusyOrb />
                 ) : workflowEditorStatus === "locked" ? (
                   <LockSimple size={15} />
                 ) : workflowEditorStatus === "error" ? (
@@ -2139,7 +2139,7 @@ export function App({ onSignOut, sessionActor }: {
         ) : null}
 
         {platformSection ? (
-          <Suspense fallback={<section className="platform-loading"><ArrowsClockwise className="spin" size={24} /><strong>Cargando Automation Studio</strong></section>}>
+          <Suspense fallback={<section className="platform-loading"><OrbLoader /></section>}>
             <AutomationPlatform
               section={platformSection}
               canAdmin={canEditAutomations}

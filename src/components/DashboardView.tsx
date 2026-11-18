@@ -18,6 +18,7 @@ import type {
 } from "../types";
 import { SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
+import { BusyOrb } from "./ThinkingOrb";
 
 export interface DashboardViewProps {
   kpis: DashboardKpi[];
@@ -96,12 +97,7 @@ export function DashboardView({
             disabled={isRefreshing || !canSync}
             title={!canSync ? "Requiere rol agente o superior" : undefined}
           >
-            <ArrowClockwise
-              className={isRefreshing ? "button__icon button__icon--spinning" : "button__icon"}
-              size={17}
-              weight="bold"
-              aria-hidden="true"
-            />
+            {isRefreshing ? <BusyOrb /> : <ArrowClockwise className="button__icon" size={17} weight="bold" aria-hidden="true" />}
             {isRefreshing ? "Actualizando" : "Actualizar"}
           </button>
           <button

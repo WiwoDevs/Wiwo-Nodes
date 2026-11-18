@@ -25,6 +25,7 @@ import type {
   ProjectRequirement,
   ServiceStatus,
 } from "../types";
+import { BusyOrb } from "./ThinkingOrb";
 
 export interface SettingsViewProps {
   integrations: IntegrationStatus[];
@@ -120,12 +121,7 @@ export function SettingsView({
             disabled={isRunningDiagnostics || !canRunDiagnostics}
             title={!canRunDiagnostics ? "Requiere rol agente o superior" : undefined}
           >
-            <ArrowClockwise
-              className={isRunningDiagnostics ? "button__icon button__icon--spinning" : "button__icon"}
-              size={17}
-              weight="bold"
-              aria-hidden="true"
-            />
+            {isRunningDiagnostics ? <BusyOrb /> : <ArrowClockwise className="button__icon" size={17} weight="bold" aria-hidden="true" />}
             {isRunningDiagnostics ? "Comprobando" : "Comprobar entorno"}
           </button>
         </div>

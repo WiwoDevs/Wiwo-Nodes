@@ -1,0 +1,772 @@
+/*
+ * Wiwo Thinking Orb — copia de WiwoLab (apps/web/src/app/thinking-orb.css), el mismo orbe de Lab.
+ * Dos ajustes para convivir con el orbe del login (src/styles/wiwo-orb.css, de WiWO Ops), que usa las
+ * mismas clases internas: las reglas del orbe volumétrico van bajo .wiwo-orb-stage, y el aura oscura
+ * usa :root:not([data-theme="light"]) en vez de la clase .dark de Lab. Regenerar desde Lab si cambia.
+ */
+/* ==========================================================================
+   KEYFRAMES — inline orb
+   ========================================================================== */
+@keyframes wiwo-orb-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes wiwo-orb-breathe {
+  0%, 100% { transform: scale(1); filter: brightness(1) saturate(1); }
+  50% { transform: scale(1.09); filter: brightness(1.12) saturate(1.15); }
+}
+@keyframes wiwo-orb-listen {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 10px -2px rgba(59, 255, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 18px 0 rgba(59, 255, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  }
+}
+@keyframes wiwo-orb-success {
+  0% { transform: scale(0.9); }
+  45% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+@keyframes wiwo-orb-morph {
+  0%, 100% { border-radius: 50%; }
+  33% { border-radius: 54% 46% 52% 48% / 48% 52% 48% 52%; }
+  66% { border-radius: 46% 54% 48% 52% / 52% 46% 54% 48%; }
+}
+@keyframes wiwo-orb-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-12%) scale(1.06); }
+}
+@keyframes wiwo-orb-ribbon {
+  0% { transform: scale(0.75); opacity: 0; }
+  35% { opacity: 0.85; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+@keyframes wiwo-orb-emanate {
+  0% { transform: scale(0.55); opacity: 0.6; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+@keyframes wiwo-orb-bloom {
+  0% { transform: scale(0.5); opacity: 0.8; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+@keyframes wiwo-orb-contract {
+  0%, 100% { transform: scale(1); filter: saturate(1) brightness(1); }
+  50% { transform: scale(0.84); filter: saturate(1.25) brightness(0.95); }
+}
+
+/* ==========================================================================
+   KEYFRAMES — stage orb (volumétrico)
+   ========================================================================== */
+@keyframes orbx-breathe {
+  0%, 100% {
+    transform: translate3d(var(--orb-x, 0px), var(--orb-y, 0px), 0) scale(var(--orb-scale-a, .98)) rotate(-2deg);
+    border-radius: 56% 44% 52% 48% / 45% 58% 42% 55%;
+  }
+  45% {
+    transform: translate3d(calc(var(--orb-x, 0px) + 8px), calc(var(--orb-y, 0px) - 4px), 0) scale(var(--orb-scale-b, 1.12)) rotate(4deg);
+    border-radius: 44% 56% 58% 42% / 58% 40% 60% 42%;
+  }
+  72% {
+    transform: translate3d(calc(var(--orb-x, 0px) - 6px), calc(var(--orb-y, 0px) + 5px), 0) scale(var(--orb-scale-c, .95)) rotate(-5deg);
+    border-radius: 63% 37% 47% 53% / 42% 62% 38% 58%;
+  }
+}
+@keyframes orbx-magnetic {
+  0%, 100% {
+    box-shadow:
+      0 0 170px color-mix(in srgb, var(--orb-light-blue) 34%, transparent),
+      0 0 145px color-mix(in srgb, var(--orb-light-lime) 26%, transparent),
+      0 0 80px rgba(248, 250, 215, .16);
+  }
+  50% {
+    box-shadow:
+      0 0 230px color-mix(in srgb, var(--orb-light-lime) 30%, transparent),
+      0 0 180px color-mix(in srgb, var(--orb-light-blue) 36%, transparent),
+      0 0 120px rgba(248, 250, 215, .2);
+  }
+}
+@keyframes orbx-membrane {
+  0%, 100% { transform: rotate(0deg) scale(.96); }
+  50% { transform: rotate(148deg) scale(1.12); }
+}
+@keyframes orbx-liquid {
+  0%, 100% { transform: rotate(-12deg) scale(.95) skew(-4deg); }
+  48% { transform: rotate(112deg) scale(1.12) skew(6deg); }
+}
+@keyframes orbx-lightswim {
+  0% { transform: translate3d(-4%, -2%, 0) scale(.95); }
+  100% { transform: translate3d(5%, 4%, 0) scale(1.08); }
+}
+@keyframes orbx-caustic { to { transform: rotate(360deg); } }
+@keyframes orbx-aurora-a { to { transform: rotate(360deg) scale(1.05); } }
+@keyframes orbx-aurora-b { to { transform: rotate(-360deg) scale(1.02); } }
+@keyframes orbx-tide {
+  0% { transform: translate3d(-8%, -2%, 0) scale(.9); opacity: .52; }
+  100% { transform: translate3d(7%, 4%, 0) scale(1.08); opacity: .86; }
+}
+@keyframes orbx-core {
+  0% { transform: scale(.72); opacity: .08; }
+  100% { transform: scale(1.08); opacity: .18; }
+}
+@keyframes orbx-glint {
+  0% { transform: translate3d(-28px, -8px, 0) rotate(-12deg); opacity: .34; }
+  100% { transform: translate3d(18px, 10px, 0) rotate(-4deg); opacity: .76; }
+}
+@keyframes orbx-pulse {
+  0% { transform: scale(.72); opacity: .1; }
+  42% { opacity: .42; }
+  100% { transform: scale(1.22); opacity: 0; }
+}
+@keyframes orbx-sheen {
+  from { transform: translate3d(-14px, -8px, 0) rotate(-10deg); opacity: .48; }
+  to { transform: translate3d(18px, 12px, 0) rotate(6deg); opacity: .82; }
+}
+@keyframes orbx-stage-aurora {
+  0%, 100% { transform: translate(-50%, -50%) rotate(-3deg) scale(.95); }
+  50% { transform: translate(-50%, -50%) rotate(7deg) scale(1.08); }
+}
+@keyframes orbx-listen-scan {
+  0%, 100% { transform: translate(-50%, -50%) scaleX(.58); opacity: .28; }
+  50% { transform: translate(-50%, -50%) scaleX(1.4); opacity: .96; }
+}
+@keyframes orbx-state-orbit { to { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes orbx-output-trail {
+  0% { transform: translate(-52%, -50%) scaleX(.34); opacity: 0; }
+  38% { opacity: .96; }
+  100% { transform: translate(-22%, -50%) scaleX(1.12); opacity: 0; }
+}
+@keyframes orbx-route-beam {
+  0% { transform: translate(-50%, -50%) rotate(-34deg) scaleX(.72); opacity: .22; }
+  100% { transform: translate(-50%, -50%) rotate(26deg) scaleX(1.16); opacity: .72; }
+}
+@keyframes orbx-success-bloom {
+  0% { transform: translate(-50%, -50%) scale(.62); opacity: 0; }
+  34% { opacity: .9; }
+  100% { transform: translate(-50%, -50%) scale(1.22); opacity: 0; }
+}
+@keyframes orbx-error-friction {
+  0%, 100% { transform: translate(-52%, -50%) rotate(-3deg) scaleX(.72); opacity: .26; }
+  50% { transform: translate(-48%, -50%) rotate(2deg) scaleX(1.08); opacity: .86; }
+}
+@keyframes orbx-orbit {
+  from { transform: rotate(0deg) translateX(var(--orbit, 220px)) rotate(0deg); }
+  to { transform: rotate(360deg) translateX(var(--orbit, 220px)) rotate(-360deg); }
+}
+@keyframes orbx-twinkle {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(.7); opacity: .34; }
+  38% { transform: translate3d(10px, -14px, 0) scale(1.2); opacity: .92; }
+  68% { transform: translate3d(-8px, 10px, 0) scale(.9); opacity: .6; }
+}
+
+/* ==========================================================================
+   INLINE ORB
+   ========================================================================== */
+.wiwo-orb {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  border-radius: 999px;
+  background: var(--wiwo-gradient-primary);
+  box-shadow:
+    0 0 14px -2px rgba(66, 66, 255, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  animation:
+    wiwo-orb-breathe 2.4s ease-in-out infinite,
+    wiwo-orb-morph 7s ease-in-out infinite;
+}
+.wiwo-orb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+}
+.wiwo-orb::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(255, 255, 255, 0.6) 60deg,
+    transparent 150deg
+  );
+  mix-blend-mode: screen;
+  animation: wiwo-orb-spin 2.8s linear infinite;
+}
+
+.wiwo-orb--idle {
+  background: radial-gradient(circle at 38% 32%, #b8b8b3, #76766f);
+  box-shadow: 0 0 10px -3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  animation: wiwo-orb-breathe 3.8s ease-in-out infinite;
+}
+.wiwo-orb--idle::before { opacity: 0.3; animation-duration: 7s; }
+
+.wiwo-orb--listening {
+  background: radial-gradient(circle at 38% 32%, #c2b6ff, var(--wiwo-purple));
+  box-shadow: 0 0 16px -2px rgba(141, 124, 255, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+  animation: wiwo-orb-bounce 1.2s var(--ease-spring) infinite;
+}
+.wiwo-orb--listening::before { opacity: 0; }
+.wiwo-orb--listening::after {
+  opacity: 1;
+  box-shadow: 0 0 0 1.5px rgba(141, 124, 255, 0.7);
+  animation: wiwo-orb-ribbon 1.8s var(--ease-out) infinite;
+}
+
+.wiwo-orb--generating {
+  filter: saturate(1.25) brightness(1.12);
+  animation: wiwo-orb-breathe 1.5s ease-in-out infinite, wiwo-orb-morph 4s ease-in-out infinite;
+}
+.wiwo-orb--generating::before { animation-duration: 1.4s; }
+.wiwo-orb--generating::after {
+  opacity: 1;
+  box-shadow: 0 0 0 1.5px rgba(66, 66, 255, 0.5);
+  animation: wiwo-orb-emanate 1.6s var(--ease-out) infinite;
+}
+
+.wiwo-orb--routing { animation: wiwo-orb-breathe 2.6s ease-in-out infinite; }
+.wiwo-orb--routing::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(255, 255, 255, 0.8) 22deg,
+    transparent 56deg,
+    transparent 180deg,
+    rgba(255, 255, 255, 0.55) 202deg,
+    transparent 236deg
+  );
+  animation: wiwo-orb-spin 1.4s linear infinite;
+}
+.wiwo-orb--routing::after {
+  opacity: 1;
+  box-shadow: 0 0 0 1px rgba(66, 66, 255, 0.38);
+  animation: wiwo-orb-emanate 2.2s linear infinite;
+}
+
+.wiwo-orb--success {
+  background: var(--wiwo-green);
+  box-shadow: 0 0 18px -2px rgba(59, 255, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  animation: wiwo-orb-success 0.6s var(--ease-spring) 1 both;
+}
+.wiwo-orb--success::before { display: none; }
+.wiwo-orb--success::after {
+  opacity: 1;
+  box-shadow: 0 0 0 1.5px rgba(59, 255, 0, 0.6);
+  animation: wiwo-orb-bloom 0.7s var(--ease-out) 1 both;
+}
+
+.wiwo-orb--error,
+.wiwo-orb--retry {
+  background: linear-gradient(135deg, #ff6f61 0%, #ba1a1a 100%);
+  box-shadow: 0 0 14px -3px rgba(186, 26, 26, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  animation: wiwo-orb-contract 1.4s var(--ease-in-out) infinite;
+}
+.wiwo-orb--retry { filter: saturate(0.8); }
+.wiwo-orb--error::before,
+.wiwo-orb--retry::before {
+  background: linear-gradient(90deg, transparent 46%, rgba(255, 255, 255, 0.9) 50%, transparent 54%);
+  transform: rotate(32deg);
+  animation: none;
+}
+.wiwo-orb--error::after,
+.wiwo-orb--retry::after { opacity: 0; }
+
+.wiwo-thinking-halo { position: relative; }
+.wiwo-thinking-halo::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: var(--wiwo-gradient-primary);
+  filter: blur(10px);
+  opacity: 0.45;
+  z-index: -1;
+  animation: wiwo-orb-breathe 2.4s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   STAGE ORB (volumétrico)
+   ========================================================================== */
+.wiwo-orb-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  flex: none;
+  border-radius: clamp(14px, 16%, 30px);
+  color: var(--wiwo-beige);
+  --orb-light-blue: rgba(66, 66, 255, .84);
+  --orb-light-lime: rgba(59, 255, 0, .78);
+  --orb-light-milk: rgba(248, 250, 215, .72);
+  background:
+    radial-gradient(circle at 18% 8%, rgba(59, 255, 0, .18), transparent 28%),
+    radial-gradient(circle at 82% 18%, rgba(66, 66, 255, .22), transparent 34%),
+    radial-gradient(circle at 52% 54%, rgba(248, 250, 215, .08), transparent 45%),
+    linear-gradient(135deg, #1b1c21, #1f2620 46%, #15151e);
+}
+.wiwo-orb-stage::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 128%;
+  height: 116%;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(248, 250, 215, .16), transparent 30%),
+    radial-gradient(ellipse at 42% 56%, rgba(66, 66, 255, .4), transparent 56%),
+    radial-gradient(ellipse at 63% 40%, rgba(59, 255, 0, .26), transparent 60%);
+  filter: blur(30px) saturate(1.7);
+  opacity: .7;
+  transform: translate(-50%, -50%);
+  animation: orbx-stage-aurora 8200ms var(--ease-expressive) infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+.wiwo-orb-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 600px;
+  height: 600px;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%) scale(var(--orb-fit, 1));
+  z-index: 1;
+  pointer-events: none;
+}
+.wiwo-orb-stage.wiwo-orb-stage--bare {
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+  isolation: auto;
+}
+.wiwo-orb-panel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  color: var(--wiwo-beige);
+  background:
+    radial-gradient(circle at 16% 6%, rgba(59, 255, 0, .16), transparent 32%),
+    radial-gradient(circle at 84% 16%, rgba(66, 66, 255, .2), transparent 38%),
+    linear-gradient(135deg, #1b1c21, #1f2620 48%, #15151e);
+  border: 1px solid rgba(248, 250, 215, .1);
+}
+.wiwo-orb-aura {
+  position: relative;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+}
+.wiwo-orb-aura::before {
+  content: "";
+  position: absolute;
+  inset: -54%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    #1b1c27 0% 30%,
+    rgba(31, 33, 48, 0.62) 45%,
+    color-mix(in srgb, var(--background) 62%, #20222e) 58%,
+    color-mix(in srgb, var(--background) 90%, #20222e) 74%,
+    var(--background) 88%
+  );
+  filter: blur(15px);
+  z-index: -1;
+  pointer-events: none;
+}
+:root:not([data-theme="light"]) .wiwo-orb-aura::before {
+  inset: -62%;
+  background: radial-gradient(
+    closest-side,
+    #16161f 0% 48%,
+    rgba(22, 22, 31, 0.58) 64%,
+    rgba(22, 22, 31, 0.2) 79%,
+    transparent 92%
+  );
+  filter: blur(12px);
+}
+
+.wiwo-orb-stage .wiwo-thinking-orb {
+  --orb-w: 390px;
+  --orb-h: 340px;
+  --orb-x: 0px;
+  --orb-y: 0px;
+  --orb-scale-a: .98;
+  --orb-scale-b: 1.12;
+  --orb-scale-c: .95;
+  --orb-speed: 1850ms;
+  --orb-flow-speed: 2450ms;
+  --orb-brightness: 1.12;
+  --orb-saturation: 2.12;
+  --orb-alpha: .94;
+  position: relative;
+  display: block;
+  z-index: 4;
+  width: var(--orb-w);
+  height: var(--orb-h);
+  border-radius: 56% 44% 52% 48% / 45% 58% 42% 55%;
+  background: transparent;
+  opacity: var(--orb-alpha);
+  box-shadow:
+    0 0 150px color-mix(in srgb, var(--orb-light-blue) 30%, transparent),
+    0 0 125px color-mix(in srgb, var(--orb-light-lime) 24%, transparent),
+    0 0 72px rgba(248, 250, 215, .15);
+  filter: saturate(var(--orb-saturation)) brightness(var(--orb-brightness));
+  mix-blend-mode: screen;
+  transform-origin: 50% 54%;
+  will-change: transform, filter, border-radius;
+  animation:
+    orbx-breathe var(--orb-speed) var(--ease-expressive) infinite,
+    orbx-magnetic var(--orb-flow-speed) linear infinite;
+}
+.wiwo-orb-stage .wiwo-thinking-orb > span {
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.wiwo-orb-stage .wiwo-thinking-orb::before {
+  content: "";
+  position: absolute;
+  inset: -22%;
+  border-radius: 52% 48% 56% 44% / 48% 58% 42% 52%;
+  background:
+    radial-gradient(ellipse at 28% 36%, rgba(66, 66, 255, .68), transparent 38%),
+    radial-gradient(ellipse at 70% 40%, rgba(59, 255, 0, .56), transparent 36%),
+    radial-gradient(ellipse at 48% 66%, rgba(248, 250, 215, .42), transparent 40%),
+    radial-gradient(ellipse at 54% 52%, rgba(0, 229, 255, .24), transparent 48%);
+  filter: blur(38px) saturate(2.35) brightness(1.08);
+  opacity: .92;
+  mix-blend-mode: screen;
+  animation: orbx-membrane calc(var(--orb-flow-speed) * 1.34) var(--ease-expressive) infinite;
+}
+.wiwo-orb-stage .wiwo-thinking-orb::after {
+  content: "";
+  position: absolute;
+  inset: -14% -10%;
+  background:
+    radial-gradient(ellipse at 32% 24%, rgba(255, 255, 251, .56), rgba(255, 255, 251, .14) 30%, transparent 58%),
+    radial-gradient(ellipse at 72% 58%, rgba(66, 66, 255, .26), transparent 46%),
+    radial-gradient(ellipse at 44% 72%, rgba(59, 255, 0, .2), transparent 48%);
+  filter: blur(18px) saturate(1.55);
+  opacity: .72;
+  mix-blend-mode: screen;
+  animation: orbx-sheen 3900ms var(--ease-expressive) infinite alternate;
+}
+
+.wiwo-orb-stage .orb-liquid-veil, .wiwo-orb-stage .orb-light-field, .wiwo-orb-stage .orb-caustic, .wiwo-orb-stage .orb-aurora, .wiwo-orb-stage .orb-core { mix-blend-mode: screen; }
+.wiwo-orb-stage .orb-liquid-veil {
+  inset: -18%;
+  border-radius: 58% 42% 46% 54% / 44% 52% 48% 56%;
+  background:
+    radial-gradient(ellipse at 30% 66%, rgba(59, 255, 0, .45), transparent 38%),
+    radial-gradient(ellipse at 72% 28%, rgba(66, 66, 255, .52), transparent 40%),
+    radial-gradient(ellipse at 48% 48%, rgba(248, 250, 215, .2), transparent 48%);
+  filter: blur(42px) saturate(2.15);
+  opacity: .72;
+  animation: orbx-liquid 5400ms var(--ease-expressive) infinite;
+}
+.wiwo-orb-stage .orb-light-field {
+  inset: -22%;
+  border-radius: 48% 52% 58% 42% / 56% 44% 52% 48%;
+  background:
+    radial-gradient(ellipse at 36% 44%, rgba(248, 250, 215, .42), transparent 30%),
+    radial-gradient(ellipse at 62% 50%, rgba(66, 66, 255, .42), transparent 40%),
+    radial-gradient(ellipse at 48% 68%, rgba(59, 255, 0, .28), transparent 36%);
+  filter: blur(34px) saturate(1.9);
+  opacity: .62;
+  animation: orbx-lightswim 4600ms var(--ease-expressive) infinite alternate;
+}
+.wiwo-orb-stage .orb-caustic {
+  inset: -8%;
+  background: repeating-conic-gradient(from 0deg, transparent 0deg 18deg, rgba(248, 250, 215, .18) 22deg 24deg, transparent 28deg 46deg);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent 0 18%, rgba(0, 0, 0, .52) 38%, transparent 76%);
+  mask-image: radial-gradient(ellipse at 50% 50%, transparent 0 18%, rgba(0, 0, 0, .52) 38%, transparent 76%);
+  filter: blur(18px);
+  opacity: .28;
+  animation: orbx-caustic 8600ms linear infinite;
+}
+.wiwo-orb-stage .orb-aurora-one, .wiwo-orb-stage .orb-aurora-two, .wiwo-orb-stage .orb-aurora-three {
+  inset: -20%;
+  border-radius: 50%;
+  filter: blur(44px) saturate(2.2) brightness(1.05);
+  opacity: .72;
+}
+.wiwo-orb-stage .orb-aurora-one {
+  background:
+    radial-gradient(ellipse at 24% 38%, rgba(66, 66, 255, .5), transparent 34%),
+    radial-gradient(ellipse at 58% 70%, rgba(59, 255, 0, .34), transparent 38%);
+  animation: orbx-aurora-a 4200ms linear infinite;
+}
+.wiwo-orb-stage .orb-aurora-two {
+  background:
+    radial-gradient(ellipse at 72% 34%, rgba(59, 255, 0, .5), transparent 34%),
+    radial-gradient(ellipse at 40% 58%, rgba(0, 229, 255, .28), transparent 42%);
+  animation: orbx-aurora-b 5600ms linear infinite;
+}
+.wiwo-orb-stage .orb-aurora-three {
+  background:
+    radial-gradient(ellipse at 50% 48%, rgba(248, 250, 215, .38), transparent 34%),
+    radial-gradient(ellipse at 46% 62%, rgba(66, 66, 255, .28), transparent 46%);
+  opacity: .82;
+  animation: orbx-tide 2600ms var(--ease-expressive) infinite alternate;
+}
+.wiwo-orb-stage .orb-core {
+  inset: -16%;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 46% 46%, rgba(248, 250, 215, .46), transparent 30%),
+    radial-gradient(ellipse at 56% 56%, rgba(66, 66, 255, .2), transparent 44%),
+    radial-gradient(ellipse at 42% 60%, rgba(59, 255, 0, .18), transparent 46%);
+  filter: blur(46px) saturate(1.85);
+  opacity: .58;
+  animation: orbx-core 2400ms var(--ease-expressive) infinite alternate;
+}
+.wiwo-orb-stage .orb-glint {
+  width: 110px;
+  height: 52px;
+  right: 14%;
+  top: 18%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(248, 250, 215, .72), rgba(248, 250, 215, .18) 44%, transparent 72%);
+  filter: blur(14px);
+  opacity: .64;
+  mix-blend-mode: screen;
+  animation: orbx-glint 2600ms var(--ease-expressive) infinite alternate;
+}
+.wiwo-orb-stage .orb-pulse {
+  inset: -36%;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(248, 250, 215, .12), transparent 25%),
+    conic-gradient(from 0deg, rgba(59, 255, 0, .24), rgba(66, 66, 255, .26), transparent 62%, rgba(248, 250, 215, .14));
+  filter: blur(32px) saturate(1.5);
+  opacity: .18;
+  mix-blend-mode: screen;
+  animation: orbx-pulse 3100ms var(--ease-expressive) infinite;
+}
+.wiwo-orb-stage .orb-pulse:nth-child(2) { animation-delay: -1050ms; }
+.wiwo-orb-stage .orb-pulse:nth-child(3) { animation-delay: -2050ms; }
+
+.wiwo-orb-stage .orb-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(59, 255, 0, .8) 0 18%, rgba(59, 255, 0, .24) 46%, transparent 72%);
+  filter: blur(5px) saturate(1.4);
+  mix-blend-mode: screen;
+  --orbit: 230px;
+  animation: orbx-orbit 5200ms linear infinite;
+}
+.wiwo-orb-stage .orb-particle:nth-of-type(2) {
+  width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px;
+  background: radial-gradient(circle, rgba(66, 66, 255, .82) 0 18%, rgba(66, 66, 255, .26) 46%, transparent 72%);
+  --orbit: 198px;
+  animation-duration: 6400ms;
+  animation-delay: -1900ms;
+}
+.wiwo-orb-stage .orb-particle:nth-of-type(3) {
+  width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  background: radial-gradient(circle, rgba(248, 250, 215, .76) 0 18%, rgba(248, 250, 215, .24) 46%, transparent 74%);
+  --orbit: 262px;
+  animation-duration: 7800ms;
+  animation-delay: -3600ms;
+}
+.wiwo-orb-stage .orb-spark {
+  position: absolute;
+  left: var(--sx, 50%);
+  top: var(--sy, 50%);
+  z-index: 5;
+  width: var(--spark-size, 16px);
+  height: var(--spark-size, 16px);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--spark-color, rgba(248, 250, 215, .9)) 0 16%, transparent 70%);
+  filter: blur(6px) saturate(1.5);
+  mix-blend-mode: screen;
+  animation: orbx-twinkle var(--spark-speed, 6200ms) var(--ease-expressive) infinite;
+  animation-delay: var(--spark-delay, 0ms);
+}
+
+.wiwo-orb-stage .orb-state-field {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+.wiwo-orb-stage .orb-state-ring, .wiwo-orb-stage .orb-state-ring.alt, .wiwo-orb-stage .orb-scan-line, .wiwo-orb-stage .orb-output-trail, .wiwo-orb-stage .orb-success-burst, .wiwo-orb-stage .orb-retry-notch {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: screen;
+  z-index: 10;
+}
+.wiwo-orb-stage .orb-state-ring, .wiwo-orb-stage .orb-state-ring.alt {
+  width: 520px;
+  height: 300px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 10%, rgba(248, 250, 215, .3) 18%, transparent 28%, rgba(66, 66, 255, .44) 48%, transparent 64%, rgba(59, 255, 0, .44) 78%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent calc(100% - 34px), #000 calc(100% - 16px), transparent calc(100% - 2px));
+  mask-image: radial-gradient(ellipse at 50% 50%, transparent calc(100% - 34px), #000 calc(100% - 16px), transparent calc(100% - 2px));
+  filter: blur(7px);
+}
+.wiwo-orb-stage .orb-state-ring.alt { width: 430px; height: 250px; filter: blur(10px); }
+.wiwo-orb-stage .orb-scan-line {
+  width: 88px;
+  height: 460px;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(248, 250, 215, .48), transparent 18%),
+    linear-gradient(180deg, transparent, rgba(59, 255, 0, .72), rgba(66, 66, 255, .42), transparent);
+  filter: blur(9px) saturate(1.9);
+}
+.wiwo-orb-stage .orb-output-trail {
+  left: 64%;
+  width: 300px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(248, 250, 215, .7), rgba(59, 255, 0, .72), rgba(66, 66, 255, .58), transparent);
+  filter: blur(8px) saturate(1.8);
+}
+.wiwo-orb-stage .orb-output-trail.one { top: 39%; }
+.wiwo-orb-stage .orb-output-trail.two { top: 50%; width: 250px; animation-delay: -180ms; }
+.wiwo-orb-stage .orb-output-trail.three { top: 61%; width: 210px; animation-delay: -360ms; }
+.wiwo-orb-stage .orb-success-burst {
+  width: 420px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(59, 255, 0, .56), rgba(248, 250, 215, .22) 34%, transparent 72%);
+  filter: blur(24px);
+}
+.wiwo-orb-stage .orb-retry-notch {
+  width: 420px;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(248, 250, 215, .28), rgba(116, 108, 255, .72), rgba(248, 250, 215, .18), transparent);
+  filter: blur(8px) saturate(1.35);
+}
+
+/* ---- Personalidades por estado ---- */
+.wiwo-orb-stage[data-thinking-state="idle"] .wiwo-thinking-orb {
+  --orb-w: 330px; --orb-h: 245px;
+  --orb-speed: 7600ms; --orb-flow-speed: 11000ms;
+  --orb-alpha: .72; --orb-brightness: .88; --orb-saturation: 1.18;
+  --orb-scale-a: .9; --orb-scale-b: .96; --orb-scale-c: .88;
+}
+.wiwo-orb-stage[data-thinking-state="idle"] .orb-aurora,
+.wiwo-orb-stage[data-thinking-state="idle"] .orb-liquid-veil,
+.wiwo-orb-stage[data-thinking-state="idle"] .orb-pulse { opacity: .18; }
+
+.wiwo-orb-stage[data-thinking-state="listening"] .wiwo-thinking-orb {
+  --orb-w: 385px; --orb-h: 350px;
+  --orb-speed: 2300ms; --orb-flow-speed: 3600ms;
+  --orb-brightness: 1.08; --orb-saturation: 1.9;
+  --orb-scale-a: .96; --orb-scale-b: 1.08; --orb-scale-c: .94;
+}
+.wiwo-orb-stage[data-thinking-state="listening"] .orb-scan-line {
+  opacity: 1; z-index: 22;
+  animation: orbx-listen-scan 1280ms var(--ease-expressive) infinite;
+}
+.wiwo-orb-stage[data-thinking-state="listening"] .orb-pulse { opacity: .42; animation-duration: 1700ms; }
+
+.wiwo-orb-stage[data-thinking-state="thinking"] .orb-state-ring,
+.wiwo-orb-stage[data-thinking-state="thinking"] .orb-state-ring.alt {
+  opacity: .08;
+  animation: orbx-state-orbit 3200ms linear infinite;
+}
+.wiwo-orb-stage[data-thinking-state="thinking"] .orb-state-ring.alt {
+  animation-duration: 4600ms;
+  animation-direction: reverse;
+}
+
+.wiwo-orb-stage[data-thinking-state="generating"] .wiwo-thinking-orb {
+  --orb-w: 430px; --orb-h: 330px; --orb-x: -16px;
+  --orb-speed: 1280ms; --orb-flow-speed: 1760ms;
+  --orb-brightness: 1.18; --orb-saturation: 2.35;
+  --orb-scale-a: 1.02; --orb-scale-b: 1.2; --orb-scale-c: 1;
+}
+.wiwo-orb-stage[data-thinking-state="generating"] .orb-output-trail {
+  opacity: 1; z-index: 22;
+  animation: orbx-output-trail 980ms var(--ease-expressive) infinite;
+}
+.wiwo-orb-stage[data-thinking-state="generating"] .orb-output-trail.two { opacity: .86; }
+.wiwo-orb-stage[data-thinking-state="generating"] .orb-output-trail.three { opacity: .72; }
+
+.wiwo-orb-stage[data-thinking-state="routing"] .wiwo-thinking-orb {
+  --orb-w: 400px; --orb-h: 340px;
+  --orb-speed: 2500ms; --orb-flow-speed: 3100ms;
+  --orb-brightness: 1.08; --orb-saturation: 2.05;
+  --orb-scale-a: .94; --orb-scale-b: 1.08; --orb-scale-c: .96;
+}
+.wiwo-orb-stage[data-thinking-state="routing"] .orb-state-ring,
+.wiwo-orb-stage[data-thinking-state="routing"] .orb-state-ring.alt {
+  opacity: .58; z-index: 21;
+  filter: blur(4px) saturate(1.7);
+  animation: orbx-state-orbit 2100ms var(--ease-expressive) infinite;
+}
+.wiwo-orb-stage[data-thinking-state="routing"] .orb-scan-line {
+  opacity: .76; z-index: 22;
+  width: 410px; height: 28px;
+  background: linear-gradient(90deg, transparent, rgba(248, 250, 215, .5), rgba(59, 255, 0, .58), rgba(66, 66, 255, .5), transparent);
+  transform: translate(-50%, -50%) rotate(-28deg);
+  animation: orbx-route-beam 1280ms var(--ease-expressive) infinite alternate;
+}
+
+.wiwo-orb-stage[data-thinking-state="success"] .wiwo-thinking-orb {
+  --orb-w: 385px; --orb-h: 285px;
+  --orb-speed: 2500ms; --orb-flow-speed: 3600ms;
+  --orb-brightness: 1.18; --orb-saturation: 1.95;
+  --orb-scale-a: .98; --orb-scale-b: 1.08; --orb-scale-c: .98;
+}
+.wiwo-orb-stage[data-thinking-state="success"] .orb-success-burst {
+  opacity: .88;
+  animation: orbx-success-bloom 1800ms var(--ease-expressive) infinite;
+}
+
+.wiwo-orb-stage[data-thinking-state="error"],
+.wiwo-orb-stage[data-thinking-state="retry"] {
+  --orb-light-blue: rgba(116, 108, 255, .7);
+  --orb-light-lime: rgba(248, 250, 215, .2);
+  --orb-light-milk: rgba(248, 250, 215, .34);
+}
+.wiwo-orb-stage[data-thinking-state="error"] .wiwo-thinking-orb,
+.wiwo-orb-stage[data-thinking-state="retry"] .wiwo-thinking-orb {
+  --orb-w: 350px; --orb-h: 230px;
+  --orb-speed: 980ms; --orb-flow-speed: 1500ms;
+  --orb-alpha: .74; --orb-brightness: .78; --orb-saturation: 1.16;
+  --orb-scale-a: .84; --orb-scale-b: .94; --orb-scale-c: .82;
+  filter: saturate(var(--orb-saturation)) brightness(var(--orb-brightness)) contrast(1.04);
+}
+.wiwo-orb-stage[data-thinking-state="error"] .orb-retry-notch,
+.wiwo-orb-stage[data-thinking-state="retry"] .orb-retry-notch {
+  opacity: .9; z-index: 22;
+  animation: orbx-error-friction 760ms var(--ease-expressive) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiwo-orb,
+  .wiwo-orb::before,
+  .wiwo-orb::after,
+  .wiwo-orb-stage,
+  .wiwo-orb-stage::before,
+  .wiwo-orb-canvas *,
+  .wiwo-orb-stage .wiwo-thinking-orb,
+  .wiwo-orb-stage .wiwo-thinking-orb::before,
+  .wiwo-orb-stage .wiwo-thinking-orb::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

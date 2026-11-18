@@ -37,6 +37,7 @@ import {
 } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
 import { confirmAction } from "../lib/confirm";
+import { ThinkingOrb, BusyOrb } from "./ThinkingOrb";
 
 type ManualSurfaceId = "all" | `${SocialPlatform}:${InteractionKind}`;
 type StatusAction = "resolved" | "escalated";
@@ -855,7 +856,7 @@ export function ManualManagementView({
               aria-busy={isRefreshing}
               title={!canRefresh ? "Requiere permisos de operación" : "Leer ahora los mensajes nuevos de esta cuenta (se hace solo cada 15 s)"}
             >
-              <ArrowClockwise size={17} weight="bold" aria-hidden="true" />
+              {isRefreshing ? <BusyOrb /> : <ArrowClockwise size={17} weight="bold" aria-hidden="true" />}
               {isRefreshing ? "Actualizando" : "Actualizar cuenta"}
             </button>
           ) : null}
@@ -971,7 +972,7 @@ export function ManualManagementView({
               <div className="manual-inbox-contact-list" aria-busy={isLoadingPosts && isCommentSurface}>
                 {isLoadingPosts && isCommentSurface ? (
                   <div className="manual-inbox-loading" role="status">
-                    <ArrowClockwise size={24} weight="duotone" aria-hidden="true" />
+                    <ThinkingOrb size="lg" label="" />
                     <strong>Cargando publicaciones</strong>
                     <p>Ordenaremos los posts del más nuevo al más antiguo.</p>
                   </div>
@@ -1059,7 +1060,7 @@ export function ManualManagementView({
             <section className="manual-inbox-column manual-inbox-column--conversation" aria-label="Conversación y respuesta manual">
               {isLoadingDetail || (isCommentSurface && isLoadingPostComments) ? (
                 <div className="manual-inbox-loading" role="status">
-                  <ArrowClockwise size={27} weight="duotone" aria-hidden="true" />
+                  <ThinkingOrb size="lg" label="" />
                   <strong>{isCommentSurface ? "Cargando comentarios del post" : "Cargando conversación exacta"}</strong>
                   <p>{isCommentSurface
                     ? "Estamos reuniendo únicamente los comentarios abiertos de esta publicación."

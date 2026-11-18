@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { closeSession, loadAuthConfig, loadCurrentActor, type AuthProvider } from "../lib/api";
 import { LoginScreen } from "./LoginScreen";
 import { LoginShell } from "./LoginShell";
+import { OrbLoader } from "./ThinkingOrb";
 import type { SessionActor } from "../types";
 
 type GateState =
@@ -79,12 +80,11 @@ export function AuthGate({ children }: AuthGateProps) {
   }, [check]);
 
   if (state.status === "checking") {
+    // Como en WiwoLab: mientras se valida la sesión, el orbe sobre el fondo de la app.
     return (
-      <LoginShell>
-        <div className="wl-checking">
-          <span className="wl-spinner" role="status" aria-label="Verificando sesión" />
-        </div>
-      </LoginShell>
+      <main className="app-loading-screen">
+        <OrbLoader />
+      </main>
     );
   }
 

@@ -26,6 +26,7 @@ import {
 import { createAccessRole, deleteAccessRole, listUserAccess, setUserAccessRole, setUserPermissions, updateAccessRole } from "../lib/api";
 import type { AccessControlListing, AccessRole, RoleView, UserAccessView } from "../types";
 import { confirmAction } from "../lib/confirm";
+import { BusyOrb } from "./ThinkingOrb";
 
 type Toast = { tone: "success" | "warning"; title: string; detail: string };
 type Tab = "people" | "roles";
@@ -151,7 +152,7 @@ export function UsersRolesView({ onToast }: UsersRolesViewProps) {
             </button>
           </div>
           <button className="button button--secondary" type="button" onClick={() => void load()} disabled={loading}>
-            <ArrowClockwise className={loading ? "spin" : undefined} size={16} aria-hidden="true" />
+            {loading ? <BusyOrb /> : <ArrowClockwise size={16} aria-hidden="true" />}
             Actualizar
           </button>
         </div>

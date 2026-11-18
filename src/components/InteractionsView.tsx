@@ -31,6 +31,7 @@ import {
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
+import { BusyOrb } from "./ThinkingOrb";
 
 type FilterValue<T extends string> = T | "all";
 type AssignmentFilter = "all" | "assigned" | "unassigned" | "mine";
@@ -460,12 +461,7 @@ export function InteractionsView({
             title={!canSync ? "Requiere rol agente o superior" : "Consulta Metricool y vuelve a leer la bandeja sin salir de esta vista"}
             aria-busy={isRefreshing}
           >
-            <ArrowClockwise
-              className={isRefreshing ? "button__icon button__icon--spinning" : "button__icon"}
-              size={17}
-              weight="bold"
-              aria-hidden="true"
-            />
+            {isRefreshing ? <BusyOrb /> : <ArrowClockwise className="button__icon" size={17} weight="bold" aria-hidden="true" />}
             {isRefreshing ? "Actualizando" : "Actualizar ahora"}
           </button>
           {onTakeNext && canAssign ? (

@@ -86,6 +86,7 @@ import { ContentContext } from "./ContentContext";
 import { greetingNameOf, salutationFor } from "../lib/greeting";
 import { deadlineLabel, isExpired, needsAction, replyDeadline } from "../lib/reply-window";
 import { confirmAction } from "../lib/confirm";
+import { ThinkingOrb, OrbLoader, BusyOrb } from "./ThinkingOrb";
 
 export type AutomationSection = "home" | "workflows" | "executions" | "templates" | "credentials";
 export type AutomationHomeDestination = "platform-home" | "automations" | "automation-executions" | "workflow" | "dashboard" | "interactions" | "accounts";
@@ -241,7 +242,7 @@ function OperationalJobsPanel({
           <span><strong>{blockedCount}</strong> bloqueados</span>
           <span><strong>{deferredCount}</strong> en espera</span>
           <button className="icon-button" aria-label="Actualizar cola operativa" onClick={() => void onRefresh()} disabled={isLoading}>
-            <ArrowsClockwise className={isLoading ? "spin" : undefined} />
+            {isLoading ? <BusyOrb /> : <ArrowsClockwise />}
           </button>
         </div>
       </header>
@@ -255,7 +256,7 @@ function OperationalJobsPanel({
       ) : null}
       {isLoading && !jobs.length ? (
         <div className="operational-jobs-state" role="status" aria-live="polite">
-          <ArrowsClockwise className="spin" size={20} />
+          <ThinkingOrb size="md" label="" />
           <span><strong>Cargando cola operativa</strong><small>Consultando fallos y reintentos durables.</small></span>
         </div>
       ) : !jobs.length ? (
@@ -285,7 +286,7 @@ function OperationalJobsPanel({
                     <td><p title={job.lastError}>{job.lastError || "Sin detalle disponible."}</p></td>
                     <td>{canAdmin ? (
                       <button className="button secondary operational-job-retry" disabled={retryingJobId === job.id} onClick={() => void onRetry(job)}>
-                        <ArrowsClockwise className={retryingJobId === job.id ? "spin" : undefined} />
+                        {retryingJobId === job.id ? <BusyOrb /> : <ArrowsClockwise />}
                         {retryingJobId === job.id ? "Programando" : "Reintentar ahora"}
                       </button>
                     ) : <span className="operational-job-restricted"><LockKey /> Solo administrador</span>}</td>
@@ -482,10 +483,10 @@ function WorkflowStudio({
         <span className="studio-version">Borrador v{workflow.version} · Publicada v{workflow.publishedVersion}</span>
         <div className="studio-actions">
           <label className="studio-active"><span>{workflow.active ? "Activo" : "Inactivo"}</span><button className={`switch ${workflow.active ? "is-on" : ""}`} aria-pressed={workflow.active} onClick={toggleActive} disabled={!canAdmin}><span /></button></label>
-          <button className="button secondary" onClick={save} disabled={!canAdmin || isSaving}>{isSaving ? <ArrowsClockwise className="spin" /> : <Check />} Guardar</button>
+          <button className="button secondary" onClick={save} disabled={!canAdmin || isSaving}>{isSaving ? <BusyOrb /> : <Check />} Guardar</button>
           <button className="button secondary restore-button" onClick={rollback} disabled={!canAdmin || workflow.publishedVersion < 1} title="Restaurar la versión publicada"><ArrowsClockwise /><span>Restaurar</span></button>
           <button className="button secondary" onClick={publish} disabled={!canAdmin}>Publicar</button>
-          <button className="button primary" onClick={run} disabled={!canOperate || isRunning}>{isRunning ? <ArrowsClockwise className="spin" /> : <Play weight="fill" />} Ejecutar</button>
+          <button className="button primary" onClick={run} disabled={!canOperate || isRunning}>{isRunning ? <BusyOrb /> : <Play weight="fill" />} Ejecutar</button>
         </div>
       </header>
       <div className="studio-workspace">
@@ -645,7 +646,7 @@ export function AutomationPlatform({
   const projectId = state?.projects[0]?.id;
   const selectedCredentialType = credentialTypes.find((item) => item.type === credentialType);
 
-  if (isLoading || !state) return <section className="platform-loading" role="status" aria-live="polite" aria-busy="true"><ArrowsClockwise className="spin" size={24} /><strong>Cargando centro SAC</strong><span>Preparando operación, automatizaciones y credenciales.</span></section>;
+  if (isLoading || !state) return <section className="platform-loading"><OrbLoader /></section>;
 
   if (selectedWorkflow && section === "workflows") return <WorkflowStudio initialWorkflow={selectedWorkflow} definitions={definitions} credentials={state.credentials} workflows={state.workflows} canAdmin={canAdmin} canOperate={canOperate} onBack={() => setSelectedWorkflowId(null)} onChanged={refresh} onToast={onToast} />;
 
@@ -798,7 +799,7 @@ export function AutomationPlatform({
           {/* El flujo llega con la primera carga; antes no hay estado que mostrar. */}
           {isFirstLoad ? null : <span className={sacWorkflow.enabled ? "is-ready" : "is-warning"}><i />Flujo SAC {sacWorkflow.enabled ? "activo" : "pausado"}</span>}
           <span className={meta?.metricoolMutationsDisabled ? "is-neutral" : "is-warning"}><ShieldCheck weight="fill" />{meta?.metricoolMutationsDisabled ? "Metricool protegido" : "Envíos habilitados"}</span>
-          {isOperationalLoading ? <span role="status" aria-live="polite"><ArrowsClockwise className="spin" />Actualizando operación</span> : null}
+          {isOperationalLoading ? <span role="status" aria-live="polite"><BusyOrb />Actualizando operación</span> : null}
         </div>
       </section>
 
@@ -831,7 +832,7 @@ export function AutomationPlatform({
               <span className="sac-queue-state"><em className={`priority-${interaction.priority}`}>{interactionPriorityLabel(interaction.priority)}</em><small>{interactionStatusLabel(interaction.status)}</small>{deadlineLabel(interaction, now) ? <small className="sac-queue-deadline">{deadlineLabel(interaction, now)}</small> : null}</span>
               <ArrowRight className="sac-queue-arrow" />
             </button>)}
-            {isFirstLoad ? <div className="sac-panel-empty" role="status"><ArrowsClockwise className="spin" /><span><strong>Cargando conversaciones…</strong><small>Preparando la cola por plazo de respuesta.</small></span></div> : null}
+            {isFirstLoad ? <div className="sac-panel-empty" role="status"><ThinkingOrb size="md" label="" /><span><strong>Cargando conversaciones…</strong><small>Preparando la cola por plazo de respuesta.</small></span></div> : null}
             {!isFirstLoad && !topQueue.length ? <div className="sac-panel-empty"><CheckCircle weight="fill" /><span><strong>Cola al día</strong><small>{expiredCount ? `No hay casos en plazo. ${formatCount(expiredCount)} quedan fuera de plazo en la bandeja.` : "No hay conversaciones pendientes o en revisión."}</small></span></div> : null}
           </div>
         </section>

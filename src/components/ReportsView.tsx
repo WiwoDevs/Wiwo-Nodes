@@ -21,6 +21,7 @@ import {
 import { downloadExport, loadSacMonthlyReport } from "../lib/api";
 import type { InboxSyncStatus, SacMonthlyReport, SacReportBrand } from "../types";
 import { ManualRecordsDialog, type ManualRecordsBrandOption } from "./ManualRecordsDialog";
+import { BusyOrb } from "./ThinkingOrb";
 
 type ReportsViewProps = {
   canExport: boolean;
@@ -346,7 +347,7 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
             </select>
           </label>
           <button className="button button--secondary" type="button" onClick={() => void load()} disabled={loading}>
-            <ArrowsClockwise size={16} weight="bold" className={loading ? "spin" : undefined} aria-hidden="true" />
+            {loading ? <BusyOrb /> : <ArrowsClockwise size={16} weight="bold" aria-hidden="true" />}
             Recalcular
           </button>
           {canImportRecords && importBrands.length ? (

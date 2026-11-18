@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import "@fontsource-variable/plus-jakarta-sans";
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
+import "./styles/thinking-orb.css";
+import "./styles/wiwolab.css";
 import { App } from "./App";
 import { AuthGate } from "./components/AuthGate";
 import { initTheme } from "./lib/theme";

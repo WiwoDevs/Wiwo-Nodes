@@ -33,6 +33,7 @@ import type {
 import { interactionKindLabel, platformLabel, SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
 import { confirmAction } from "../lib/confirm";
+import { ThinkingOrb } from "./ThinkingOrb";
 
 export interface InteractionDetailPanelProps {
   detail: InteractionDetail | null;
@@ -469,7 +470,7 @@ export function InteractionDetailPanel({
 
       {isLoading || !detail ? (
         <div className="case-detail-panel__loading">
-          <ClockCounterClockwise size={26} weight="duotone" aria-hidden="true" />
+          <ThinkingOrb size="lg" label="" />
           <strong>Cargando conversación</strong>
           <p>Consultando la API operativa y la auditoría del caso.</p>
         </div>

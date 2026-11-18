@@ -4,13 +4,14 @@
  * Los casos cargados cuentan en Reportes y llegan a MetriQ; no aparecen en la bandeja.
  */
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { ArrowsClockwise, CheckCircle, DownloadSimple, FileArrowUp, WarningCircle, X } from "@phosphor-icons/react";
+import { CheckCircle, DownloadSimple, FileArrowUp, WarningCircle, X } from "@phosphor-icons/react";
 import {
   downloadManualRecordsTemplate,
   uploadManualRecords,
   type ManualRecordsChannel,
   type ManualRecordsSummary,
 } from "../lib/api";
+import { BusyOrb } from "./ThinkingOrb";
 
 export interface ManualRecordsBrandOption {
   brandId: string;
@@ -210,12 +211,12 @@ export function ManualRecordsDialog({ brands, onClose, onLoaded }: ManualRecords
           </button>
           {summary?.nuevas ? (
             <button className="button button--primary" type="button" onClick={() => void save()} disabled={busy !== null}>
-              {busy === "save" ? <ArrowsClockwise className="spin" size={16} aria-hidden="true" /> : <FileArrowUp size={16} weight="bold" aria-hidden="true" />}
+              {busy === "save" ? <BusyOrb /> : <FileArrowUp size={16} weight="bold" aria-hidden="true" />}
               {busy === "save" ? "Cargando…" : `Cargar ${plural(summary.nuevas, "caso", "casos")}`}
             </button>
           ) : (
             <button className="button button--primary" type="button" onClick={() => void review()} disabled={!file || !brandId || busy !== null}>
-              {busy === "review" ? <ArrowsClockwise className="spin" size={16} aria-hidden="true" /> : <CheckCircle size={16} weight="bold" aria-hidden="true" />}
+              {busy === "review" ? <BusyOrb /> : <CheckCircle size={16} weight="bold" aria-hidden="true" />}
               {busy === "review" ? "Revisando…" : "Revisar archivo"}
             </button>
           )}

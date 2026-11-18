@@ -14,6 +14,7 @@ import {
 } from "../lib/api";
 import type { BrandAccount, MetricoolInstagramProvider } from "../types";
 import { confirmAction } from "../lib/confirm";
+import { BusyOrb } from "./ThinkingOrb";
 
 const CHANNEL_LABEL: Record<string, string> = {
   instagram: "Instagram",
@@ -152,7 +153,7 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
           </div>
         ) : !catalog ? (
           <p className="metricool-import__loading" role="status">
-            <ArrowsClockwise className="spin" size={16} aria-hidden="true" /> Leyendo el catálogo de Metricool…
+            <BusyOrb /> Leyendo el catálogo de Metricool…
           </p>
         ) : (
           <>
@@ -231,7 +232,7 @@ export function MetricoolImportDialog({ accounts, onClose, onImport, onDeactivat
 
             <div className="metricool-import__actions">
               <button className="button button--primary" type="button" onClick={() => void handleImport()} disabled={!selected.size || importing}>
-                {importing ? <ArrowsClockwise className="spin" size={16} aria-hidden="true" /> : <CloudArrowDown size={16} weight="bold" aria-hidden="true" />}
+                {importing ? <BusyOrb /> : <CloudArrowDown size={16} weight="bold" aria-hidden="true" />}
                 {importing ? "Importando…" : `Importar ${selected.size} marca(s)`}
               </button>
             </div>
