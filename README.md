@@ -5,6 +5,29 @@ Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo 
 - **Producción:** https://nodes.wiwo.me. Cada push a `main` se despliega solo (ver [Despliegue](#despliegue)).
 - **Inicio de sesión:** Google, contra una lista de personas autorizadas. No hay usuario y contraseña en producción.
 - **Datos:** PostgreSQL en producción y JSON local en desarrollo. Metricool solo se lee, salvo las respuestas que una persona confirma.
+- **Aspecto:** el mismo diseño que **WiwoLab** (colores, tarjetas, botones y menú), en modo oscuro por defecto y con modo claro desde la barra superior. Mientras algo carga se ve el **orb de WIWO** con "Cargando…".
+
+---
+
+## Qué llega de cada red
+
+Todo llega a través de **Metricool**. Para que una red aparezca, basta con conectarla en Metricool a la misma marca que está vinculada en Nodes; Nodes detecta sola las redes nuevas en la siguiente actualización.
+
+| Red | Comentarios | Mensajes directos (DM) | Reseñas |
+| --- | --- | --- | --- |
+| Instagram | Sí | Sí | — |
+| Facebook | Sí | Sí | — |
+| TikTok | Sí (solo cuentas **Business**) | No | — |
+| LinkedIn | Sí | No | — |
+| YouTube | Sí | — | — |
+| X | — | Sí | — |
+| Google Business | — | — | Sí |
+
+- Lo que llega se ve en la **Bandeja SAC**, en **Gestión DMs / Gestión comentarios** (una pestaña por red), en **Reportes**, en el **Excel** y en **MetriQ**.
+- Los **DMs de TikTok y LinkedIn** no los ofrece Metricool: se suben a mano con el Excel de la planilla (**Reportes → Cargar TikTok/LinkedIn**).
+- **Menciones y etiquetas en fotos** (quién menciona a la marca en un comentario o la etiqueta en una publicación): **por ahora no**. Metricool no las entrega; solo se pueden obtener conectando Nodes directamente con Meta, un proceso más largo que requiere la aprobación de Meta y la autorización de cada marca.
+
+Explicación sin tecnicismos, para el equipo: [docs/GUIA_COMENTARIOS_Y_MENCIONES.md](docs/GUIA_COMENTARIOS_Y_MENCIONES.md).
 
 ---
 
@@ -13,10 +36,10 @@ Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo 
 | Sección | Para qué sirve | Quién la ve (permisos por defecto) |
 | --- | --- | --- |
 | **Inicio** | Lo que necesita atención primero. El Agente ve *sus* casos en plazo y **Tomar siguiente**. El Supervisor suma el panel **Equipo** (carga por persona). El Admin suma el panel **Sistema** (sincronización, envío automático y trabajos fallidos). | Todos |
-| **Bandeja SAC** | Una fila por persona y cuenta, ordenada por lo que vence antes. Tiene filtros que se recuerdan, buscador de cuentas, **Mis casos**, **Tomar siguiente**, atajos `J`/`K`/`R`/`E`, archivado de casos vencidos y exportación a Excel. | Todos |
-| **Gestión DMs** / **Gestión comentarios** | Trabajo por cuenta: cola y conversación lado a lado, con quién tiene a cargo cada chat o post y un botón de emojis al escribir. Los comentarios se agrupan por publicación (Instagram, Facebook, TikTok, LinkedIn y YouTube). | Todos |
+| **Bandeja SAC** | Una fila por persona y cuenta, ordenada por lo que vence antes. Tiene filtros que se recuerdan, buscador de cuentas, **Mis casos**, **Tomar siguiente**, atajos `J`/`K`/`R`/`E`, archivado de casos vencidos y exportación a Excel. Al abrir un caso, el detalle se abre a la derecha con el resto de la pantalla difuminado; un clic fuera lo cierra (si hay una respuesta sin guardar, primero pregunta). | Todos |
+| **Gestión DMs** / **Gestión comentarios** | Trabajo por cuenta, como un chat: cola y conversación lado a lado, actualizadas en vivo. Muestra **quién tiene a cargo** el chat o el post abierto ("A cargo: …", o "Tú"), y el campo de respuesta tiene un **botón de emojis**. Los comentarios se agrupan por publicación, con una pestaña por red (Instagram, Facebook, TikTok, LinkedIn y YouTube). | Todos |
 | **Resumen SAC** | Totales y rendimiento por marca. | Supervisor, Admin |
-| **Reportes** | Cifras del **informe SAC mensual** por marca: casos, respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales. Muestra avisos de datos antes de presentar y descarga el Excel del mes. **Cargar TikTok/LinkedIn** sube el Excel BD SAC con los casos que Metricool no trae (permiso *Cargar registros manuales*). | Supervisor, Admin |
+| **Reportes** | Cifras del **informe SAC mensual** por marca: casos, respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales. Muestra avisos de datos antes de presentar y descarga el Excel del mes. **Cargar TikTok/LinkedIn** sube el Excel BD SAC con lo que Metricool no trae de esas redes, como sus DMs (permiso *Cargar registros manuales*). | Supervisor, Admin |
 | **Flujo SAC** | Reglas del protocolo SAC, versiones y publicación. | Supervisor, Admin |
 | **Cuentas** | Estado de marcas y cuentas, y su centro documental. Solo Admin puede crear, editar o conectar marcas con Metricool. Solo el **admin principal** puede **ocultar** un cliente (deja de sincronizar y desaparece de la bandeja, Reportes y MetriQ, sin borrar nada) y volver a mostrarlo desde el filtro **Ocultos**. | Supervisor (lectura), Admin |
 | **Automatización**, **Ejecuciones**, **Plantillas** | Editor visual de automatizaciones, historial y plantillas. | Admin |
@@ -60,7 +83,7 @@ La sección **Reportes** calcula, por mes y marca, las mismas cifras del informe
 
 **TikTok y LinkedIn:** Metricool trae sus comentarios (TikTok solo de cuentas Business), que entran a la bandeja y a Gestión comentarios como los de las demás redes, pero no sus DMs ni lo que el equipo lleva en la planilla. Para eso, con **Cargar TikTok/LinkedIn** se sube el Excel BD SAC de la marca (un caso por fila, como la planilla de siempre). Primero se revisa qué entra y qué se omite, y recién al confirmar se guarda. Esos casos cuentan en el reporte y llegan a MetriQ, pero no aparecen en la bandeja porque ya se atendieron fuera de Nodes. Subir el mismo archivo otra vez no duplica nada.
 
-Antes de presentar, la sección avisa de datos dudosos: mensajes sin clasificar, cuentas duplicadas (dos marcas apuntando al mismo usuario) o una sincronización detenida. El Excel del mes, de todas las marcas o de una, usa los mismos días (UTC) que las cifras.
+Antes de presentar, la sección avisa de datos dudosos: mensajes sin clasificar, cuentas duplicadas (dos marcas apuntando al mismo usuario) o una sincronización detenida. El Excel del mes, de todas las marcas o de una, usa los mismos días (UTC) que las cifras e incluye **todas las redes** (la columna *Canal* indica cuál: Instagram, Facebook, TikTok, LinkedIn, YouTube…). Lo cargado a mano desde la planilla aparece con *Fuente* "planilla".
 
 **Caso o ruido:** sin IA, las reglas separan el ruido social (reacciones, menciones, emojis sueltos, textos muy cortos). El equipo corrige a mano desde el detalle de cada caso o en lote desde la Bandeja, y lo marcado a mano manda. La sección muestra cuánto del mes se decidió a mano, con IA o por reglas.
 
@@ -104,6 +127,8 @@ Puesta en marcha real paso a paso: [docs/PUESTA_EN_MARCHA_REAL.md](docs/PUESTA_E
 - La API de Metricool requiere plan **Advanced o Custom**.
 - Instagram solo expone la bandeja principal: no aparecen solicitudes ni carpetas filtradas.
 - Los comentarios de anuncios no se pueden responder desde el Inbox.
+- TikTok: solo llegan comentarios de cuentas **Business**. TikTok y LinkedIn no traen DMs.
+- Menciones y etiquetas en fotos de Instagram no llegan por Metricool (requieren una conexión directa con Meta).
 - Plazos informados por Metricool: 24 h para comentarios y 7 días para DMs. Fuera de plazo se puede intentar, pero Metricool o Meta pueden rechazar la respuesta.
 - El proveedor de Instagram debe coincidir con cómo se conectó la cuenta en Metricool (`INSTAGRAMBUSINESS` o `INSTAGRAM`).
 
@@ -140,6 +165,7 @@ Antes de entregar un cambio: `npm run check`, `npm run build:all`, `npm test` y,
 
 | Documento | Contenido |
 | --- | --- |
+| [GUIA_COMENTARIOS_Y_MENCIONES.md](docs/GUIA_COMENTARIOS_Y_MENCIONES.md) | Para el equipo, sin tecnicismos: qué redes llegan, qué conectar en Metricool y por qué aún no hay menciones ni etiquetas |
 | [PUESTA_EN_MARCHA_REAL.md](docs/PUESTA_EN_MARCHA_REAL.md) | Inicio de sesión, roles, menú por permiso, Reportes, paso a live |
 | [OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) | Operación diaria, plazos, incidentes y rollback |
 | [API_CONTRACT.md](docs/API_CONTRACT.md) | Contrato HTTP de la API |
