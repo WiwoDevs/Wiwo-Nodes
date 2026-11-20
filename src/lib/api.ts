@@ -1626,6 +1626,57 @@ export async function setInteractionTriage(
   if (!response.ok) await throwApiError(response);
 }
 
+export interface AiAvailability {
+  /** La recomendación de respuesta con IA está encendida y esta persona puede pedirla. */
+  replyDrafts: boolean;
+  reason?: "disabled" | "missing_api_key" | "no_brands";
+  provider?: "byteplus" | "anthropic";
+  model?: string;
+  /** Marcas del alcance de la persona autorizadas a usar la IA, y sus cuentas. */
+  brandIds: string[];
+  accountIds: string[];
+}
+
+export interface AiReplyDraft {
+  texto: string;
+  fuentes: Array<{ id: string; intent: string; sourceLabel: string }>;
+  sinRespuestaAprobada: boolean;
+  requiereHumano: boolean;
+  motivo: string;
+  advertencias: string[];
+  proveedor: string;
+  modelo: string;
+  generadoEn: string;
+  cached: boolean;
+}
+
+let aiAvailabilityRequest: Promise<AiAvailability> | undefined;
+
+/** Disponibilidad de la IA; se consulta una vez por sesión del navegador. */
+export function loadAiAvailability(): Promise<AiAvailability> {
+  aiAvailabilityRequest ??= fetch(`${API_BASE}/ai/availability`)
+    .then(async (response) => {
+      if (!response.ok) await throwApiError(response);
+      return ((await response.json()) as { data: AiAvailability }).data;
+    })
+    .catch(() => {
+      aiAvailabilityRequest = undefined;
+      return { replyDrafts: false, brandIds: [], accountIds: [] };
+    });
+  return aiAvailabilityRequest;
+}
+
+/** Pide la recomendación de respuesta con IA de un caso. No guarda ni envía nada. */
+export async function requestAiReplyDraft(interactionId: string, regenerate = false): Promise<AiReplyDraft> {
+  const response = await fetch(`${API_BASE}/interactions/${encodeURIComponent(interactionId)}/ai/draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(regenerate ? { regenerate: true } : {}),
+  });
+  if (!response.ok) await throwApiError(response);
+  return ((await response.json()) as { data: AiReplyDraft }).data;
+}
+
 /** Marca en lote los mensajes entrantes de las conversaciones elegidas (sin pisar marcas manuales). */
 export async function markContactsTriage(contactKeys: string[], esCasoSac: boolean): Promise<{ updated: number; contacts: number }> {
   const response = await fetch(`${API_BASE}/interactions/triage`, {

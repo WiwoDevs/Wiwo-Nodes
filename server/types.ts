@@ -194,6 +194,26 @@ export interface SacTriage {
   marcadoPor?: string;
 }
 
+/**
+ * Clasificación de IA en modo sombra. Se guarda aparte de `sacTriage` para que no cuente en
+ * Reportes hasta que su concordancia con las marcas manuales esté medida. Lo único que actúa
+ * desde ya es `sensible`, y solo para escalar a revisión humana, nunca para quitarla.
+ */
+export interface AiTriage {
+  categoria: string;
+  tonalidad: Sentiment;
+  esCasoSac: boolean;
+  requiereDerivacion: boolean;
+  sensible: boolean;
+  /** Categoría de revisión obligatoria que motivó `sensible`. */
+  motivoSensible?: string;
+  confianza: number;
+  clasificadoEn: string;
+  proveedor: string;
+  modelo: string;
+  promptVersion: string;
+}
+
 export interface MetricoolAccountReference {
   userId: string;
   blogId: string;
@@ -528,6 +548,8 @@ export interface Interaction {
   audit: InteractionAuditEntry[];
   /** Triaje IA; ausente mientras la interacción no se haya clasificado. */
   sacTriage?: SacTriage;
+  /** Clasificación de IA en sombra (no cuenta en Reportes; ver `AiTriage`). */
+  aiTriage?: AiTriage;
 }
 
 export interface ConversationMessage {

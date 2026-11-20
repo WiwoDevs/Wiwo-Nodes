@@ -8,6 +8,35 @@ Estudio de posibilidades, no implementación. Fecha: 2026-11-20. Precios y model
 - **La "Recomendación de respuesta con IA" de la bandeja no usa IA.** Es una plantilla por reglas (`proposal` de `evaluateSacInteraction`): una respuesta del Excel QA aprobado si la intención detectada con expresiones regulares coincide, o un texto genérico si no.
 - **Recomendación: empezar por la clasificación en modo sombra** (fase 1). El código ya existe, cada mensaje expone poco dato, nunca le escribe al cliente, cuesta del orden de USD 15 al mes y las marcas manuales del equipo sirven para medir la calidad. El borrador de respuesta con IA viene después (fase 2), solo a pedido del agente y nunca habilitado para envío automático.
 
+## 0. Decisión: DeepSeek vía BytePlus ModelArk (fase 1 implementada)
+
+El equipo eligió DeepSeek servido por BytePlus ModelArk. La fase 1 (clasificación en sombra) quedó implementada detrás de un adaptador de proveedores; Claude sigue disponible como alternativa con `SAC_FLOW_AI_PROVIDER=anthropic`.
+
+| Dato | Valor | Cómo se confirmó |
+|---|---|---|
+| Endpoint compatible con OpenAI | `https://ark.ap-southeast.bytepluses.com/api/v3/chat/completions` | Documentación de ModelArk ("Compatible with OpenAI API") y llamada real |
+| Modelo por defecto | `deepseek-v4-1-flash-261017` (DeepSeek V4.1 Flash) | `GET /api/v3/models` con la clave del equipo: `Published`, contexto 1M, salida `json_schema` y razonamiento desactivable (`thinking: {type: "disabled"}`). También existen `deepseek-v4-pro-ga-260813` y `deepseek-v4-flash-ga-260731`; `deepseek-v3-1-250821` está en retiro. |
+| Región | Asia Pacífico, Johor (Malasia), `ap-southeast` | Lista de regiones de ModelArk |
+| Residencia de datos | BytePlus puede usar centros de datos en Malasia, Indonesia y/o UE/EEE; actúa como encargado y no entrena con los datos del cliente sin autorización previa; guarda 180 días en Malasia solo lo que activa su filtro de contenido | "BytePlus ModelArk Data Processing" (docs.byteplus.com). No hay un plazo general publicado para el resto de las solicitudes: confirmarlo con BytePlus. |
+| Medición real (60 mensajes ficticios de la demo) | ~121 tokens de entrada y ~55 de salida por mensaje, unos 10 s por 60 mensajes | Corrida de `scripts/classify-interactions.mjs` sobre un almacén demo temporal |
+
+**Costo:** a 5.000 mensajes al mes son unos 0,6 M de tokens de entrada y 0,3 M de salida. Con tarifas del orden de las publicadas por DeepSeek para V4.1 Flash (USD 0,30 / 1,20 por millón en hora punta) serían menos de USD 1 al mes; la tarifa de ModelArk hay que confirmarla en la consola de BytePlus.
+
+**Datos y legal:** BytePlus es la nube internacional de ByteDance. Los datos no van a los servidores de DeepSeek en China, pero sí a Malasia, Indonesia o la UE, así que la sección 4 aplica igual con BytePlus en lugar de Anthropic: autorización de cada marca, transferencia internacional (Ley 21.719) y contrato de encargo de tratamiento. Por eso ninguna marca envía datos hasta figurar en `SAC_FLOW_AI_BRAND_IDS`.
+
+**Qué quedó hecho:**
+- `server/ai-provider.ts`: adaptador (`byteplus` por `fetch` a la API compatible con OpenAI, sin dependencias nuevas; `anthropic` con el SDK existente). Errores tipados sin clave ni texto del cliente.
+- `server/ai-redaction.ts`: enmascarado de correos, teléfonos, RUT, tarjetas, @usuarios y enlaces antes de salir.
+- `server/ai-classifier.ts`: usa el adaptador; agrega `sensible` y `motivoSensible` con las categorías de revisión obligatoria (corrige el problema 3) y le dice al modelo que no siga instrucciones dentro de los mensajes.
+- `server/ai-shadow-triage.ts`: escribe solo `aiTriage` (columna `ai_triage`, migración `0020`), nunca sobre una marca manual ni sobre categoría, tono, confianza, estado o versión (corrige los problemas 1 y 2). Lo corre el worker cada `SAC_FLOW_AI_INTERVAL_SECONDS` y el script `scripts/classify-interactions.mjs`.
+- La señal `sensible` solo escala: `AI_SENSITIVE_SIGNAL` en `sac-v1`, `requiresHumanReview` e `isSensitiveCase`.
+- `GET /api/ai/status` y `GET /api/ai/agreement` (concordancia con lo manual y con las reglas), con permiso `metrics.read`.
+- Variables nuevas, apagadas por defecto: `SAC_FLOW_AI_ENABLED`, `SAC_FLOW_AI_PROVIDER`, `BYTEPLUS_API_KEY`, `SAC_FLOW_AI_MODEL`, `SAC_FLOW_AI_BASE_URL`, `SAC_FLOW_AI_BRAND_IDS`, `SAC_FLOW_AI_BATCH_SIZE`, `SAC_FLOW_AI_MAX_PER_RUN`, `SAC_FLOW_AI_INTERVAL_SECONDS`, `SAC_FLOW_AI_LOOKBACK_DAYS`, `SAC_FLOW_AI_TIMEOUT_MS`.
+
+**Recomendación de respuesta con IA (adelanto de la fase 2, implementado):** el recuadro "Recomendación de respuesta con IA" de la Bandeja y de Gestión DMs/comentarios ahora usa IA de verdad (`server/ai-reply-draft.ts`, `POST /api/interactions/:id/ai/draft`, `src/components/AiReplySuggestion.tsx`). Se pide al abrir un caso abierto de una marca autorizada, con el QA aprobado y vigente de la marca, el hilo y la publicación enmascarados; el nombre lo completa el servidor (`{nombre}`). Cita las fuentes QA, advierte cifras o enlaces que no estén en el QA ni en el mensaje del cliente, marca los casos delicados y se guarda en caché del servidor para no cobrar dos veces. Solo llega al compositor con "Usar recomendación" y se envía por el camino manual. Con la IA apagada o la marca sin autorizar, el recuadro muestra la plantilla por reglas rotulada "Respuesta sugerida por reglas" (corrige el problema 4). Medido en vivo con textos ficticios: unos 2-3 s y ~1.070 tokens de entrada + ~140 de salida por sugerencia.
+
+**Pendiente de la fase 1:** el panel de concordancia en la interfaz (hoy solo la API), la decisión legal por marca y el umbral para promover `aiTriage` a `sacTriage`.
+
 ## 1. Qué existe hoy
 
 | Pieza | Dónde | Estado |

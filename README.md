@@ -87,6 +87,8 @@ Antes de presentar, la sección avisa de datos dudosos: mensajes sin clasificar,
 
 **Caso o ruido:** sin IA, las reglas separan el ruido social (reacciones, menciones, emojis sueltos, textos muy cortos). El equipo corrige a mano desde el detalle de cada caso o en lote desde la Bandeja, y lo marcado a mano manda. La sección muestra cuánto del mes se decidió a mano, con IA o por reglas.
 
+**IA en modo sombra (opcional, apagada por defecto):** con `SAC_FLOW_AI_ENABLED=true`, una clave del proveedor y las marcas autorizadas en `SAC_FLOW_AI_BRAND_IDS`, el worker clasifica los mensajes entrantes nuevos con DeepSeek vía BytePlus ModelArk (o Claude, con `SAC_FLOW_AI_PROVIDER=anthropic`). Los textos salen enmascarados (sin correos, teléfonos, RUT, usuarios ni enlaces) y el resultado queda aparte (`aiTriage`): todavía no cambia Reportes ni la bandeja. Lo único que actúa es la señal *sensible*, que solo puede mandar un caso a revisión humana. Con la IA encendida, la **Recomendación de respuesta con IA** del detalle del caso (Bandeja y Gestión DMs/comentarios) se genera con el mismo proveedor a partir del QA aprobado de la marca: advierte cifras o enlaces que no estén en el QA, pasa al compositor solo con *Usar recomendación* y nunca se envía sola. Si la IA está apagada o la marca no está autorizada, el recuadro muestra la sugerencia por reglas, rotulada como tal. La IA nunca responde ni envía mensajes por su cuenta. La concordancia con las marcas manuales se consulta en `GET /api/ai/agreement?month=AAAA-MM`; detalles en [docs/PROPUESTA_IA.md](docs/PROPUESTA_IA.md).
+
 Notas para que los números sean confiables:
 - La cobertura cuenta solo casos **respondidos**: archivar casos vencidos no la infla.
 - Al vincular marcas, una marca de Metricool cuyo Instagram ya está vinculado se omite, para no contar mensajes dos veces.
@@ -136,7 +138,7 @@ Configuración: [docs/METRICOOL_SETUP.md](docs/METRICOOL_SETUP.md).
 
 ## Seguridad
 
-- El token de Metricool y el secreto de Google viven solo en el `.env` del servidor o en el gestor de secretos. Nunca en el navegador, respuestas HTTP, Excel, logs, capturas ni commits.
+- El token de Metricool, el secreto de Google y la clave del proveedor de IA (`BYTEPLUS_API_KEY`) viven solo en el `.env` del servidor o en el gestor de secretos. Nunca en el navegador, respuestas HTTP, Excel, logs, capturas ni commits.
 - Las credenciales del módulo de automatización se guardan cifradas (AES-256-GCM) y nunca vuelven al navegador.
 - La web aplica CSP estricta (sin estilos ni scripts en línea) y cookies de sesión `HttpOnly`.
 - No se versionan datos reales: correos, teléfonos, DMs, comentarios ni IDs de Metricool. La demo usa solo datos ficticios.
@@ -166,6 +168,8 @@ Antes de entregar un cambio: `npm run check`, `npm run build:all`, `npm test` y,
 | Documento | Contenido |
 | --- | --- |
 | [GUIA_COMENTARIOS_Y_MENCIONES.md](docs/GUIA_COMENTARIOS_Y_MENCIONES.md) | Para el equipo, sin tecnicismos: qué redes llegan, qué conectar en Metricool y por qué aún no hay menciones ni etiquetas |
+| [IA_GASTO_Y_USOS.md](docs/IA_GASTO_Y_USOS.md) | Para el equipo: qué hace la IA (DeepSeek vía BytePlus), qué no hace y cuánto cuesta al mes |
+| [PROPUESTA_IA.md](docs/PROPUESTA_IA.md) | Propuesta técnica de IA por fases: casos de uso, datos personales, permisos y estado de implementación |
 | [PUESTA_EN_MARCHA_REAL.md](docs/PUESTA_EN_MARCHA_REAL.md) | Inicio de sesión, roles, menú por permiso, Reportes, paso a live |
 | [OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) | Operación diaria, plazos, incidentes y rollback |
 | [API_CONTRACT.md](docs/API_CONTRACT.md) | Contrato HTTP de la API |

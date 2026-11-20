@@ -7,6 +7,7 @@ import {
   type MetricoolAccountReference,
 } from "./types.js";
 import type { IdentityConfig } from "./identity.js";
+import { ANTHROPIC_DEFAULT_MODEL, BYTEPLUS_DEFAULT_BASE_URL, BYTEPLUS_DEFAULT_MODEL } from "./ai-provider.js";
 
 const modeSchema = z.enum(["demo", "live"]);
 const repositoryDriverSchema = z.enum(["json", "postgres"]);
@@ -109,8 +110,51 @@ export interface AppConfig {
    * comas, para rotar sin cortes: se agrega la nueva, METRIQ la adopta y se retira la vieja.
    */
   serviceApiKeys: string[];
+  /**
+   * Clasificación con IA en modo sombra. Apagada por defecto; sin clave no hace nada. La clave
+   * nunca sale del servidor ni se publica en /api/ai/status.
+   */
+  ai: {
+    enabled: boolean;
+    provider: "byteplus" | "anthropic";
+    model: string;
+    baseUrl: string;
+    apiKey?: string;
+    /** Marcas cuyos mensajes pueden salir al proveedor: "all" o la lista de ids autorizados. */
+    brandIds: "all" | string[];
+    batchSize: number;
+    maxPerRun: number;
+    intervalSeconds: number;
+    lookbackDays: number;
+    timeoutMs: number;
+  };
   serveFrontend: boolean;
   frontendDir: string;
+}
+
+function parseAiBrandIds(raw: string | undefined): "all" | string[] {
+  const value = (raw || "").trim();
+  if (value === "*") return "all";
+  return [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))];
+}
+
+function loadAiConfig(env: NodeJS.ProcessEnv): AppConfig["ai"] {
+  const provider = z.enum(["byteplus", "anthropic"]).parse(env.SAC_FLOW_AI_PROVIDER?.trim() || "byteplus");
+  const apiKey = (provider === "anthropic" ? env.ANTHROPIC_API_KEY : env.BYTEPLUS_API_KEY)?.trim() || undefined;
+  return {
+    enabled: parseBoolean(env.SAC_FLOW_AI_ENABLED, false),
+    provider,
+    model: env.SAC_FLOW_AI_MODEL?.trim()
+      || (provider === "anthropic" ? ANTHROPIC_DEFAULT_MODEL : BYTEPLUS_DEFAULT_MODEL),
+    baseUrl: (env.SAC_FLOW_AI_BASE_URL?.trim() || BYTEPLUS_DEFAULT_BASE_URL).replace(/\/$/, ""),
+    apiKey,
+    brandIds: parseAiBrandIds(env.SAC_FLOW_AI_BRAND_IDS),
+    batchSize: z.coerce.number().int().min(1).max(50).parse(env.SAC_FLOW_AI_BATCH_SIZE || 20),
+    maxPerRun: z.coerce.number().int().min(1).max(5_000).parse(env.SAC_FLOW_AI_MAX_PER_RUN || 100),
+    intervalSeconds: z.coerce.number().int().min(30).max(86_400).parse(env.SAC_FLOW_AI_INTERVAL_SECONDS || 300),
+    lookbackDays: z.coerce.number().int().min(1).max(400).parse(env.SAC_FLOW_AI_LOOKBACK_DAYS || 7),
+    timeoutMs: z.coerce.number().int().min(5_000).max(300_000).parse(env.SAC_FLOW_AI_TIMEOUT_MS || 60_000),
+  };
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -394,6 +438,7 @@ export function loadConfig(
     },
     auth,
     serviceApiKeys,
+    ai: loadAiConfig(env),
     serveFrontend: parseBoolean(env.SERVE_FRONTEND, production),
     frontendDir: path.resolve(env.FRONTEND_DIR || path.join(cwd, "dist", "client")),
   };

@@ -50,5 +50,8 @@ export function expiredOpenInteractions(interactions: Interaction[], now = Date.
  */
 export function isSensitiveCase(interaction: Interaction): boolean {
   const risk = interaction.automation?.risk;
-  return interaction.sentiment === "negative" || risk === "high" || risk === "critical";
+  return interaction.sentiment === "negative"
+    || risk === "high"
+    || risk === "critical"
+    || interaction.aiTriage?.sensible === true;
 }

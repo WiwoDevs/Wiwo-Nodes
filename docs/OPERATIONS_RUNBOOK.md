@@ -82,6 +82,16 @@ El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo S
 - Los casos cargados se guardan como `source: "planilla"` con la marca manual de caso SAC. Cuentan en Reportes, en el Excel y en METRIQ, pero no en la bandeja ni en los contadores de Inicio. Volver a subir el mismo archivo no duplica.
 - Si una carga salió mal (marca equivocada), no hay botón para deshacerla: los registros llevan en la auditoría el lote, la fila, el archivo y la persona (`ingested`, `metadata.lote`), y se pueden identificar en la base por `external_id LIKE 'planilla:%'` y `source = 'planilla'`. Borrar filas de producción requiere aprobación explícita y un respaldo previo.
 
+## IA en modo sombra
+
+- **Qué hace:** con `SAC_FLOW_AI_ENABLED=true`, `BYTEPLUS_API_KEY` y `SAC_FLOW_AI_BRAND_IDS`, el worker clasifica cada `SAC_FLOW_AI_INTERVAL_SECONDS` (300 por defecto) hasta `SAC_FLOW_AI_MAX_PER_RUN` mensajes entrantes recientes con DeepSeek en BytePlus ModelArk (región Asia Pacífico, Johor). Guarda solo `aiTriage`; no responde, no cambia Reportes ni el estado de los casos. La señal *sensible* manda casos a revisión humana.
+- **Encender:** aplicar la migración `0020_ai_triage.sql` (`npm run migrate`), definir las variables en el `.env` del servidor y reiniciar API y worker. Autorizar solo marcas cuyo cliente aceptó el tratamiento de datos (ids separados por comas; `*` = todas).
+- **Apagar (cortacorriente):** `SAC_FLOW_AI_ENABLED=false` y reiniciar el worker. Para dejar fuera una marca, quitarla de `SAC_FLOW_AI_BRAND_IDS`. Lo ya clasificado queda guardado y no se usa en Reportes.
+- **Señales:** el worker escribe `event: "ai_shadow_triage"` con `candidates`, `classified`, `sensitive`, `failedBatches`, `firstError` y tokens (nunca textos); su `/health` incluye `aiTriage.lastRunAt` y `lastOutcome`. `GET /api/ai/status` dice si está lista y para qué marcas; `GET /api/ai/agreement?month=AAAA-MM` mide la concordancia con las marcas manuales.
+- **Errores típicos:** `auth` (clave inválida o revocada: rotarla en la consola de BytePlus y en el `.env`), `rate_limited` (se reintenta en la próxima pasada), `invalid_output` (lote descartado; sus mensajes se reintentan en la siguiente pasada). Un lote fallido nunca bloquea la sincronización.
+- **Recomendación de respuesta con IA:** con la IA encendida, el detalle de cada caso abierto de una marca autorizada pide una sugerencia basada en el QA aprobado (`POST /api/interactions/:id/ai/draft`, unos 2-3 s). Se guarda en memoria del servidor 30 minutos por contexto, así que reabrir el caso no vuelve a cobrar; un reinicio de la API la descarta. El registro `ai_reply_draft` muestra tokens y latencia por sugerencia. Si el proveedor falla, el recuadro dice el motivo y el agente puede reintentar o escribir a mano; si la IA está apagada, muestra la sugerencia por reglas.
+- **Reclasificar un mes a mano:** `npm run build:api` y `node scripts/classify-interactions.mjs --mes AAAA-MM [--maximo 2000]`. Salta lo ya clasificado y lo marcado a mano.
+
 ## Respaldos de la base
 
 En producción, el servicio `backup` de `docker-compose.production.yml` respalda la base PostgreSQL completa con `pg_dump` (script `scripts/postgres-backup.sh`). La base guarda todo el historial: mensajes, borradores, respuestas, asignaciones, casos marcados a mano, marcas, usuarios y roles.

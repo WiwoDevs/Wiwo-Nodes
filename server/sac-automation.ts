@@ -491,6 +491,7 @@ export function evaluateSacInteraction(
       };
   const reasonCodes: string[] = [];
   let recommendedRoute: SacAutomationRoute;
+  const aiSensitive = interaction.direction === "inbound" && interaction.aiTriage?.sensible === true;
 
   if (interaction.direction !== "inbound") {
     recommendedRoute = "ignore";
@@ -501,6 +502,10 @@ export function evaluateSacInteraction(
   } else if (HUMAN_INTENTS.has(classification.intent) || classification.sentiment === "negative") {
     recommendedRoute = "human_review";
     reasonCodes.push("SENSITIVE_OR_NEGATIVE");
+  } else if (aiSensitive) {
+    // La señal de la IA en sombra solo escala: nunca saca un caso de revisión humana.
+    recommendedRoute = "human_review";
+    reasonCodes.push("AI_SENSITIVE_SIGNAL");
   } else if (!replyWindowEligible) {
     recommendedRoute = "human_review";
     reasonCodes.push("REPLY_WINDOW_EXPIRED");
@@ -552,7 +557,7 @@ export function evaluateSacInteraction(
     protocolVersion: "sac-v1",
     evaluatedAt: evaluatedAt.toISOString(),
     intent: classification.intent,
-    risk: classification.risk,
+    risk: aiSensitive && (classification.risk === "low" || classification.risk === "medium") ? "high" : classification.risk,
     classificationConfidence: classification.confidence,
     knowledge: {
       status: knowledgeStatus,

@@ -41,6 +41,8 @@ Clasificación mínima:
 | IDs de marcas/cuentas | Interno | No son secretos por sí solos, pero no publicarlos innecesariamente |
 | Métricas agregadas sin identificadores | Interno | Endpoint protegido por rol/gateway; no incluir texto ni handles |
 | Datos demo | Público interno | Deben ser inequívocamente ficticios |
+| Clave del proveedor de IA (`BYTEPLUS_API_KEY`, `ANTHROPIC_API_KEY`) | Secreto | Solo `.env` del servidor/worker o gestor de secretos; nunca frontend, log, test ni `/api/ai/status` |
+| Texto enviado al proveedor de IA | Confidencial | Solo con `SAC_FLOW_AI_ENABLED=true` y marcas autorizadas en `SAC_FLOW_AI_BRAND_IDS`; enmascarado antes de salir (`server/ai-redaction.ts`), sin nombre, usuario ni referencias de Metricool. Con BytePlus ModelArk se procesa en Malasia, Indonesia y/o UE/EEE; requiere la autorización de la marca (ver `docs/PROPUESTA_IA.md`). La recomendación de respuesta envía además el QA aprobado de la marca y los últimos mensajes del hilo, también enmascarados; el nombre del cliente lo completa el servidor |
 
 ## Controles obligatorios antes de producción
 

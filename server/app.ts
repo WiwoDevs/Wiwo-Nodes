@@ -87,13 +87,26 @@ import {
   workflowRunSchema,
   workflowUpdateSchema,
   sacMonthlyReportQuerySchema,
+  aiAgreementQuerySchema,
+  aiDraftBodySchema,
   inboxChangesQuerySchema,
   integrationMonthQuerySchema,
   integrationTotalsQuerySchema,
   interactionTriageSchema,
   interactionBulkTriageSchema,
 } from "./schemas.js";
-import { buildSacReport, duplicateAccountGroups, esCasoSac, esTriajeManual, monthPeriod } from "./sac-report.js";
+import { buildSacReport, duplicateAccountGroups, esCasoSac, esMensajeGestionado, esTriajeManual, monthPeriod } from "./sac-report.js";
+import { buildAiAgreement } from "./ai-shadow-triage.js";
+import { isMetricoolContentUnavailable } from "./metricool-content.js";
+import { createAiProvider, type AiProvider } from "./ai-provider.js";
+import {
+  applicableApprovedAnswers,
+  draftAiReply,
+  draftCacheKey,
+  ReplyDraftCache,
+  ReplyDraftError,
+  threadHistory,
+} from "./ai-reply-draft.js";
 import { InboxChangeLog, MAX_LIVE_CLIENTS, trackInteractionChanges } from "./inbox-live.js";
 import type {
   ActorContext,
@@ -203,6 +216,8 @@ export interface BuildAppOptions {
   identity?: IdentityService;
   /** Cliente OAuth simulado para la identidad Google que arma la app (pruebas). */
   googleClient?: GoogleOAuthClient;
+  /** Proveedor de IA simulado (pruebas); por defecto se arma desde `config.ai`. */
+  aiProvider?: AiProvider;
 }
 
 export interface SacFlowApp extends FastifyInstance {
@@ -1660,6 +1675,10 @@ async function registerFrontend(app: FastifyInstance, config: AppConfig): Promis
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowApp> {
   const config = options.config || loadConfig();
+  const aiProviderState = options.aiProvider
+    ? { ready: true as const, provider: options.aiProvider }
+    : createAiProvider(config.ai);
+  const replyDraftCache = new ReplyDraftCache();
   const baseRepository = options.repository || createRepository(config);
   await baseRepository.initialize();
   // Bandeja en vivo: cada escritura de casos queda anotada para avisar a los navegadores.
@@ -3595,6 +3614,168 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       data: { ...period, volumen: query.volumen, brands: reports, warnings, generatedAt: new Date().toISOString() },
       meta: apiMeta(config),
     };
+  });
+
+  /**
+   * Estado de la clasificación con IA (modo sombra). Nunca devuelve la clave ni textos: solo si
+   * está encendida, qué proveedor y modelo usa, a qué marcas alcanza y cuánto clasificó.
+   */
+  app.get("/api/ai/status", async (request) => {
+    const actor = requirePermission(config, request, "metrics.read");
+    const snapshot = await repository.snapshotCatalog();
+    const brands = filterBrandsForActor(actor, snapshot.brands).filter((brand) => brand.active && brand.account.active);
+    const allowed = config.ai.brandIds;
+    const authorizedBrands = brands.filter((brand) => allowed === "all" || allowed.includes(brand.id));
+    const reason = !config.ai.enabled ? "disabled" : !config.ai.apiKey ? "missing_api_key" : undefined;
+    return {
+      data: {
+        enabled: config.ai.enabled,
+        ready: !reason,
+        ...(reason ? { reason } : {}),
+        mode: "shadow" as const,
+        provider: config.ai.provider,
+        model: config.ai.model,
+        endpointHost: config.ai.provider === "byteplus" ? new URL(config.ai.baseUrl).host : "api.anthropic.com",
+        brandScope: allowed === "all" ? "all" as const : "list" as const,
+        authorizedBrands: authorizedBrands.map((brand) => ({ brandId: brand.id, brandName: brand.name })),
+        intervalSeconds: config.ai.intervalSeconds,
+        maxPerRun: config.ai.maxPerRun,
+        lookbackDays: config.ai.lookbackDays,
+      },
+      meta: { ...apiMeta(config), externalWrites: false },
+    };
+  });
+
+  /**
+   * Concordancia de la IA en sombra con las marcas manuales y con las reglas en un mes (días
+   * UTC, como Reportes). Es la evidencia para decidir si la clasificación pasa a contar.
+   */
+  app.get("/api/ai/agreement", async (request) => {
+    const actor = requirePermission(config, request, "metrics.read");
+    const query = aiAgreementQuerySchema.parse(request.query);
+    const period = monthPeriod(query.month);
+    const snapshot = await repository.snapshotCatalog();
+    const brands = filterBrandsForActor(actor, snapshot.brands).filter((brand) => brand.active && brand.account.active);
+    const visible = new Set(brands.map((brand) => brand.id));
+    if (query.brandId && !visible.has(query.brandId)) {
+      throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe o no está a tu alcance.");
+    }
+    const interactions = (await repository.listInteractions(scopedInteractionFilters(actor, snapshot.brands, {
+      ...(query.brandId ? { brandId: query.brandId } : {}),
+    }))).filter((item) => visible.has(item.brandId)
+      && item.createdAt.slice(0, 10) >= period.from
+      && item.createdAt.slice(0, 10) <= period.to);
+    return {
+      data: {
+        month: period.month,
+        label: period.label,
+        ...(query.brandId ? { brandId: query.brandId } : {}),
+        ...buildAiAgreement(interactions, esMensajeGestionado),
+        generatedAt: new Date().toISOString(),
+      },
+      meta: { ...apiMeta(config), externalWrites: false },
+    };
+  });
+
+  /**
+   * Si la recomendación de respuesta con IA está disponible y para qué marcas del alcance del
+   * actor. La web la usa para decidir entre la sugerencia con IA y la de reglas.
+   */
+  app.get("/api/ai/availability", async (request) => {
+    const actor = requireRole(config, request, "viewer");
+    const snapshot = await repository.snapshotCatalog();
+    const allowed = config.ai.brandIds;
+    const authorized = filterBrandsForActor(actor, snapshot.brands)
+      .filter((brand) => brand.active && brand.account.active && (allowed === "all" || allowed.includes(brand.id)));
+    const brandIds = authorized.map((brand) => brand.id);
+    const reason = !aiProviderState.ready ? aiProviderState.reason : !brandIds.length ? "no_brands" : undefined;
+    return {
+      data: {
+        replyDrafts: !reason && actorCan(actor, "inbox.reply"),
+        ...(reason ? { reason } : {}),
+        ...(aiProviderState.ready ? { provider: aiProviderState.provider.name, model: aiProviderState.provider.model } : {}),
+        brandIds,
+        accountIds: authorized.map((brand) => brand.account.id),
+      },
+      meta: { ...apiMeta(config), externalWrites: false },
+    };
+  });
+
+  /**
+   * Recomendación de respuesta con IA para un mensaje entrante, basada en el QA aprobado de la
+   * marca. Solo devuelve texto: no guarda borradores, no cambia el caso ni su versión y nunca
+   * envía. El agente decide si la usa en el compositor.
+   */
+  app.post("/api/interactions/:id/ai/draft", async (request) => {
+    const actor = requirePermission(config, request, "inbox.reply");
+    const { id } = interactionParamsSchema.parse(request.params);
+    const body = aiDraftBodySchema.parse(request.body ?? {});
+    if (!aiProviderState.ready) {
+      throw new ApiError(
+        503,
+        "AI_NOT_AVAILABLE",
+        aiProviderState.reason === "disabled"
+          ? "La recomendación con IA está apagada en este servidor."
+          : "Falta la clave del proveedor de IA en el servidor.",
+      );
+    }
+    const provider = aiProviderState.provider;
+    const interaction = await repository.findInteraction(id);
+    if (!interaction) throw new ApiError(404, "INTERACTION_NOT_FOUND", "La interacción no existe.");
+    assertBrandAccess(actor, interaction.brandId);
+    if (interaction.direction !== "inbound") {
+      throw new ApiError(409, "INVALID_DIRECTION", "Solo se sugieren respuestas a mensajes entrantes.");
+    }
+    if (!interaction.text?.trim() || isMetricoolContentUnavailable(interaction.text)) {
+      throw new ApiError(409, "AI_NO_TEXT", "Este mensaje no tiene texto que la IA pueda leer.");
+    }
+    const catalog = await repository.snapshotCatalog();
+    const brand = catalog.brands.find((item) => item.id === interaction.brandId);
+    if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
+    const allowed = config.ai.brandIds;
+    if (allowed !== "all" && !allowed.includes(brand.id)) {
+      throw new ApiError(403, "AI_BRAND_NOT_AUTHORIZED", "Esta marca no está autorizada para usar la IA.");
+    }
+
+    const history = threadHistory(interaction, await repository.listInteractions({ brandId: brand.id }));
+    const answers = applicableApprovedAnswers(brand, interaction);
+    const key = draftCacheKey(interaction, history, answers, provider);
+    const cached = body.regenerate ? undefined : replyDraftCache.get(key);
+    if (cached) {
+      return { data: { ...cached, cached: true }, meta: { ...apiMeta(config), externalWrites: false } };
+    }
+
+    const startedAt = Date.now();
+    try {
+      const { draft, usage } = await draftAiReply({ brand, interaction, history, answers }, provider);
+      replyDraftCache.set(key, draft);
+      // Solo cifras y ids: el texto del cliente y la sugerencia nunca van al registro.
+      request.log.info({
+        event: "ai_reply_draft",
+        interactionId: interaction.id,
+        brandId: brand.id,
+        by: actor.userId,
+        provider: provider.name,
+        model: provider.model,
+        sources: draft.fuentes.length,
+        warnings: draft.advertencias.length,
+        requiresHuman: draft.requiereHumano,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        ms: Date.now() - startedAt,
+      }, "Recomendación de respuesta con IA.");
+      return { data: { ...draft, cached: false }, meta: { ...apiMeta(config), externalWrites: false } };
+    } catch (error) {
+      if (error instanceof ReplyDraftError) {
+        request.log.warn({
+          event: "ai_reply_draft_failed",
+          interactionId: interaction.id,
+          code: error.cause instanceof Error && "code" in error.cause ? String((error.cause as { code: unknown }).code) : "invalid_output",
+        }, "Falló la recomendación de respuesta con IA.");
+        throw new ApiError(502, "AI_DRAFT_FAILED", `${error.message} Puedes reintentar o escribir la respuesta a mano.`);
+      }
+      throw error;
+    }
   });
 
   app.get("/api/stats/summary", async (request) => {

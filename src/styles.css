@@ -7232,3 +7232,22 @@ button.users-roles-person:hover strong { color: var(--accent-text); }
 .reports-tip-trigger:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 6px; }
 .reports-help { display: inline-flex; align-items: center; vertical-align: middle; color: var(--muted); }
 .reports-help:hover { color: var(--accent-text); }
+
+/* Recomendación de respuesta con IA (AiReplySuggestion): estado en curso, advertencias,
+   motivo y acciones. Usa los tokens del tema; ámbar solo para advertir. */
+.ai-suggestion__busy { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.case-ai-recommendation > .ai-suggestion__busy { margin: 11px 0; font-size: 11px; }
+.ai-suggestion__notes { display: grid; gap: 4px; margin: 0 0 10px; padding: 0; list-style: none; }
+.ai-suggestion__notes li { display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px; border: 1px solid var(--amber-line); border-radius: 8px; color: var(--amber); background: var(--amber-soft); font-size: 10.5px; line-height: 1.4; }
+.ai-suggestion__notes svg { flex: 0 0 auto; margin-top: 1px; }
+.ai-suggestion__reason { display: block; margin: 0 0 10px; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.case-ai-recommendation .ai-suggestion__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.manual-inbox-recommendation .ai-suggestion__actions { display: flex; align-items: center; gap: 6px; }
+.manual-inbox-recommendation .ai-suggestion__actions button[title] { min-width: 40px; padding: 0 8px; }
+.manual-inbox-recommendation > span .busy-orb { transform: scale(0.8); }
+.manual-inbox-recommendation .ai-suggestion__busy { margin-top: 1px; }
+.manual-inbox-recommendation .ai-suggestion__note { display: flex; overflow: hidden; align-items: center; gap: 4px; margin: 2px 0 0; color: var(--amber); white-space: nowrap; text-overflow: ellipsis; }
+.manual-inbox-recommendation .ai-suggestion__note::before { content: none; }
+@media (max-width: 760px) {
+  .manual-inbox-recommendation .ai-suggestion__actions { grid-column: 2; justify-self: start; }
+}

@@ -282,6 +282,20 @@ type Interaction = {
     reasonCodes: string[];
     proposal?: { text: string; templateId: string; sourceIds: string[] };
   };
+  /** Clasificación de IA en modo sombra; no cuenta en Reportes. */
+  aiTriage?: {
+    categoria: string;
+    tonalidad: "positive" | "neutral" | "negative";
+    esCasoSac: boolean;
+    requiereDerivacion: boolean;
+    sensible: boolean;
+    motivoSensible?: string;
+    confianza: number;
+    clasificadoEn: string;
+    proveedor: "byteplus" | "anthropic";
+    modelo: string;
+    promptVersion: string;
+  };
   respondedAt?: string;
   metricoolRef?: {
     provider?: "FACEBOOK" | "INSTAGRAM" | "INSTAGRAMBUSINESS" | "TWITTER" | "TIKTOKBUSINESS" | "YOUTUBE" | "LINKEDIN" | "GMB";
@@ -937,6 +951,70 @@ Cifras del informe SAC mensual de cada marca activa dentro del alcance del actor
 ### `PUT /api/interactions/:id/triage`
 
 Marca a mano si un mensaje entrante cuenta como caso SAC en el reporte mensual (permiso `inbox.triage`, alcance de marca). Cuerpo `{ esCasoSac: boolean | null, requiereDerivacion?: boolean, expectedVersion }`; `null` quita la marca manual y vuelve a la decisión automática (IA si existe, si no reglas). La marca manual manda sobre la IA y las reglas, queda en `sacTriage` con `modelo: "manual"` y `marcadoPor` (en PostgreSQL, columna `interactions.sac_triage`, migración `0019_manual_records_and_triage.sql`; antes de esa migración la marca no se guardaba en PostgreSQL), y deja una entrada `classified` en la auditoría. No cambia el estado del caso ni escribe en Metricool. Responde el estado del caso más `reportTriage`. `GET /api/interactions/:id` también incluye `reportTriage: { esCasoSac, requiereDerivacion, source: "manual" | "ia" | "reglas", marcadoPor?, clasificadoEn? }`.
+
+### `GET /api/ai/status`
+
+Estado de la clasificación con IA en modo sombra (permiso `metrics.read`). Solo lectura; nunca devuelve la clave ni textos.
+
+```json
+{
+  "data": {
+    "enabled": false, "ready": false, "reason": "disabled", "mode": "shadow",
+    "provider": "byteplus", "model": "deepseek-v4-1-flash-261017",
+    "endpointHost": "ark.ap-southeast.bytepluses.com",
+    "brandScope": "list", "authorizedBrands": [{ "brandId": "...", "brandName": "..." }],
+    "intervalSeconds": 300, "maxPerRun": 100, "lookbackDays": 7
+  }
+}
+```
+
+`reason` es `disabled` (`SAC_FLOW_AI_ENABLED` apagado) o `missing_api_key`; no aparece cuando `ready` es `true`. `authorizedBrands` son las marcas activas, dentro del alcance del actor, cuyos mensajes pueden salir al proveedor (`SAC_FLOW_AI_BRAND_IDS`).
+
+### `GET /api/ai/agreement`
+
+Concordancia de la IA en sombra con las marcas manuales y con las reglas sin IA en un mes (permiso `metrics.read`, alcance de marcas, días UTC como Reportes). Query: `month=AAAA-MM` (obligatorio) y `brandId` opcional. Solo cifras; excluye los registros `source: "planilla"`.
+
+```json
+{
+  "data": {
+    "month": "2026-11", "label": "Noviembre 2026",
+    "inbound": 0, "aiClassified": 0, "aiSensitive": 0,
+    "vsManual": { "compared": 0, "agree": 0, "pct": null, "aiCaseOtherNoise": 0, "aiNoiseOtherCase": 0 },
+    "vsRules": { "compared": 0, "agree": 0, "pct": null, "aiCaseOtherNoise": 0, "aiNoiseOtherCase": 0 },
+    "categories": [{ "categoria": "consulta_producto", "mensajes": 0 }],
+    "models": [{ "proveedor": "byteplus", "modelo": "deepseek-v4-1-flash-261017", "promptVersion": "sac-triage-v2", "mensajes": 0 }],
+    "generatedAt": "..."
+  }
+}
+```
+
+`vsManual` compara la decisión "¿es caso SAC?" de la IA con lo marcado a mano (la referencia para promover la IA); `vsRules`, con `esMensajeGestionado` en los mensajes sin marca manual. `400 VALIDATION_ERROR` con un mes inválido; `404 BRAND_NOT_FOUND` si la marca no está al alcance; `403` sin `metrics.read`.
+
+La clasificación la escribe el worker (`SAC_FLOW_AI_INTERVAL_SECONDS`, hasta `SAC_FLOW_AI_MAX_PER_RUN` mensajes de los últimos `SAC_FLOW_AI_LOOKBACK_DAYS` días) o `scripts/classify-interactions.mjs --mes AAAA-MM`. Guarda solo `aiTriage` (columna `interactions.ai_triage`, migración `0020_ai_triage.sql`) y una entrada `classified` de actor `system` con `metadata.shadow: true`; no cambia `sacTriage`, categoría, tono, confianza, estado ni `version`, y nunca toca un mensaje marcado a mano. Si `aiTriage.sensible` es `true`, `sac-v1` recomienda `human_review` con `AI_SENSITIVE_SIGNAL` (riesgo al menos `high`) y el envío exige aprobación humana; un `sensible: false` nunca quita una revisión humana decidida por reglas o por el tono.
+
+### `GET /api/ai/availability`
+
+Si la recomendación de respuesta con IA está disponible para quien consulta (rol `viewer` o superior). Responde `{ replyDrafts, reason?, provider?, model?, brandIds, accountIds }`: `replyDrafts` es `true` solo con la IA lista, al menos una marca autorizada y el permiso `inbox.reply`; `reason` es `disabled`, `missing_api_key` o `no_brands`; `brandIds`/`accountIds` son las marcas activas del alcance del actor autorizadas en `SAC_FLOW_AI_BRAND_IDS`. Nunca incluye la clave.
+
+### `POST /api/interactions/:id/ai/draft`
+
+Recomendación de respuesta con IA para un mensaje entrante (permiso `inbox.reply`, alcance de marca). Cuerpo opcional `{ regenerate?: boolean }`. Envía al proveedor el tono y las respuestas QA aprobadas y vigentes de la marca para ese canal y tipo, los últimos mensajes del hilo y el texto de la publicación comentada, todo enmascarado y sin nombre ni usuario del cliente. Responde:
+
+```json
+{
+  "data": {
+    "texto": "¡Hola, Ana! Atendemos de lunes a jueves de 09:00 a 18:00.",
+    "fuentes": [{ "id": "qa-horarios-v1", "intent": "horarios", "sourceLabel": "..." }],
+    "sinRespuestaAprobada": false, "requiereHumano": false,
+    "motivo": "Horario cubierto por el QA.", "advertencias": [],
+    "proveedor": "byteplus", "modelo": "deepseek-v4-1-flash-261017", "promptVersion": "sac-draft-v1",
+    "generadoEn": "...", "cached": false
+  },
+  "meta": { "externalWrites": false }
+}
+```
+
+`fuentes` solo contiene ids del QA entregado; sin fuentes, `sinRespuestaAprobada` es `true` y el texto es de contención o derivación. `advertencias` lista cifras, enlaces, correos o cuentas del texto que no están en el QA citado ni en lo que escribió el cliente. `requiereHumano` también es `true` si `aiTriage.sensible` lo es. El servidor guarda la sugerencia en memoria 30 minutos por contexto exacto (mensaje, hilo, QA y modelo): repetir la consulta devuelve `cached: true` sin llamar al proveedor; `regenerate: true` pide otra. No guarda borradores, no cambia el caso ni su `version`, no escribe en Metricool y nunca envía. Errores: `503 AI_NOT_AVAILABLE` (IA apagada o sin clave), `403 AI_BRAND_NOT_AUTHORIZED`, `409 INVALID_DIRECTION` (saliente), `409 AI_NO_TEXT`, `502 AI_DRAFT_FAILED` (falla del proveedor o respuesta inválida). El registro `ai_reply_draft` lleva ids, tokens y latencia, nunca textos.
 
 ### `POST /api/interactions/triage`
 

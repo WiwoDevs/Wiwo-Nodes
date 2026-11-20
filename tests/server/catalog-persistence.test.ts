@@ -204,6 +204,7 @@ function interactionRow(interaction: Interaction) {
     status_reason: interaction.statusReason ?? null,
     automation_assessment: interaction.automation ?? null,
     sac_triage: interaction.sacTriage ?? null,
+    ai_triage: interaction.aiTriage ?? null,
   };
 }
 
@@ -291,7 +292,7 @@ function fakePostgres(store: DataStore, options: { interactions?: Interaction[] 
       }
       if (text.startsWith("INSERT INTO interactions") && sql.includes("RETURNING")) {
         const returned = [];
-        for (let index = 0; index < params.length; index += 29) {
+        for (let index = 0; index < params.length; index += 30) {
           returned.push({ id: `uuid-${String(params[index + 3])}`, interaction_key: params[index + 3] });
         }
         return rows(returned);
@@ -396,7 +397,7 @@ describe("PostgresRepository: mutaciones acotadas", () => {
     expect(issued).toHaveLength(1);
     expect(issued[0]).toMatch(/^INSERT INTO interactions[\s\S]*ON CONFLICT \(organization_id, interaction_key\) DO UPDATE/);
     const upsert = statements.find((statement) => statement.sql.trim().startsWith("INSERT INTO interactions"))!;
-    expect(upsert.params).toHaveLength(29);
+    expect(upsert.params).toHaveLength(30);
     expect(upsert.params[3]).toBe(target);
     expect(upsert.params[14]).toBe("resolved");
   });

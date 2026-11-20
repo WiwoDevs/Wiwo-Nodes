@@ -1,20 +1,24 @@
 /**
- * Clasifica interacciones entrantes con Claude y escribe el resultado en el repositorio.
+ * Clasifica con IA, en modo sombra, los mensajes entrantes de un mes (o de los últimos días).
  *
- * Rellena `category` y `sentiment` —que el motor de reglas respeta cuando ya vienen
- * decididos— y agrega `sacTriage` con las dos distinciones que las reglas no pueden hacer:
- * si el mensaje es un caso de atención y si responderlo exige información interna.
+ * Usa el proveedor configurado (SAC_FLOW_AI_PROVIDER, por defecto DeepSeek vía BytePlus
+ * ModelArk) y solo las marcas autorizadas en SAC_FLOW_AI_BRAND_IDS. Escribe `aiTriage`: no toca
+ * `sacTriage`, la categoría, el tono, el estado ni la versión de los casos, y nunca pasa por
+ * encima de una marca manual. Los textos se enmascaran antes de salir (correo, teléfono, RUT,
+ * usuario, enlaces, tarjetas).
  *
- * Es reanudable: por defecto salta lo ya clasificado, así que una corrida interrumpida se
- * retoma sin repetir gasto.
+ * Es reanudable: salta lo que la IA ya clasificó, así que una corrida interrumpida se retoma
+ * sin repetir gasto. La concordancia se lee en GET /api/ai/agreement?month=AAAA-MM.
  *
  * Uso:
- *   node scripts/classify-interactions.mjs --mes 2026-08 [--concurrencia 4] [--lote 40] [--rehacer]
+ *   node scripts/classify-interactions.mjs --mes 2026-08 [--maximo 2000] [--concurrencia 2] [--lote 20]
  */
 import { loadConfig } from "../dist-api/config.js";
 import { loadLocalEnvironment } from "../dist-api/load-env.js";
 import { createRepository } from "../dist-api/repository-factory.js";
-import { classifyInteractions } from "../dist-api/ai-classifier.js";
+import { createAiProvider } from "../dist-api/ai-provider.js";
+import { runShadowTriage } from "../dist-api/ai-shadow-triage.js";
+import { monthPeriod } from "../dist-api/sac-report.js";
 
 function arg(nombre, porDefecto) {
   const i = process.argv.indexOf(`--${nombre}`);
@@ -22,95 +26,54 @@ function arg(nombre, porDefecto) {
     ? process.argv[i + 1]
     : porDefecto;
 }
-const mes = arg("mes", null);
-const concurrencia = Math.max(1, Math.min(Number(arg("concurrencia", 4)) || 4, 8));
-const lote = Math.max(1, Math.min(Number(arg("lote", 40)) || 40, 50));
-const rehacer = process.argv.includes("--rehacer");
 
 loadLocalEnvironment();
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error("Falta ANTHROPIC_API_KEY en el entorno.");
+const config = loadConfig();
+const estado = createAiProvider(config.ai);
+if (!estado.ready) {
+  console.error(estado.reason === "disabled"
+    ? "La IA está apagada: defina SAC_FLOW_AI_ENABLED=true."
+    : `Falta la clave del proveedor ${config.ai.provider} (${config.ai.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "BYTEPLUS_API_KEY"}).`);
+  process.exit(1);
+}
+if (config.ai.brandIds !== "all" && !config.ai.brandIds.length) {
+  console.error("Ninguna marca autorizada: defina SAC_FLOW_AI_BRAND_IDS (ids separados por comas, o * para todas).");
   process.exit(1);
 }
 
-const config = loadConfig();
+const mes = arg("mes", null);
+if (mes && !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
+  console.error("Use --mes AAAA-MM.");
+  process.exit(1);
+}
+const periodo = mes ? monthPeriod(mes) : undefined;
+const maximo = Math.max(1, Math.min(Number(arg("maximo", 2_000)) || 2_000, 50_000));
+const concurrencia = Math.max(1, Math.min(Number(arg("concurrencia", 2)) || 2, 8));
+const lote = Math.max(1, Math.min(Number(arg("lote", config.ai.batchSize)) || config.ai.batchSize, 50));
+
 const repository = createRepository(config);
 await repository.initialize();
 
-const store = await repository.snapshot();
-const activas = new Set(store.brands.filter((b) => b.active && b.account.active).map((b) => b.id));
-const pendientes = store.interactions.filter((i) =>
-  activas.has(i.brandId)
-  && i.direction === "inbound"
-  && (!mes || i.createdAt.slice(0, 7) === mes)
-  && (rehacer || !i.sacTriage));
+console.log(`proveedor: ${estado.provider.name} · modelo: ${estado.provider.model}`
+  + ` · ${periodo ? `mes ${periodo.label}` : `últimos ${config.ai.lookbackDays} días`}`
+  + ` · máximo ${maximo} · lotes de ${lote} · concurrencia ${concurrencia}`);
 
-console.log(`a clasificar: ${pendientes.length} mensajes${mes ? ` de ${mes}` : ""}`);
-if (!pendientes.length) {
-  await repository.close?.();
-  process.exit(0);
-}
-
-const lotes = [];
-for (let i = 0; i < pendientes.length; i += lote) lotes.push(pendientes.slice(i, i + lote));
-console.log(`lotes: ${lotes.length} de hasta ${lote} | concurrencia: ${concurrencia}\n`);
-
-const modelo = "claude-opus-5";
-const resultados = new Map();
-let hechos = 0;
-let fallidos = 0;
 const inicio = Date.now();
+const resultado = await runShadowTriage(repository, {
+  provider: estado.provider,
+  brandIds: config.ai.brandIds,
+  batchSize: lote,
+  maxPerRun: maximo,
+  concurrency: concurrencia,
+  ...(periodo
+    ? { from: `${periodo.from}T00:00:00.000Z`, to: `${periodo.to}T23:59:59.999Z` }
+    : { lookbackDays: config.ai.lookbackDays }),
+});
 
-// Ventana deslizante: mantiene N lotes en vuelo sin cargar todo en memoria a la vez.
-let siguiente = 0;
-async function trabajador() {
-  while (siguiente < lotes.length) {
-    const indice = siguiente++;
-    try {
-      const salida = await classifyInteractions(lotes[indice], { batchSize: lote, model: modelo });
-      for (const r of salida) resultados.set(r.id, r);
-      hechos += 1;
-    } catch (error) {
-      fallidos += 1;
-      console.log(`  lote ${indice + 1} falló: ${error.message}`);
-    }
-    const transcurrido = (Date.now() - inicio) / 1000;
-    const ritmo = (hechos + fallidos) / transcurrido;
-    const restantes = lotes.length - hechos - fallidos;
-    process.stdout.write(
-      `\r  ${hechos + fallidos}/${lotes.length} lotes · ${resultados.size} clasificados`
-      + ` · ~${Math.round(restantes / (ritmo || 1))}s restantes    `,
-    );
-  }
-}
-await Promise.all(Array.from({ length: concurrencia }, () => trabajador()));
-console.log(`\n\nclasificados: ${resultados.size} | lotes fallidos: ${fallidos}`);
-
-if (resultados.size) {
-  const clasificadoEn = new Date().toISOString();
-  let escritas = 0;
-  await repository.mutateInteractions([...resultados.keys()], (store) => {
-    for (const interaction of store.interactions) {
-      const r = resultados.get(interaction.id);
-      if (!r) continue;
-      escritas += 1;
-      // `category` y `sentiment` son los campos canónicos: el motor de reglas los respeta
-      // cuando ya vienen decididos, así que la IA no compite con los guardrails.
-      interaction.category = r.categoria;
-      interaction.sentiment = r.tonalidad;
-      interaction.confidence = r.confianza;
-      interaction.sacTriage = {
-        categoria: r.categoria,
-        esCasoSac: r.esCasoSac,
-        requiereDerivacion: r.requiereDerivacion,
-        confianza: r.confianza,
-        clasificadoEn,
-        modelo,
-      };
-    }
-    return escritas;
-  });
-  console.log(`guardadas ${escritas} interacciones en el repositorio.`);
-}
+console.log(`candidatos: ${resultado.candidates} | clasificados: ${resultado.classified}`
+  + ` | sensibles: ${resultado.sensitive} | lotes fallidos: ${resultado.failedBatches}`
+  + ` | tokens: ${resultado.usage.inputTokens} entrada, ${resultado.usage.outputTokens} salida`
+  + ` | ${Math.round((Date.now() - inicio) / 1000)} s`);
+if (resultado.firstError) console.log(`primer error: ${resultado.firstError}`);
 
 await repository.close?.();

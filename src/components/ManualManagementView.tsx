@@ -39,6 +39,7 @@ import { ContentContext } from "./ContentContext";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb, BusyOrb } from "./ThinkingOrb";
 import { EmojiPicker } from "./EmojiPicker";
+import { AiReplySuggestion } from "./AiReplySuggestion";
 
 type ManualSurfaceId = "all" | `${SocialPlatform}:${InteractionKind}`;
 type StatusAction = "resolved" | "escalated";
@@ -1233,29 +1234,17 @@ export function ManualManagementView({
                       </div>
                     ) : null}
                     {/* Compacta: una línea de etiqueta y una de texto, para no quitarle alto al historial. */}
-                    <div className={`manual-inbox-recommendation${aiRecommendation ? "" : " is-empty"}`}>
-                      <span><Sparkle size={14} weight="fill" aria-hidden="true" /></span>
-                      <div>
-                        <strong>Recomendación IA</strong>
-                        <small>
-                          {visibleDetail.automation?.knowledge.status === "approved"
-                            ? "Basada en QA aprobado por la marca"
-                            : "Para revisión humana; no se envía sola"}
-                        </small>
-                        <p title={aiRecommendation || undefined}>
-                          {aiRecommendation || "Sin sugerencia para este caso."}
-                        </p>
-                      </div>
-                      {aiRecommendation ? (
-                        <button
-                          type="button"
-                          onClick={() => updateDraft(aiRecommendation)}
-                          disabled={!canWrite || isSaving || caseClosed}
-                        >
-                          Usar sugerencia
-                        </button>
-                      ) : null}
-                    </div>
+                    <AiReplySuggestion
+                      variant="compact"
+                      interactionId={visibleDetail.id}
+                      accountId={visibleDetail.accountId}
+                      active={!caseClosed && visibleDetail.direction === "inbound"}
+                      ruleText={aiRecommendation}
+                      ruleGrounded={visibleDetail.automation?.knowledge.status === "approved"}
+                      ruleSourceCount={visibleDetail.automation?.knowledge.sourceIds.length ?? 0}
+                      disabled={!canWrite || isSaving}
+                      onUse={updateDraft}
+                    />
 
                     <label htmlFor="manual-inbox-draft">Respuesta personal</label>
                     {deliveryBlocksSend ? (

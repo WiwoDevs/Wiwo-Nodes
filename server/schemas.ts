@@ -57,6 +57,16 @@ export const sacMonthlyReportQuerySchema = z.object({
   volumen: z.enum(["gestionado", "bruto"]).default("gestionado"),
 }).strict();
 
+export const aiDraftBodySchema = z.object({
+  /** Fuerza una sugerencia nueva aunque haya una reciente para el mismo contexto. */
+  regenerate: z.boolean().optional(),
+}).strict();
+
+export const aiAgreementQuerySchema = z.object({
+  month: z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Usa el formato AAAA-MM."),
+  brandId: z.string().trim().min(1).max(120).optional(),
+}).strict();
+
 export const interactionListQuerySchema = interactionFiltersSchema.extend({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),

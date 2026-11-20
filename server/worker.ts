@@ -9,6 +9,8 @@ import { dispatchNextQueuedAutoReply } from "./auto-reply-dispatcher.js";
 import type { ActorContext, WorkflowJob } from "./types.js";
 import { loadLocalEnvironment } from "./load-env.js";
 import { classifySyncResponse, SYNC_REQUEST_TIMEOUT_MS } from "./worker-sync.js";
+import { createAiProvider } from "./ai-provider.js";
+import { runShadowTriage } from "./ai-shadow-triage.js";
 
 loadLocalEnvironment();
 const config = loadConfig();
@@ -27,6 +29,11 @@ let ready = false;
 let lastLoopAt: string | undefined;
 let lastReplyDispatchAt: string | undefined;
 let lastReplyDispatchOutcome: string | undefined;
+const aiProviderState = createAiProvider(config.ai);
+let aiTriageRunning = false;
+let aiTriageNextAt = 0;
+let lastAiTriageAt: string | undefined;
+let lastAiTriageOutcome: string | undefined;
 
 const healthServer = createServer((request, response) => {
   if (request.method !== "GET" || request.url !== "/health") {
@@ -42,6 +49,9 @@ const healthServer = createServer((request, response) => {
     autoReplyDispatchMode: config.operations.autoReplyDispatchMode,
     lastReplyDispatchAt,
     lastReplyDispatchOutcome,
+    aiTriage: aiProviderState.ready
+      ? { provider: aiProviderState.provider.name, lastRunAt: lastAiTriageAt, lastOutcome: lastAiTriageOutcome }
+      : { disabled: aiProviderState.reason },
   }));
 });
 
@@ -170,6 +180,51 @@ async function executeJob(job: WorkflowJob): Promise<void> {
   }
 }
 
+/**
+ * Clasificación de IA en sombra, en segundo plano: no frena la sincronización ni el despacho.
+ * Solo escribe `aiTriage`; nunca responde ni cambia el estado de un caso. Los registros llevan
+ * conteos, nunca texto de clientes.
+ */
+function maybeRunShadowTriage(): void {
+  if (!aiProviderState.ready || aiTriageRunning || Date.now() < aiTriageNextAt) return;
+  aiTriageRunning = true;
+  aiTriageNextAt = Date.now() + config.ai.intervalSeconds * 1_000;
+  runShadowTriage(repository, {
+    provider: aiProviderState.provider,
+    brandIds: config.ai.brandIds,
+    batchSize: config.ai.batchSize,
+    maxPerRun: config.ai.maxPerRun,
+    lookbackDays: config.ai.lookbackDays,
+    concurrency: 1,
+  })
+    .then((result) => {
+      lastAiTriageOutcome = result.failedBatches ? "partial" : "ok";
+      process.stdout.write(`${JSON.stringify({
+        level: result.failedBatches ? "warn" : "info",
+        event: "ai_shadow_triage",
+        provider: aiProviderState.provider.name,
+        model: aiProviderState.provider.model,
+        candidates: result.candidates,
+        classified: result.classified,
+        sensitive: result.sensitive,
+        failedBatches: result.failedBatches,
+        firstError: result.firstError,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+      })}
+`);
+    })
+    .catch((error) => {
+      lastAiTriageOutcome = "failed";
+      process.stderr.write(`${JSON.stringify({ level: "error", event: "ai_shadow_triage_failed", message: safeError(error) })}
+`);
+    })
+    .finally(() => {
+      aiTriageRunning = false;
+      lastAiTriageAt = new Date().toISOString();
+    });
+}
+
 async function main(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     healthServer.once("error", reject);
@@ -184,6 +239,7 @@ async function main(): Promise<void> {
   while (!stopping) {
     lastLoopAt = new Date().toISOString();
     await enqueueDueJob();
+    maybeRunShadowTriage();
     const replyDispatch = await dispatchNextQueuedAutoReply({
       repository,
       config,

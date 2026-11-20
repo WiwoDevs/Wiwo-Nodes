@@ -34,6 +34,7 @@ import { interactionKindLabel, platformLabel, SocialPlatformIcon } from "./Socia
 import { ContentContext } from "./ContentContext";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb } from "./ThinkingOrb";
+import { AiReplySuggestion } from "./AiReplySuggestion";
 
 export interface InteractionDetailPanelProps {
   detail: InteractionDetail | null;
@@ -752,34 +753,18 @@ export function InteractionDetailPanel({
             </section>
           ) : null}
 
-          <section className={`case-ai-recommendation${detail.automation?.knowledge.status === "approved" ? " case-ai-recommendation--grounded" : ""}`}>
-            <header>
-              <span className="case-ai-recommendation__icon"><Sparkle size={18} weight="fill" aria-hidden="true" /></span>
-              <div>
-                <strong>Recomendación de respuesta con IA</strong>
-                <small>
-                  {detail.automation?.knowledge.status === "approved"
-                    ? `Basada en QA aprobado · ${detail.automation.knowledge.sourceIds.length} fuente(s)`
-                    : "Sugerencia preliminar · requiere revisión humana y QA aprobado"}
-                </small>
-              </div>
-              <span>{Math.round((detail.automation?.classificationConfidence ?? detail.confidence) * 100)}% confianza</span>
-            </header>
-            {caseClosed
-              ? <p>Este hilo ya fue respondido por el equipo; no se generará una nueva sugerencia mientras siga cerrado.</p>
-              : aiRecommendation
-                ? <p>{aiRecommendation}</p>
-                : <p>No hay una recomendación disponible. Ejecuta el Protocolo SAC para evaluar este caso.</p>}
-            <button
-              className="button button--secondary"
-              type="button"
-              disabled={!canWrite || caseClosed || !aiRecommendation || isSaving}
-              onClick={() => changeDraft(aiRecommendation)}
-            >
-              <Sparkle size={15} weight="bold" aria-hidden="true" />
-              Usar recomendación
-            </button>
-          </section>
+          <AiReplySuggestion
+            variant="panel"
+            interactionId={detail.id}
+            accountId={detail.accountId}
+            active={!caseClosed && detail.direction === "inbound"}
+            closedMessage="Este hilo ya fue respondido por el equipo; no se generará una nueva sugerencia mientras siga cerrado."
+            ruleText={aiRecommendation}
+            ruleGrounded={detail.automation?.knowledge.status === "approved"}
+            ruleSourceCount={detail.automation?.knowledge.sourceIds.length ?? 0}
+            disabled={!canWrite || isSaving}
+            onUse={changeDraft}
+          />
 
           <form
             className="case-reply-card"

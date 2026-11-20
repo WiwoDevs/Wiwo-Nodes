@@ -45,6 +45,8 @@ export function requiresHumanReview(
   const configured = new Set(workflow.requireHumanFor.map(canonicalCategory));
   const category = canonicalCategory(interaction.category);
   return interaction.sentiment === "negative"
+    // La IA en sombra solo puede sumar revisión humana: un "sensible" basta, su ausencia no quita nada.
+    || interaction.aiTriage?.sensible === true
     || isMandatoryHumanReviewCategory(category)
     || configured.has(category)
     || confidence < workflow.minimumConfidence;

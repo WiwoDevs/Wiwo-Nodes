@@ -156,6 +156,7 @@ type InteractionRow = {
   status_reason: unknown;
   automation_assessment: unknown;
   sac_triage: unknown;
+  ai_triage: unknown;
 };
 
 type WorkflowRunRow = {
@@ -467,14 +468,14 @@ const INTERACTION_INSERT_PREFIX = `INSERT INTO interactions
    direction, customer_name, customer_handle, body_text, category, sentiment, confidence,
    status, source, version, received_at, responded_at, metricool_ref, response_text, audit_trail,
    assigned_to_user_id, assigned_to_display_name, internal_notes, updated_at, status_reason,
-   automation_assessment, sac_triage)`;
+   automation_assessment, sac_triage, ai_triage)`;
 
 const INTERACTION_CASTS = [
   undefined, undefined, undefined, undefined, undefined, undefined, undefined,
   undefined, undefined, undefined, undefined, undefined, undefined, undefined,
   undefined, undefined, undefined, undefined, undefined, "jsonb", undefined, "jsonb",
   undefined, undefined, "jsonb", undefined, "jsonb",
-  "jsonb", "jsonb",
+  "jsonb", "jsonb", "jsonb",
 ] as const;
 
 function interactionRowValues(
@@ -513,6 +514,7 @@ function interactionRowValues(
     interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
     interaction.automation ? JSON.stringify(interaction.automation) : null,
     interaction.sacTriage ? JSON.stringify(interaction.sacTriage) : null,
+    interaction.aiTriage ? JSON.stringify(interaction.aiTriage) : null,
   ];
 }
 
@@ -973,7 +975,8 @@ export class PostgresRepository implements SacFlowRepository {
            updated_at = $14,
            status_reason = $15::jsonb,
            automation_assessment = $16::jsonb,
-           sac_triage = $17::jsonb
+           sac_triage = $17::jsonb,
+           ai_triage = $18::jsonb
        WHERE organization_id = $1 AND interaction_key = $2`,
       [
         organizationId,
@@ -993,6 +996,7 @@ export class PostgresRepository implements SacFlowRepository {
         interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
         interaction.automation ? JSON.stringify(interaction.automation) : null,
         interaction.sacTriage ? JSON.stringify(interaction.sacTriage) : null,
+        interaction.aiTriage ? JSON.stringify(interaction.aiTriage) : null,
       ],
     );
   }
@@ -1034,10 +1038,10 @@ export class PostgresRepository implements SacFlowRepository {
               direction, customer_name, customer_handle, body_text, category, sentiment, confidence,
               status, source, version, received_at, responded_at, metricool_ref, response_text, audit_trail,
               assigned_to_user_id, assigned_to_display_name, internal_notes, updated_at, status_reason,
-              automation_assessment, sac_triage)
+              automation_assessment, sac_triage, ai_triage)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                    $17, $18, $19, $20::jsonb, $21, $22::jsonb, $23, $24, $25::jsonb, $26, $27::jsonb,
-                   $28::jsonb, $29::jsonb)
+                   $28::jsonb, $29::jsonb, $30::jsonb)
            ON CONFLICT (organization_id, social_account_id, kind, external_id) DO NOTHING`,
           [
             organizationId,
@@ -1069,6 +1073,7 @@ export class PostgresRepository implements SacFlowRepository {
             interaction.statusReason ? JSON.stringify(interaction.statusReason) : null,
             interaction.automation ? JSON.stringify(interaction.automation) : null,
             interaction.sacTriage ? JSON.stringify(interaction.sacTriage) : null,
+            interaction.aiTriage ? JSON.stringify(interaction.aiTriage) : null,
           ],
         );
         if (result.rowCount === 1) created.push(interaction);
@@ -2347,7 +2352,8 @@ export class PostgresRepository implements SacFlowRepository {
          i.audit_trail,
          i.status_reason,
          i.automation_assessment,
-         i.sac_triage
+         i.sac_triage,
+         i.ai_triage
        FROM interactions i
        JOIN brands b
          ON b.organization_id = i.organization_id
@@ -2389,6 +2395,7 @@ export class PostgresRepository implements SacFlowRepository {
       statusReason: asJson<Interaction["statusReason"]>(row.status_reason, undefined),
       automation: asJson<Interaction["automation"]>(row.automation_assessment, undefined),
       sacTriage: asJson<Interaction["sacTriage"]>(row.sac_triage, undefined),
+      aiTriage: asJson<Interaction["aiTriage"]>(row.ai_triage, undefined),
       audit: asJson<InteractionAuditEntry[]>(row.audit_trail, []),
     }));
   }
@@ -3078,7 +3085,7 @@ export class PostgresRepository implements SacFlowRepository {
       "customer_handle", "body_text", "category", "sentiment", "confidence", "status", "source", "version",
       "received_at", "responded_at", "metricool_ref", "response_text", "audit_trail", "assigned_to_user_id",
       "assigned_to_display_name", "internal_notes", "updated_at", "status_reason", "automation_assessment",
-      "sac_triage",
+      "sac_triage", "ai_triage",
     ];
     const returned = await insertRowsBatched<{ id: string; interaction_key: string }>(
       client,
