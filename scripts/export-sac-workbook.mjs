@@ -2,7 +2,7 @@
  * Exporta la bitácora SAC de una marca al formato de planilla que usa el equipo.
  *
  * Es el camino inverso de `import-tiktok-sheets.mjs`: donde TikTok obliga a cargar a mano lo
- * que el API no entrega, el resto de las redes ya está en sac.wiwo y lo que falta es devolverlo
+ * que el API no entrega, el resto de las redes ya está en wiwo.sac y lo que falta es devolverlo
  * en el formato que el equipo sabe leer —"BD SAC [MARCA]", pestaña Histórico, nueve columnas—
  * para que las cuatro planillas de TikTok y estas convivan con la misma estructura.
  *
@@ -192,7 +192,7 @@ for (const brandId of marcasPedidas) {
   }
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "sac.wiwo";
+  workbook.creator = "wiwo.sac";
   workbook.created = new Date();
 
   const hoja = workbook.addWorksheet("Histórico", { views: [{ state: "frozen", ySplit: 1 }] });

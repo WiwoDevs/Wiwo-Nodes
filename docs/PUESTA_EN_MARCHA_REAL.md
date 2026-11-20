@@ -124,7 +124,7 @@ permisos sensibles: *Gestionar marcas*, *Editar automatizaciones*, *Publicar el 
 quien no los tenía (por ejemplo, pasar un Agente a Supervisor). Sí puede quitarlos o bajar de
 rol a alguien.
 
-| En la allowlist (`permissions`) | Rol en sac.wiwo | Alcance |
+| En la allowlist (`permissions`) | Rol en wiwo.sac | Alcance |
 | --- | --- | --- |
 | `admin` | `admin` | Portafolio completo, siempre |
 | `sac` | `agent` (configurable) | Todas las marcas, salvo override |

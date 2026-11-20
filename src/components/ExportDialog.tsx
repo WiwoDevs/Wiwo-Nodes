@@ -82,7 +82,7 @@ export function ExportDialog({ accounts, onClose, onExport }: ExportDialogProps)
   const range = exportRange(period, customFrom, customTo);
   const invalidRange = period === "custom" && (!customFrom || !customTo || customFrom > customTo);
   const summary = period === "all"
-    ? "Todo lo que sac.wiwo guardó desde que se conectó a Metricool."
+    ? "Todo lo que wiwo.sac guardó desde que se conectó a Metricool."
     : range.from && range.to
       ? `Del ${formatDay.format(range.from)} al ${formatDay.format(range.to)}.`
       : "Elige las fechas del rango.";
@@ -163,7 +163,7 @@ export function ExportDialog({ accounts, onClose, onExport }: ExportDialogProps)
 
         <p className="export-dialog__summary">{invalidRange ? "La fecha de inicio debe ser anterior o igual a la de término." : summary}</p>
         <p className="export-dialog__note">
-          sac.wiwo guarda todo lo que lee de Metricool desde que se conectó; los períodos anteriores a esa fecha pueden estar incompletos porque Metricool solo entrega lo que aún tiene en su bandeja.
+          wiwo.sac guarda todo lo que lee de Metricool desde que se conectó; los períodos anteriores a esa fecha pueden estar incompletos porque Metricool solo entrega lo que aún tiene en su bandeja.
         </p>
 
         {error ? <p className="metricool-import__notice metricool-import__notice--error" role="alert">{error}</p> : null}

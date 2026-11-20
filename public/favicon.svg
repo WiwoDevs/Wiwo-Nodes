@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <!-- sac.wiwo: "SAC" a mano sobre azul WIWO, misma familia que el ícono "Me" de wiwo.me. -->
+  <!-- wiwo.sac: "SAC" a mano sobre azul WIWO, misma familia que el ícono "Me" de wiwo.me. -->
   <rect width="192" height="192" fill="#4242FF"/>
   <g fill="none" stroke="#000" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 6)">
     <path d="M60 67 C56 59 48 56 40 57 C30 59 25 67 28 75 C31 83 41 86 49 90 C59 95 63 103 59 112 C55 120 43 123 34 119 C29 117 25 113 23 109"/>

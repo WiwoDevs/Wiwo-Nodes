@@ -1,14 +1,14 @@
 /*
- * Capa WiwoLab — sac.wiwo con el mismo CSS que WiwoLab (apps/web/src/app/globals.css, el preset de Tailwind
+ * Capa WiwoLab — wiwo.sac con el mismo CSS que WiwoLab (apps/web/src/app/globals.css, el preset de Tailwind
  * de packages/config y las clases de sus componentes: app-shell, module-rail, home, ui/button, ui/select,
  * confirm-context). Se carga después de styles.css: retoma sus tokens con los valores de Lab y ajusta las
  * piezas compartidas (riel, barra superior, tarjetas, botones, campos, diálogos y cargas). Los colores de
- * estado de sac.wiwo (plazos, éxito, riesgo, aviso) siguen en styles.css.
+ * estado de wiwo.sac (plazos, éxito, riesgo, aviso) siguen en styles.css.
  */
 
 /* ── 1. Tokens de Lab ──────────────────────────────────────────────────────
    Lab define sus colores como tripletas HSL de shadcn; aquí van ya convertidos. Oscuro es el
-   predeterminado de sac.wiwo, igual que en Lab (que lo aplica con la clase .dark). */
+   predeterminado de wiwo.sac, igual que en Lab (que lo aplica con la clase .dark). */
 :root {
   --lab-background: #121212;        /* hsl(0 0% 7%) */
   --lab-foreground: #f7f7f3;        /* hsl(60 20% 96%) */
@@ -45,7 +45,7 @@
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
 
-  /* Tokens de sac.wiwo con los valores de Lab */
+  /* Tokens de wiwo.sac con los valores de Lab */
   --bg: var(--lab-background);
   --bg-sidebar: var(--lab-glass-fill);
   --ink: var(--lab-foreground);

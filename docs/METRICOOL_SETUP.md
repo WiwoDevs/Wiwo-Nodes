@@ -66,11 +66,11 @@ Endpoints que usa el adaptador:
 | Responder DM | `POST /v2/inbox/conversations` | Body `conversationId`, `provider`, `recipient`, `text` |
 | Leer comentarios | `GET /v2/inbox/post-comments` | Query obligatorio `provider` |
 | Responder comentario | `POST /v2/inbox/post-comments` | Body `objectId`, `provider`, `text` |
-| Leer reseñas | `GET /v2/inbox/reviews` | Query obligatorio `provider`; sac.wiwo usa `GMB` |
+| Leer reseñas | `GET /v2/inbox/reviews` | Query obligatorio `provider`; wiwo.sac usa `GMB` |
 | Responder reseña | `POST /v2/inbox/reviews/replies` | Body `reviewId`, `provider`, `text` |
 | Cambiar estado | `PUT /v2/inbox/status` | Body según `ChangeStatusRequest` |
 
-El contrato anterior fue contrastado el 12 de agosto de 2026 con el [OpenAPI oficial](https://app.metricool.com/api/swagger.json). `Conversation` contiene `participants[]` y `messages[]`; cada mensaje expone, entre otros, `from`, `to`, `text` y `publicationDateTime`. Los comentarios se entregan como `PostCommentsThread`, con `root` y sus `comments[]`; `root.element` puede aportar el ID, enlace, texto y medios de la publicación. sac.wiwo conserva únicamente el identificador del autor y el contexto mínimo del post, valida los enlaces públicos como HTTPS y completa metadatos faltantes en registros ya existentes sin sobrescribir el estado operativo ni los borradores. Ver la [verificación contractual detallada](./METRICOOL_API_VERIFICATION.md).
+El contrato anterior fue contrastado el 12 de agosto de 2026 con el [OpenAPI oficial](https://app.metricool.com/api/swagger.json). `Conversation` contiene `participants[]` y `messages[]`; cada mensaje expone, entre otros, `from`, `to`, `text` y `publicationDateTime`. Los comentarios se entregan como `PostCommentsThread`, con `root` y sus `comments[]`; `root.element` puede aportar el ID, enlace, texto y medios de la publicación. wiwo.sac conserva únicamente el identificador del autor y el contexto mínimo del post, valida los enlaces públicos como HTTPS y completa metadatos faltantes en registros ya existentes sin sobrescribir el estado operativo ni los borradores. Ver la [verificación contractual detallada](./METRICOOL_API_VERIFICATION.md).
 
 Los mensajes sin texto no se convierten en texto inventado. El normalizador revisa `attachments[]`, `mediaUrl`, `properties.story.reply_to`, `properties.story.mention`, `properties.reactions`, `properties.is_unsupported` y `status=DELETED`. Conserva solo la categoría y enlaces HTTPS públicos minimizados, sin credenciales ni destinos privados; no persiste el payload completo ni copia los archivos de Meta. La UI intenta mostrar el medio y mantiene un enlace/fallback si ya expiró. Si Metricool marca el mensaje como eliminado, se descartan el texto y los enlaces anteriores. Las historias y adjuntos eliminados, efímeros o nunca entregados por la API no pueden reconstruirse.
 
@@ -123,7 +123,7 @@ Si se necesita diagnosticar directamente contra Metricool, usar Postman o una te
 
 - Instagram expone únicamente la **bandeja principal**; solicitudes y carpetas filtradas no aparecen.
 - No se puede responder desde el Inbox a comentarios de anuncios de Facebook o Instagram.
-- En Facebook e Instagram, Metricool informa un plazo de **24 horas para comentarios** y **7 días para DMs**. sac.wiwo permite intentar manualmente una respuesta más antigua, pero Metricool/Meta pueden rechazarla; si ocurre, debe responderse directamente desde la red social. La automatización conserva estos casos para revisión humana.
+- En Facebook e Instagram, Metricool informa un plazo de **24 horas para comentarios** y **7 días para DMs**. wiwo.sac permite intentar manualmente una respuesta más antigua, pero Metricool/Meta pueden rechazarla; si ocurre, debe responderse directamente desde la red social. La automatización conserva estos casos para revisión humana.
 - Metricool trabaja por marca y no ofrece una bandeja unificada; SAC Flow agrega esa vista consultando cada `blogId`.
 - El estado leído/no leído no se comparte de forma fiable entre Metricool y las redes.
 - Metricool no conserva historial permanente del Inbox. La copia local/PostgreSQL debe considerarse necesaria para reporting, sujeta a la política de retención.

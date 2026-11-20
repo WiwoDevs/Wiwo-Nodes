@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import escenaPrimavera from "../assets/login-escena-primavera.html?raw";
 import { applySceneStyles, prepareSceneMarkup } from "../lib/login-scene";
-import sacWiwoLogo from "../assets/sac-wiwo-logo.png";
+import wiwoSacLogo from "../assets/wiwo-sac-logo.png";
 import "@fontsource-variable/outfit";
 import "../styles/login.css";
 import "../styles/login-escena.css";
@@ -19,7 +19,7 @@ export function LoginShell({ children }: { children: ReactNode }) {
     if (sceneRef.current) applySceneStyles(sceneRef.current);
   }, []);
   return (
-    <div className="wl-shell" style={{ "--wl-logo-url": `url("${sacWiwoLogo}")` } as CSSProperties}>
+    <div className="wl-shell" style={{ "--wl-logo-url": `url("${wiwoSacLogo}")` } as CSSProperties}>
       {/* Marcado estático propio (sin scripts ni recursos externos), solo decorativo. */}
       <div ref={sceneRef} className="wl-scene" aria-hidden="true" dangerouslySetInnerHTML={{ __html: SCENE_MARKUP }} />
       <main className="wl-main">{children}</main>
@@ -27,6 +27,6 @@ export function LoginShell({ children }: { children: ReactNode }) {
   );
 }
 
-export function SacWiwoLogo({ size }: { size: "large" | "small" }) {
-  return <span role="img" aria-label="sac.wiwo" className={`wl-logo wl-logo--${size}`} />;
+export function WiwoSacLogo({ size }: { size: "large" | "small" }) {
+  return <span role="img" aria-label="wiwo.sac" className={`wl-logo wl-logo--${size}`} />;
 }

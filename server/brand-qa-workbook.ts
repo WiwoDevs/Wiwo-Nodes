@@ -190,7 +190,7 @@ export async function inspectBrandQaWorkbook(
 
 export async function buildBrandQaTemplate(brandName: string): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "sac.wiwo";
+  workbook.creator = "wiwo.sac";
   workbook.title = `QA aprobado · ${brandName}`;
   const qa = workbook.addWorksheet("QA", { views: [{ state: "frozen", ySplit: 1 }] });
   const headers = [

@@ -83,7 +83,7 @@ Clasificación mínima:
 - Protección CSRF para mutaciones basadas en cookies.
 - Límites de tamaño de body, timeouts y rate limits por usuario/marca.
 - Allowlist de salida limitada a hosts oficiales de Metricool; no aceptar URLs arbitrarias como destino de proxy.
-- Los enlaces de publicaciones se aceptan solo si Metricool entrega una URL HTTPS, se abren con aislamiento de pestaña y nunca se reconstruyen desde IDs sociales. Las miniaturas remotas se tratan como contenido no confiable, se solicitan sin referrer y no reciben credenciales de sac.wiwo; no existe un proxy abierto por URL. El navegador aún puede aplicar su propia política de cookies del dominio remoto, por lo que una futura política de privacidad más estricta debe usar un proxy cerrado con allowlist o prescindir de miniaturas externas.
+- Los enlaces de publicaciones se aceptan solo si Metricool entrega una URL HTTPS, se abren con aislamiento de pestaña y nunca se reconstruyen desde IDs sociales. Las miniaturas remotas se tratan como contenido no confiable, se solicitan sin referrer y no reciben credenciales de wiwo.sac; no existe un proxy abierto por URL. El navegador aún puede aplicar su propia política de cookies del dominio remoto, por lo que una futura política de privacidad más estricta debe usar un proxy cerrado con allowlist o prescindir de miniaturas externas.
 
 ### Integridad operativa
 

@@ -1,4 +1,4 @@
-# sac.wiwo
+# wiwo.sac
 
 Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo lugar los mensajes directos, comentarios y reseñas de las marcas que se gestionan en **Metricool** (Instagram, Facebook, X, TikTok Business, YouTube, LinkedIn y Google Business). Desde ahí el equipo responde, coordina quién atiende cada caso y saca las métricas del **reporte mensual**. Incluye además un módulo de automatización general (Automation Studio).
 
@@ -11,7 +11,7 @@ Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo 
 
 ## Qué llega de cada red
 
-Todo llega a través de **Metricool**. Para que una red aparezca, basta con conectarla en Metricool a la misma marca que está vinculada en sac.wiwo; sac.wiwo detecta sola las redes nuevas en la siguiente actualización.
+Todo llega a través de **Metricool**. Para que una red aparezca, basta con conectarla en Metricool a la misma marca que está vinculada en wiwo.sac; wiwo.sac detecta sola las redes nuevas en la siguiente actualización.
 
 | Red | Comentarios | Mensajes directos (DM) | Reseñas |
 | --- | --- | --- | --- |
@@ -25,7 +25,7 @@ Todo llega a través de **Metricool**. Para que una red aparezca, basta con cone
 
 - Lo que llega se ve en la **Bandeja SAC**, en **Gestión DMs / Gestión comentarios** (una pestaña por red), en **Reportes**, en el **Excel** y en **MetriQ**.
 - Los **DMs de TikTok y LinkedIn** no los ofrece Metricool: se suben a mano con el Excel de la planilla (**Reportes → Cargar TikTok/LinkedIn**).
-- **Menciones y etiquetas en fotos** (quién menciona a la marca en un comentario o la etiqueta en una publicación): **por ahora no**. Metricool no las entrega; solo se pueden obtener conectando sac.wiwo directamente con Meta, un proceso más largo que requiere la aprobación de Meta y la autorización de cada marca.
+- **Menciones y etiquetas en fotos** (quién menciona a la marca en un comentario o la etiqueta en una publicación): **por ahora no**. Metricool no las entrega; solo se pueden obtener conectando wiwo.sac directamente con Meta, un proceso más largo que requiere la aprobación de Meta y la autorización de cada marca.
 
 Explicación sin tecnicismos, para el equipo: [docs/GUIA_COMENTARIOS_Y_MENCIONES.md](docs/GUIA_COMENTARIOS_Y_MENCIONES.md).
 
@@ -81,7 +81,7 @@ La sección **Reportes** calcula, por mes y marca, las mismas cifras del informe
 - Variación contra el mes anterior, que se marca como *no comparable* si ese mes está incompleto.
 - Motivos, tono y canales.
 
-**TikTok y LinkedIn:** Metricool trae sus comentarios (TikTok solo de cuentas Business), que entran a la bandeja y a Gestión comentarios como los de las demás redes, pero no sus DMs ni lo que el equipo lleva en la planilla. Para eso, con **Cargar TikTok/LinkedIn** se sube el Excel BD SAC de la marca (un caso por fila, como la planilla de siempre). Primero se revisa qué entra y qué se omite, y recién al confirmar se guarda. Esos casos cuentan en el reporte y llegan a MetriQ, pero no aparecen en la bandeja porque ya se atendieron fuera de sac.wiwo. Subir el mismo archivo otra vez no duplica nada.
+**TikTok y LinkedIn:** Metricool trae sus comentarios (TikTok solo de cuentas Business), que entran a la bandeja y a Gestión comentarios como los de las demás redes, pero no sus DMs ni lo que el equipo lleva en la planilla. Para eso, con **Cargar TikTok/LinkedIn** se sube el Excel BD SAC de la marca (un caso por fila, como la planilla de siempre). Primero se revisa qué entra y qué se omite, y recién al confirmar se guarda. Esos casos cuentan en el reporte y llegan a MetriQ, pero no aparecen en la bandeja porque ya se atendieron fuera de wiwo.sac. Subir el mismo archivo otra vez no duplica nada.
 
 Antes de presentar, la sección avisa de datos dudosos: mensajes sin clasificar, cuentas duplicadas (dos marcas apuntando al mismo usuario) o una sincronización detenida. El Excel del mes, de todas las marcas o de una, usa los mismos días (UTC) que las cifras e incluye **todas las redes** (la columna *Canal* indica cuál: Instagram, Facebook, TikTok, LinkedIn, YouTube…). Lo cargado a mano desde la planilla aparece con *Fuente* "planilla".
 

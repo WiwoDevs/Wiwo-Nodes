@@ -1,5 +1,5 @@
 /**
- * Permisos de sac.wiwo y roles editables.
+ * Permisos de wiwo.sac y roles editables.
  *
  * Cada rol es un conjunto de permisos. Lector, Agente y Supervisor traen permisos por defecto
  * (los mismos que tenía cada nivel fijo) y un admin puede cambiarlos o crear roles propios.

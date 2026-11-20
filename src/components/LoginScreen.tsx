@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { WarningCircle } from "@phosphor-icons/react";
 import { GOOGLE_SIGN_IN_URL, openDevSession, type AuthProvider } from "../lib/api";
 import type { SessionActor } from "../types";
-import { LoginShell, SacWiwoLogo } from "./LoginShell";
+import { LoginShell, WiwoSacLogo } from "./LoginShell";
 import { WiwoThinkingOrb } from "./WiwoThinkingOrb";
 
 type LoginScreenProps = {
@@ -23,9 +23,9 @@ type LoginScreenProps = {
 };
 
 const LOGIN_ERRORS: Record<string, string> = {
-  ACCOUNT_NOT_ALLOWED: "Tu cuenta de Google no está autorizada para sac.wiwo. Pide acceso a un administrador.",
-  ACCESS_REVOKED: "Un administrador quitó el acceso de tu cuenta a sac.wiwo.",
-  PERMISSION_REQUIRED: "Tu cuenta no tiene el permiso necesario para sac.wiwo.",
+  ACCOUNT_NOT_ALLOWED: "Tu cuenta de Google no está autorizada para wiwo.sac. Pide acceso a un administrador.",
+  ACCESS_REVOKED: "Un administrador quitó el acceso de tu cuenta a wiwo.sac.",
+  PERMISSION_REQUIRED: "Tu cuenta no tiene el permiso necesario para wiwo.sac.",
   EMAIL_NOT_VERIFIED: "Tu cuenta de Google no tiene un correo verificado.",
   GOOGLE_CANCELLED: "Cancelaste el inicio de sesión con Google.",
   OAUTH_STATE_INVALID: "El intento de inicio de sesión expiró. Vuelve a intentarlo.",
@@ -91,7 +91,7 @@ export function LoginScreen({ provider, onAuthenticated }: LoginScreenProps) {
     <LoginShell>
       <div className="wl-layout">
         <aside className="wl-aside">
-          <SacWiwoLogo size="large" />
+          <WiwoSacLogo size="large" />
           <WiwoThinkingOrb width="clamp(14rem, 22vw, 21rem)" />
           <p className="wl-tagline">
             Mensajes, Cuentas y Automatizaciones.
@@ -102,7 +102,7 @@ export function LoginScreen({ provider, onAuthenticated }: LoginScreenProps) {
 
         <div className="wl-mobile-brand">
           <WiwoThinkingOrb width="3.5rem" />
-          <SacWiwoLogo size="small" />
+          <WiwoSacLogo size="small" />
         </div>
 
         <div className="wl-panel">

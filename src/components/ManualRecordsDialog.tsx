@@ -119,7 +119,7 @@ export function ManualRecordsDialog({ brands, onClose, onLoaded }: ManualRecords
             <h2 id="manual-records-title">Cargar casos de TikTok y LinkedIn</h2>
             <p>
               Sube el Excel BD SAC (un caso por fila). Los casos cuentan en Reportes y llegan a MetriQ; no aparecen en la bandeja
-              porque ya se atendieron fuera de sac.wiwo. Subir el mismo archivo otra vez no duplica nada.
+              porque ya se atendieron fuera de wiwo.sac. Subir el mismo archivo otra vez no duplica nada.
             </p>
           </div>
           <button className="icon-button" type="button" aria-label="Cerrar carga manual" onClick={onClose} disabled={busy !== null}>

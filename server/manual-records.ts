@@ -5,12 +5,12 @@
  * usuario, mensaje, plataforma, canal, categoría, tonalidad, estado). Aquí cada fila pasa a ser
  * una interacción `source: "planilla"`, igual que las que importa `scripts/import-tiktok-sheets`,
  * para que cuente en Reportes y llegue a METRIQ por las mismas rutas que lo de Metricool. No
- * entra a la bandeja: son casos ya atendidos fuera de sac.wiwo y no se responden desde aquí.
+ * entra a la bandeja: son casos ya atendidos fuera de wiwo.sac y no se responden desde aquí.
  *
  * El Excel no es la persistencia: se lee una vez y lo que vale queda en el repositorio. Volver
  * a subir el mismo archivo no duplica nada, por dos vías:
  *  - una huella determinística por marca, fecha, usuario y texto (`externalId`), y
- *  - el cotejo por texto contra lo que ya está en sac.wiwo para esa red (p. ej. comentarios de
+ *  - el cotejo por texto contra lo que ya está en wiwo.sac para esa red (p. ej. comentarios de
  *    TikTok que sí trajo Metricool), admitiendo unos días de diferencia en textos distintivos.
  */
 import { createHash, randomUUID } from "node:crypto";
@@ -68,7 +68,7 @@ export interface ManualRecordsResult {
   nuevas: Interaction[];
   /** Filas que ya se habían cargado antes (misma huella). */
   yaCargadas: number;
-  /** El mismo mensaje ya estaba en sac.wiwo para esa red (p. ej. lo trajo Metricool). */
+  /** El mismo mensaje ya estaba en wiwo.sac para esa red (p. ej. lo trajo Metricool). */
   yaEnNodes: number;
   repetidasEnArchivo: number;
   /** Filas de redes que Metricool sí trae (Instagram, Facebook…): se omiten para no duplicar. */
@@ -146,7 +146,7 @@ function tonoDe(tonalidad: string): Sentiment {
   return "neutral";
 }
 
-/** Estado de la planilla → estado de sac.wiwo, para que METRIQ reciba el mismo "Estado". */
+/** Estado de la planilla → estado de wiwo.sac, para que METRIQ reciba el mismo "Estado". */
 function estadoDe(estado: string): InteractionStatus {
   const valor = normalizar(estado);
   if (/resuel|respond|cerrad|gestionad|atendid|contestad|finaliz/.test(valor)) return "replied";
@@ -382,7 +382,7 @@ export function buildManualRecords(input: BuildManualRecordsInput): ManualRecord
 /** Plantilla vacía con las columnas de la BD SAC y una hoja de instrucciones. */
 export async function buildManualRecordsTemplate(): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "sac.wiwo";
+  workbook.creator = "wiwo.sac";
   const hoja = workbook.addWorksheet("Histórico");
   hoja.addRow(MANUAL_RECORDS_HEADERS);
   hoja.getRow(1).font = { bold: true };
@@ -396,7 +396,7 @@ export async function buildManualRecordsTemplate(): Promise<Buffer> {
     ["Reclamo / Mensaje", "Texto del mensaje o comentario (obligatorio)."],
     ["Plataforma / RRSS", "TikTok o LinkedIn. Otras redes ya llegan por Metricool y se omiten."],
     ["Canal", "DM (privado) o Comentario (público)."],
-    ["Clasificación / Categoría comentario", "Reclamos, Precios, Despachos, Stock, Postventa, Pagos, Horarios, Contacto, Consultas… Si se deja vacío, sac.wiwo la decide por reglas."],
+    ["Clasificación / Categoría comentario", "Reclamos, Precios, Despachos, Stock, Postventa, Pagos, Horarios, Contacto, Consultas… Si se deja vacío, wiwo.sac la decide por reglas."],
     ["Tonalidad", "Positiva, Neutra o Negativa."],
     ["Estado", "Resuelto, Pendiente, En proceso o Derivado."],
   ].forEach((row) => ayuda.addRow(row));

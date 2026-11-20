@@ -41,7 +41,7 @@ import { isExpired, needsAction } from "./lib/reply-window";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { ExportDialog, type ExportFilters } from "./components/ExportDialog";
 import type { WorkflowEditorStatus } from "./components/WorkflowCanvas";
-import sacWiwoLogo from "./assets/sac-wiwo-logo.png";
+import wiwoSacLogo from "./assets/wiwo-sac-logo.png";
 import type { AutomationSection } from "./components/AutomationPlatform";
 import {
   addInteractionInternalNote,
@@ -230,7 +230,7 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
   },
   users: {
     title: "Usuarios y roles",
-    description: "Quién entra a sac.wiwo y qué puede hacer",
+    description: "Quién entra a wiwo.sac y qué puede hacer",
   },
   settings: {
     title: "Configuración",
@@ -763,7 +763,7 @@ export function App({ onSignOut, sessionActor }: {
   }, [inboxSeenAt, visibleData.interactions]);
 
   useEffect(() => {
-    document.title = `${newInboxCount ? `(${newInboxCount}) ` : ""}${page.title} | sac.wiwo`;
+    document.title = `${newInboxCount ? `(${newInboxCount}) ` : ""}${page.title} | wiwo.sac`;
   }, [newInboxCount, page.title]);
 
   useEffect(() => {
@@ -995,7 +995,7 @@ export function App({ onSignOut, sessionActor }: {
       const format = new Intl.NumberFormat("es-CL").format;
       const confirmed = await confirmAction({
         title: `¿Archivar ${format(preview.eligible)} casos fuera de plazo como histórico?`,
-        message: "Se cierran en sac.wiwo con el motivo «Fuera de plazo de respuesta». No se borra ni se envía nada a Metricool, "
+        message: "Se cierran en wiwo.sac con el motivo «Fuera de plazo de respuesta». No se borra ni se envía nada a Metricool, "
           + "y se pueden reabrir cambiando su estado."
           + (preview.skippedSensitive ? `\n\n${format(preview.skippedSensitive)} casos sensibles quedan sin archivar para revisión humana.` : ""),
         confirmLabel: "Archivar",
@@ -1986,7 +1986,7 @@ export function App({ onSignOut, sessionActor }: {
       <aside className="app-sidebar">
         <div className="brand-lockup">
           <span className="brand-mark"><FlowArrow size={24} weight="bold" /></span>
-          <span className="brand-copy"><strong>sac.wiwo</strong><small>SAC Automation</small></span>
+          <span className="brand-copy"><strong>wiwo.sac</strong><small>SAC Automation</small></span>
           <button className="icon-button sidebar-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label="Contraer menú">
             <SidebarSimple size={18} />
           </button>
@@ -2024,7 +2024,7 @@ export function App({ onSignOut, sessionActor }: {
       <main className="app-main" id="main-content">
         <header className="topbar">
           <div className="topbar-wordmark">
-            <img src={sacWiwoLogo} alt="sac.wiwo" />
+            <img src={wiwoSacLogo} alt="wiwo.sac" />
           </div>
           <div className="page-heading">
             <div className="breadcrumb"><span>{activeNav?.label}</span><span>/</span><strong>Operación SAC</strong></div>
