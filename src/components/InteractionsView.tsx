@@ -34,9 +34,14 @@ import { ContentContext } from "./ContentContext";
 import { BusyOrb } from "./ThinkingOrb";
 
 type FilterValue<T extends string> = T | "all";
-type AssignmentFilter = "all" | "assigned" | "unassigned" | "mine";
-/** Plazo de respuesta de Meta: por defecto se ocultan los casos vencidos (histórico). */
-type DeadlineFilter = "hide_expired" | "expired" | "all";
+/** `user:<userId>` filtra por responsable; solo Supervisor/Admin (canFilterByPerson). */
+export type AssignmentFilter = "all" | "assigned" | "unassigned" | "mine" | `user:${string}`;
+/**
+ * Plazo de respuesta de Meta: por defecto se ocultan los casos vencidos (histórico).
+ * `actionable` deja solo lo por atender (sin responder o en revisión) dentro de plazo,
+ * lo mismo que cuenta el panel Equipo del Inicio.
+ */
+type DeadlineFilter = "hide_expired" | "actionable" | "expired" | "all";
 
 /** Filtros recordados por navegador (no la búsqueda): al volver, la bandeja queda como estaba. */
 const FILTERS_STORAGE_KEY = "wiwo-nodes.inbox-filters.v1";
@@ -68,7 +73,21 @@ function writeStoredFilters(filters: StoredFilters): void {
 }
 
 const ASSIGNMENT_VALUES: AssignmentFilter[] = ["all", "assigned", "unassigned", "mine"];
-const DEADLINE_VALUES: DeadlineFilter[] = ["hide_expired", "expired", "all"];
+const DEADLINE_VALUES: DeadlineFilter[] = ["hide_expired", "actionable", "expired", "all"];
+const PERSON_PREFIX = "user:";
+
+function personFilterUserId(filter: AssignmentFilter): string | undefined {
+  return filter.startsWith(PERSON_PREFIX) ? filter.slice(PERSON_PREFIX.length) : undefined;
+}
+
+/** Un filtro por otra persona solo vale para quien puede verlo; si no, vuelve a "todos". */
+function validAssignment(value: unknown, canFilterByPerson: boolean): AssignmentFilter | undefined {
+  if (typeof value !== "string") return undefined;
+  if ((ASSIGNMENT_VALUES as string[]).includes(value)) return value as AssignmentFilter;
+  return canFilterByPerson && value.startsWith(PERSON_PREFIX) && value.length > PERSON_PREFIX.length
+    ? value as AssignmentFilter
+    : undefined;
+}
 const PAGE_SIZE = 50;
 
 export interface InteractionsViewProps {
@@ -93,6 +112,14 @@ export interface InteractionsViewProps {
   onArchiveExpired?: (scope: { accountId?: string; type?: "dm" | "comment" }) => void | Promise<void>;
   /** Persona en sesión, para el filtro "Mis casos". */
   currentUserId?: string;
+  /** Puede filtrar por otra persona responsable (Supervisor/Admin: metrics.read o inbox.assign_others). */
+  canFilterByPerson?: boolean;
+  /**
+   * Filtro pedido desde el panel Equipo del Inicio: deja solo esa asignación y los casos por
+   * atender en plazo, sin los demás filtros. Se aplica una vez y se avisa con onFocusApplied.
+   */
+  focus?: { assignment: AssignmentFilter; label?: string };
+  onFocusApplied?: () => void;
   /** Puede tomarse casos (permiso inbox.assign). */
   canAssign?: boolean;
   /** Asigna a la persona el caso indicado y lo abre. */
@@ -205,6 +232,9 @@ export function InteractionsView({
   canArchiveExpired = false,
   onArchiveExpired,
   currentUserId,
+  canFilterByPerson = false,
+  focus,
+  onFocusApplied,
   canAssign = false,
   onTakeNext,
   onVisibleOrderChange,
@@ -221,11 +251,35 @@ export function InteractionsView({
   const [kindFilter, setKindFilter] = useState<FilterValue<InteractionKind>>((stored.kind as FilterValue<InteractionKind>) || "all");
   const [statusFilter, setStatusFilter] = useState<FilterValue<InteractionStatus>>((stored.status as FilterValue<InteractionStatus>) || "all");
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>(
-    stored.assignment && ASSIGNMENT_VALUES.includes(stored.assignment) ? stored.assignment : "all",
+    () => validAssignment(stored.assignment, canFilterByPerson) ?? "all",
   );
+  // Nombre de la persona pedida desde el Inicio, por si ya no le quedan casos visibles.
+  const [focusLabel, setFocusLabel] = useState<{ assignment: AssignmentFilter; label: string }>();
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>(
     stored.deadline && DEADLINE_VALUES.includes(stored.deadline) ? stored.deadline : "hide_expired",
   );
+
+  useEffect(() => {
+    if (!focus) return;
+    const assignment = validAssignment(focus.assignment, canFilterByPerson);
+    if (assignment) {
+      setQuery("");
+      setSearchQuery("");
+      setAccountFilter("all");
+      setPlatformFilter("all");
+      setKindFilter("all");
+      setStatusFilter("all");
+      setAssignmentFilter(assignment);
+      setDeadlineFilter("actionable");
+      setFocusLabel(focus.label ? { assignment, label: focus.label } : undefined);
+    }
+    onFocusApplied?.();
+  }, [canFilterByPerson, focus, onFocusApplied]);
+
+  // Sin permiso para ver a otras personas (cambio de rol), el filtro por responsable se quita.
+  useEffect(() => {
+    if (!canFilterByPerson && personFilterUserId(assignmentFilter)) setAssignmentFilter("all");
+  }, [assignmentFilter, canFilterByPerson]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setSearchQuery(query), 200);
@@ -265,6 +319,7 @@ export function InteractionsView({
 
   const filteredInteractions = useMemo(() => {
     const normalizedQuery = normalize(searchQuery.trim());
+    const personUserId = personFilterUserId(assignmentFilter);
 
     return interactions.filter((interaction) => {
       const matchesQuery =
@@ -279,9 +334,14 @@ export function InteractionsView({
       const matchesAssignment = assignmentFilter === "all"
         || (assignmentFilter === "mine"
           ? Boolean(currentUserId) && interaction.assignedTo?.userId === currentUserId
-          : assignmentFilter === "assigned" ? Boolean(interaction.assignedTo) : !interaction.assignedTo);
+          : personUserId
+            ? interaction.assignedTo?.userId === personUserId
+            : assignmentFilter === "assigned" ? Boolean(interaction.assignedTo) : !interaction.assignedTo);
       const expired = isExpired(interaction, now);
-      const matchesDeadline = deadlineFilter === "all" || (deadlineFilter === "expired" ? expired : !expired);
+      const matchesDeadline = deadlineFilter === "all"
+        || (deadlineFilter === "expired" ? expired
+          : deadlineFilter === "actionable" ? needsAction(interaction) && !expired
+            : !expired);
 
       return matchesQuery && matchesAccount && matchesPlatform && matchesKind && matchesStatus && matchesAssignment && matchesDeadline;
     })
@@ -303,6 +363,29 @@ export function InteractionsView({
   useEffect(() => {
     onVisibleOrderChange?.(filteredInteractions);
   }, [filteredInteractions, onVisibleOrderChange]);
+
+  /** Personas con casos asignados, para el filtro por responsable (Supervisor/Admin). */
+  const assigneeOptions = useMemo(() => {
+    if (!canFilterByPerson) return [];
+    const people = new Map<string, string>();
+    for (const interaction of interactions) {
+      if (interaction.assignedTo && interaction.assignedTo.userId !== currentUserId) {
+        people.set(interaction.assignedTo.userId, interaction.assignedTo.displayName);
+      }
+    }
+    const selected = personFilterUserId(assignmentFilter);
+    if (selected && !people.has(selected)) {
+      people.set(selected, selected === currentUserId
+        ? "Tú"
+        : focusLabel?.assignment === assignmentFilter ? focusLabel.label : "Persona sin casos visibles");
+    }
+    return [...people].map(([userId, displayName]) => ({ userId, displayName }))
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, "es"));
+  }, [assignmentFilter, canFilterByPerson, currentUserId, focusLabel, interactions]);
+  const selectedPersonId = personFilterUserId(assignmentFilter);
+  const selectedPersonName = selectedPersonId
+    ? assigneeOptions.find((option) => option.userId === selectedPersonId)?.displayName
+    : undefined;
 
   /** Casos por atender en plazo por cuenta (para el filtro de cuenta). */
   const inWindowCounts = useMemo(() => {
@@ -542,6 +625,13 @@ export function InteractionsView({
             {currentUserId ? <option value="mine">Mis casos</option> : null}
             <option value="unassigned">Sin asignar</option>
             <option value="assigned">Asignados</option>
+            {assigneeOptions.length ? (
+              <optgroup label="Responsable">
+                {assigneeOptions.map((option) => (
+                  <option key={option.userId} value={`${PERSON_PREFIX}${option.userId}`}>{option.displayName}</option>
+                ))}
+              </optgroup>
+            ) : null}
           </select>
         </label>
 
@@ -579,6 +669,7 @@ export function InteractionsView({
             title="Meta permite responder DMs hasta 7 días y comentarios hasta 24 horas después del último mensaje del cliente"
           >
             <option value="hide_expired">Ocultar vencidas</option>
+            <option value="actionable">Por atender en plazo</option>
             <option value="expired">Solo fuera de plazo</option>
             <option value="all">Todas</option>
           </select>
@@ -610,6 +701,24 @@ export function InteractionsView({
       <div className="results-toolbar">
         <p className="results-toolbar__count" aria-live="polite">
           <strong>{filteredInteractions.length}</strong> conversaciones · <strong>{filteredMessageCount}</strong> mensajes
+          {selectedPersonName || assignmentFilter === "unassigned" || assignmentFilter === "mine" ? (
+            <span className="results-toolbar__chip">
+              {selectedPersonName ? `Responsable: ${selectedPersonName}` : assignmentFilter === "mine" ? "Mis casos" : "Sin asignar"}
+              {deadlineFilter === "actionable" ? " · por atender en plazo" : ""}
+              <button
+                type="button"
+                className="results-toolbar__chip-clear"
+                aria-label="Quitar el filtro de responsable"
+                title="Quitar el filtro de responsable"
+                onClick={() => {
+                  setAssignmentFilter("all");
+                  if (deadlineFilter === "actionable") setDeadlineFilter("hide_expired");
+                }}
+              >
+                <X size={12} weight="bold" aria-hidden="true" />
+              </button>
+            </span>
+          ) : null}
           {deadlineFilter === "hide_expired" && expiredInScope ? (
             <button className="results-toolbar__expired" type="button" onClick={() => setDeadlineFilter("expired")}>
               {new Intl.NumberFormat("es-CL").format(expiredInScope)} fuera de plazo ocultas

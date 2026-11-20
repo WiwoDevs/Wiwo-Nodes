@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -112,6 +112,8 @@ type AutomationPlatformProps = {
   inboxSync?: InboxSyncStatus;
   automaticRepliesEnabled?: boolean;
   onOpenInteraction: (interaction: Interaction) => void;
+  /** Abre la Bandeja SAC con los casos en plazo de esa persona (null = sin asignar). Solo Supervisor/Admin. */
+  onOpenTeamMember?: (member: { userId: string; displayName: string } | null) => void;
   onToast: (payload: ToastPayload) => void;
   /** Display name of the signed-in user, used for the Home greeting. */
   userName?: string;
@@ -549,6 +551,7 @@ export function AutomationPlatform({
   inboxSync,
   automaticRepliesEnabled = false,
   onOpenInteraction,
+  onOpenTeamMember,
   onToast,
   userName,
 }: AutomationPlatformProps) {
@@ -762,11 +765,17 @@ export function AutomationPlatform({
     // Supervisor y Admin: carga en plazo por persona y lo que nadie tomó.
     const teamRows = isAgentHome ? [] : [...attention.reduce((rows, interaction) => {
       if (!interaction.assignedTo) return rows;
-      const row = rows.get(interaction.assignedTo.userId) ?? { name: interaction.assignedTo.displayName, open: 0, dueSoon: 0 };
+      const row = rows.get(interaction.assignedTo.userId) ?? { userId: interaction.assignedTo.userId, name: interaction.assignedTo.displayName, open: 0, dueSoon: 0 };
       row.open += 1;
       if (dueSoonIds.has(interaction.id)) row.dueSoon += 1;
       return rows.set(interaction.assignedTo.userId, row);
-    }, new Map<string, { name: string; open: number; dueSoon: number }>()).values()].sort((left, right) => right.open - left.open);
+    }, new Map<string, { userId: string; name: string; open: number; dueSoon: number }>()).values()].sort((left, right) => right.open - left.open);
+    // Con acceso a la bandeja, cada fila del panel Equipo abre sus casos en plazo; si no, solo informa.
+    const canOpenTeamMember = Boolean(onOpenTeamMember) && canOpen("interactions") && !isFirstLoad;
+    const teamRow = (key: string, className: string | undefined, label: string, onOpen: () => void, children: ReactNode) => canOpenTeamMember
+      ? <button key={key} type="button" className={className} onClick={onOpen} aria-label={label} title={label}>{children}</button>
+      : <div key={key} className={className}>{children}</div>;
+    const casesLabel = (count: number) => count === 1 ? "el caso en plazo" : `los ${formatCount(count)} casos en plazo`;
     const unassignedDueSoon = unassigned.filter((interaction) => dueSoonIds.has(interaction.id)).length;
     const failedJobs = operationalJobs.filter((job) => job.status === "dead").length;
     const retryingJobs = operationalJobs.filter((job) => job.status === "retry").length;
@@ -860,16 +869,16 @@ export function AutomationPlatform({
         <section className="sac-home-panel sac-team-panel" aria-labelledby="sac-team-title">
           <header><div><span className="panel-kicker">Equipo</span><h3 id="sac-team-title">Carga en plazo por persona</h3><p>Casos abiertos asignados y los que nadie ha tomado.</p></div><span className="sac-team-icon" aria-hidden="true"><UsersThree weight="duotone" /></span></header>
           <div className="sac-account-list sac-team-list">
-            <div className={unassigned.length ? "is-warning" : undefined}>
+            {teamRow("unassigned", unassigned.length ? "is-warning" : undefined, `Ver en la bandeja ${casesLabel(unassigned.length)} sin asignar`, () => onOpenTeamMember?.(null), <>
               <span className="sac-account-avatar">—</span>
               <span><strong>Sin asignar</strong><small>{isFirstLoad ? "Cargando…" : unassignedDueSoon ? dueSoonLabel(unassignedDueSoon) : "Ninguno vence en las próximas 24 h"}</small></span>
               <em>{isFirstLoad ? "—" : formatCount(unassigned.length)}</em>
-            </div>
-            {teamRows.map((row) => <div key={row.name}>
+            </>)}
+            {teamRows.map((row) => teamRow(row.userId, undefined, `Ver en la bandeja ${casesLabel(row.open)} de ${row.name}`, () => onOpenTeamMember?.({ userId: row.userId, displayName: row.name }), <>
               <span className="sac-account-avatar">{initialsOf(row.name)}</span>
               <span><strong>{row.name}</strong><small>{row.dueSoon ? dueSoonLabel(row.dueSoon) : "Ninguno vence en las próximas 24 h"}</small></span>
               <em>{formatCount(row.open)}</em>
-            </div>)}
+            </>))}
             {!isFirstLoad && !teamRows.length ? <p className="empty-inline">Nadie tiene casos asignados en plazo. Con «Tomar siguiente» cada persona se asigna el que vence antes.</p> : null}
           </div>
         </section>

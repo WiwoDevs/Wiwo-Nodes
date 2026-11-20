@@ -32,7 +32,7 @@ import { AccountsView } from "./components/AccountsView";
 import { DashboardView } from "./components/DashboardView";
 import { ReportsView } from "./components/ReportsView";
 import { InteractionDetailPanel } from "./components/InteractionDetailPanel";
-import { InteractionsView } from "./components/InteractionsView";
+import { InteractionsView, type InteractionsViewProps } from "./components/InteractionsView";
 import { ManualManagementView } from "./components/ManualManagementView";
 import { SettingsView } from "./components/SettingsView";
 import { UsersRolesView } from "./components/UsersRolesView";
@@ -423,6 +423,9 @@ export function App({ onSignOut, sessionActor }: {
   sessionActor?: SessionActor | null;
 } = {}) {
   const [view, setView] = useState<ViewId>("platform-home");
+  // Filtro que el panel Equipo del Inicio pide a la Bandeja SAC (persona o sin asignar).
+  const [inboxFocus, setInboxFocus] = useState<InteractionsViewProps["focus"]>();
+  const clearInboxFocus = useCallback(() => setInboxFocus(undefined), []);
   const [editorTab, setEditorTab] = useState<EditorTab>("editor");
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isExportOpen, setExportOpen] = useState(false);
@@ -571,6 +574,8 @@ export function App({ onSignOut, sessionActor }: {
   const canAdmin = !connectionIssue && visibleData.actor.role === "admin";
   // Ocultar o mostrar clientes: solo el admin principal del servidor, no uno asignado en la app.
   const canHideBrands = canAdmin && visibleData.actor.masterAdmin === true;
+  // Supervisor/Admin ven la carga del equipo y pueden filtrar la bandeja por otra persona.
+  const canSeeTeam = canAdmin || canReadMetrics || allowed("inbox.assign_others");
 
   /**
    * Gestión DMs/comentarios en vivo: mientras la vista está abierta y visible, se lee en
@@ -2151,12 +2156,20 @@ export function App({ onSignOut, sessionActor }: {
               isOperationalLoading={isLoadingData}
               onNavigate={(destination) => { if (canSeeView(destination)) setView(destination); }}
               canOpen={canSeeView}
-              homeRole={visibleData.actor.role === "admin" ? "admin" : canReadMetrics || allowed("inbox.assign_others") ? "supervisor" : "agent"}
+              homeRole={visibleData.actor.role === "admin" ? "admin" : canSeeTeam ? "supervisor" : "agent"}
               currentUserId={visibleData.actor.userId}
               onTakeNext={allowed("inbox.assign") ? takeNextCase : undefined}
               inboxSync={visibleData.inboxSync}
               automaticRepliesEnabled={visibleData.automationSettings.automaticRepliesEnabled}
               onOpenInteraction={openInteractionDetail}
+              onOpenTeamMember={canSeeTeam ? (member) => {
+                if (!canSeeView("interactions")) return;
+                setInboxFocus({
+                  assignment: !member ? "unassigned" : member.userId === visibleData.actor.userId ? "mine" : `user:${member.userId}`,
+                  label: member?.displayName,
+                });
+                setView("interactions");
+              } : undefined}
               onToast={showPlatformToast}
               userName={visibleData.actor.displayName}
             />
@@ -2214,6 +2227,9 @@ export function App({ onSignOut, sessionActor }: {
               canArchiveExpired={allowed("inbox.archive_expired")}
               onArchiveExpired={archiveExpired}
               currentUserId={visibleData.actor.userId}
+              canFilterByPerson={canSeeTeam}
+              focus={inboxFocus}
+              onFocusApplied={clearInboxFocus}
               canAssign={allowed("inbox.assign")}
               onTakeNext={takeNextCase}
               onVisibleOrderChange={rememberInboxOrder}

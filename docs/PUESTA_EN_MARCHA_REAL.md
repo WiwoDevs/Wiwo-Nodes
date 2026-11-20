@@ -108,7 +108,7 @@ cobertura bajo 30 % en rojo y bajo 60 % en ámbar; al pasar el mouse por un avis
 Inicio también cambia según el rol. El **Agente** ve "Mis casos en plazo", lo que vence en 24 h
 y el botón **Tomar siguiente**, con sus casos primero en la cola. El **Supervisor** (quien tiene
 *Ver métricas y cola* o *Asignar a otras personas*) ve además el panel **Equipo**: casos en plazo
-de cada persona y los que nadie tomó. **Admin** suma el panel **Sistema**: última sincronización
+de cada persona y los que nadie tomó; un clic en una fila abre la Bandeja SAC con esos casos. **Admin** suma el panel **Sistema**: última sincronización
 con Metricool, sincronización automática, envío automático y trabajos fallidos. Los botones que
 un rol no puede usar no se muestran (Exportar vista, Tomar siguiente, Actualizar cuenta, Importar
 o Conectar Metricool, Nueva marca), y la versión interna del caso solo la ve supervisión.
