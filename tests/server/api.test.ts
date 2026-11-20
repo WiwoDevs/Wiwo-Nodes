@@ -2738,7 +2738,7 @@ describe("SAC Flow API", () => {
     expect(onResolved.statusCode).toBe(409);
   });
 
-  it("shows a reply sent from Nodes once even after Metricool syncs it back", async () => {
+  it("shows a reply sent from sac.wiwo once even after Metricool syncs it back", async () => {
     const { app } = await makeApp();
     const base = (await app.sacFlow.repository.snapshot()).interactions.find((item) => item.accountId === "account-01" && item.direction === "inbound")!;
     const sentAt = "2026-11-18T14:26:58.412Z";

@@ -440,7 +440,7 @@ function requestActor(config: AppConfig, request: FastifyRequest): ActorContext 
   const sessionActor = sessionActors.get(request);
   if (sessionActor) return sessionActor;
   if (config.auth.enabled) {
-    throw new ApiError(401, "SESSION_REQUIRED", "Inicia sesión para usar Wiwo Nodes.");
+    throw new ApiError(401, "SESSION_REQUIRED", "Inicia sesión para usar sac.wiwo.");
   }
   return actorContextFromHeaders(config, request.headers as Record<string, unknown>);
 }
@@ -538,7 +538,7 @@ function scopedInteractionFilters(actor: ActorContext, brands: Brand[], filters:
 
 /**
  * Lo que se opera en la bandeja, Inicio y el resumen: sin los registros cargados a mano desde
- * el Excel BD SAC. Esos casos ya se atendieron fuera de Nodes (TikTok, LinkedIn) y no se pueden
+ * el Excel BD SAC. Esos casos ya se atendieron fuera de sac.wiwo (TikTok, LinkedIn) y no se pueden
  * responder desde aquí; cuentan en Reportes y METRIQ, no como trabajo pendiente.
  */
 const OPERATIONAL_EXCLUDED_SOURCES: Interaction["source"][] = ["planilla"];
@@ -1778,7 +1778,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         return reply.code(301).header("Location", `https://${host}${request.url}`).send();
       }
       return reply.code(403).send({
-        error: { code: "HTTPS_REQUIRED", message: "Usa https:// para conectarte a WIWO.Nodes.", requestId: request.id },
+        error: { code: "HTTPS_REQUIRED", message: "Usa https:// para conectarte a sac.wiwo.", requestId: request.id },
       });
     }
     if (
@@ -1886,7 +1886,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       const cookie = requestCookie(request.headers as Record<string, unknown>, config.auth.cookieName);
       if (!cookie) {
         return reply.code(401).send({
-          error: { code: "SESSION_REQUIRED", message: "Inicia sesión para usar Wiwo Nodes.", requestId: request.id },
+          error: { code: "SESSION_REQUIRED", message: "Inicia sesión para usar sac.wiwo.", requestId: request.id },
           meta: apiMeta(config),
         });
       }
@@ -1965,7 +1965,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const brand = store.brands.find((item) => item.id === query.brandId);
     if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
     if (!brand.active || !brand.account.active) {
-      throw new ApiError(409, "BRAND_INACTIVE", "La marca está desactivada en Wiwo Nodes.");
+      throw new ApiError(409, "BRAND_INACTIVE", "La marca está desactivada en sac.wiwo.");
     }
     const { rows, droppedNoDate, droppedNoise } = buildSacRows(brand, store.interactions, {
       from: query.from,
@@ -2005,7 +2005,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           handle: brand.account.handle,
           channels: brand.account.channels,
           interactions: inbound.length,
-          // Desde cuándo Nodes tiene mensajes de la marca: antes, METRIQ sigue con la planilla.
+          // Desde cuándo sac.wiwo tiene mensajes de la marca: antes, METRIQ sigue con la planilla.
           datosDesde: dates[0] ?? null,
           datosHasta: dates.at(-1) ?? null,
         };
@@ -2022,7 +2022,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const brand = catalog.brands.find((item) => item.id === brandId);
     if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
     if (!brand.active || !brand.account.active) {
-      throw new ApiError(409, "BRAND_INACTIVE", "La marca está desactivada en Wiwo Nodes.");
+      throw new ApiError(409, "BRAND_INACTIVE", "La marca está desactivada en sac.wiwo.");
     }
     return [brand];
   };
@@ -3510,7 +3510,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           selected,
         )
       : store.interactions.filter((item) => item.brandId === selected.brandId && conversationKey(item) === key);
-    // La respuesta enviada desde Nodes queda anotada en el caso y, cuando Metricool la
+    // La respuesta enviada desde sac.wiwo queda anotada en el caso y, cuando Metricool la
     // sincroniza, también llega como mensaje saliente: se muestra una sola vez.
     const sameText = (left: string, right: string) => left.replace(/\s+/g, " ").trim() === right.replace(/\s+/g, " ").trim();
     const syncedOutbound = selectedInteractions.filter((item) => item.direction === "outbound");

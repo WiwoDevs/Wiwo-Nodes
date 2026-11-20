@@ -24,7 +24,7 @@ Una solicitud sin `X-Mc-Auth` a ambas rutas responde `401`; esto confirma que la
 
 `Conversation` contiene `self`, `provider`, `status`, `participants[]` y `messages[]`. Cada `Message` incluye `id`, `from`, `to`, `text`, `publicationDateTime`, adjuntos y estado. `PostCommentsThread` contiene `self`, `provider`, estado, participantes y `root`; el root incluye el comentario principal, `comments[]` y un `element` con el contexto disponible de la publicación (`id`, `link`, `text` y `mediaUrls[]`).
 
-Para el alcance actual, WIWO.Nodes consulta conversaciones de Facebook, Instagram y X; comentarios de Facebook, Instagram, TikTok Business, YouTube y LinkedIn; y reseñas de Google Business. En Instagram selecciona `INSTAGRAMBUSINESS` si la conexión se hizo vía Facebook o `INSTAGRAM` si se hizo directamente.
+Para el alcance actual, sac.wiwo consulta conversaciones de Facebook, Instagram y X; comentarios de Facebook, Instagram, TikTok Business, YouTube y LinkedIn; y reseñas de Google Business. En Instagram selecciona `INSTAGRAMBUSINESS` si la conexión se hizo vía Facebook o `INSTAGRAM` si se hizo directamente.
 
 ## Qué quedó implementado
 

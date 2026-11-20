@@ -4,7 +4,7 @@
  * METRIQ arma sus reportes desde planillas de Google Sheets con una fila por reclamo y
  * columnas fijas (fecha, plataforma, canal, usuario, reclamo, categoría, tonalidad,
  * estado, observación, mes). Este módulo produce exactamente esa forma a partir de las
- * interacciones ya sincronizadas, para que Nodes pueda reemplazar la planilla manual sin
+ * interacciones ya sincronizadas, para que sac.wiwo pueda reemplazar la planilla manual sin
  * que METRIQ cambie su manera de leer.
  *
  * Solo se proyectan mensajes ENTRANTES: una fila SAC representa algo que dijo un cliente,

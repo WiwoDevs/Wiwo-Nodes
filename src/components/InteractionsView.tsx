@@ -678,7 +678,7 @@ export function InteractionsView({
           <span>
             <strong>{new Intl.NumberFormat("es-CL").format(expiredInScope)} casos fuera del plazo de respuesta.</strong>
             {" "}Meta ya no garantiza que se puedan responder; igual puedes abrir uno e intentarlo.
-            {canArchiveExpired ? " Archivarlos los cierra como histórico en Nodes (no borra nada en Metricool) y deja los casos sensibles para revisión humana." : ""}
+            {canArchiveExpired ? " Archivarlos los cierra como histórico en sac.wiwo (no borra nada en Metricool) y deja los casos sensibles para revisión humana." : ""}
           </span>
           {canArchiveExpired && onArchiveExpired ? (
             <button

@@ -1,4 +1,4 @@
-name: Deploy a produccion (Wiwo Nodes)
+name: Deploy a produccion (sac.wiwo)
 on:
   push:
     branches: [main]

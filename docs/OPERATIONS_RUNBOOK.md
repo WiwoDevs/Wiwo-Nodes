@@ -45,7 +45,7 @@ Los umbrales son una base de staging. Techlab debe ajustarlos con el volumen rea
 - Apache debe dejar pasar el stream sin acumularlo: no aplicar compresión (`mod_deflate`) a `text/event-stream` y mantener un tiempo de espera del proxy mayor a 25 s (el latido). Si no, todo sigue funcionando con la consulta cada 10 s.
 - La lista se obtiene desde `/api/inbox/contacts`: cada fila representa una persona dentro de una cuenta y plataforma, pero las acciones usan el `replyTarget` exacto. Si el recuento de pendientes es mayor que uno, responder uno no debe cerrar los demás; la fila permanece y selecciona el siguiente caso pendiente tras actualizarse.
 - En comentarios, el contexto del post solo aparece si la sincronización recibió `root.element`. La ausencia de miniatura o enlace no debe remediarse fabricando una URL desde `postId`; verificar primero una sincronización reciente y luego el payload/permiso del proveedor.
-- **Gestión DMs/comentarios en vivo:** mientras la vista está abierta y la pestaña visible, la cuenta abierta se lee en Metricool cada 15 s (`POST /api/sync/live`, solo esa superficie, unos segundos). Lo nuevo aparece solo en la lista y en el chat abierto, y el encabezado muestra "En vivo · revisado hh:mm:ss". El servidor lee cada cuenta como mucho cada 10 s aunque la miren varias personas. El resto del portafolio sigue con la sincronización completa del worker cada 5 min. El retraso que queda es el de Metricool en recibir el mensaje desde Meta: Nodes no puede mostrar algo antes de que Metricool lo tenga.
+- **Gestión DMs/comentarios en vivo:** mientras la vista está abierta y la pestaña visible, la cuenta abierta se lee en Metricool cada 15 s (`POST /api/sync/live`, solo esa superficie, unos segundos). Lo nuevo aparece solo en la lista y en el chat abierto, y el encabezado muestra "En vivo · revisado hh:mm:ss". El servidor lee cada cuenta como mucho cada 10 s aunque la miren varias personas. El resto del portafolio sigue con la sincronización completa del worker cada 5 min. El retraso que queda es el de Metricool en recibir el mensaje desde Meta: sac.wiwo no puede mostrar algo antes de que Metricool lo tenga.
 - `Actualizar ahora` exige rol agente, ejecuta una sincronización de lectura y después relee la bandeja. Un `409 SYNC_IN_PROGRESS` indica que el worker u otro operador ya inició una; esperar a que termine en vez de disparar múltiples reintentos.
 - El worker espera hasta 290 s la respuesta de cada sincronización programada (una del portafolio completo tarda ~2-3 min). Si al llegar su turno ya hay otra en curso (`409 SYNC_IN_PROGRESS`), la programada se da por cubierta: el job queda completado sin run propio y el log del worker registra `sync_job_skipped`. Por eso un choque de horarios ya no aparece como "trabajo fallido"; los `dead` de tipo `sync` que queden son fallos reales. Las sincronizaciones pedidas para cuentas puntuales siguen reintentándose.
 - Investigar una última sincronización `partial` o `failed` por cuenta y superficie. No borrar el histórico ni habilitar salidas para corregir un problema de lectura.
@@ -71,7 +71,7 @@ El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo S
 
 ## Casos cerrados por la cuenta y "Reabrir caso"
 
-- Cuando la cuenta manda un mensaje después del del cliente, Nodes marca el caso **Respondido por el equipo** y bloquea la respuesta para no contestar dos veces. Los saludos automáticos de Meta (respuesta instantánea, mensaje de ausencia, bots) no cuentan: un texto que la cuenta mandó igual en 3 o más conversaciones dentro de los 60 s del mensaje del cliente se ignora y el caso sigue pendiente.
+- Cuando la cuenta manda un mensaje después del del cliente, sac.wiwo marca el caso **Respondido por el equipo** y bloquea la respuesta para no contestar dos veces. Los saludos automáticos de Meta (respuesta instantánea, mensaje de ausencia, bots) no cuentan: un texto que la cuenta mandó igual en 3 o más conversaciones dentro de los 60 s del mensaje del cliente se ignora y el caso sigue pendiente.
 - Si aun así un caso quedó cerrado y el cliente necesita respuesta (por ejemplo, un saludo automático que se repite poco), **Reabrir caso** (en el aviso "Este caso ya no requiere respuesta" de Gestión DMs/comentarios o en el detalle de la Bandeja; permiso *Notas y estados*) vuelve a pendiente el último mensaje del cliente y lo deja seleccionado. Queda en la auditoría quién lo reabrió y la sincronización no lo vuelve a cerrar por la respuesta anterior.
 - Este cambio no reabre solo los casos que ya estaban cerrados por un saludo automático antes del despliegue; esos se reabren a mano o con una corrección de datos aprobada.
 
@@ -104,7 +104,7 @@ nodes exec backup sh /usr/local/bin/sac-flow-backup once # respaldo ahora (antes
 
 ### Restaurar
 
-Restaurar reemplaza **toda** la base por el contenido del respaldo. Lo ocurrido después de ese respaldo se pierde de Nodes, aunque la próxima sincronización vuelve a traer de Metricool los mensajes que este todavía entregue.
+Restaurar reemplaza **toda** la base por el contenido del respaldo. Lo ocurrido después de ese respaldo se pierde de sac.wiwo, aunque la próxima sincronización vuelve a traer de Metricool los mensajes que este todavía entregue.
 
 1. Detener la API y el worker: `nodes stop api worker`.
 2. Restaurar:

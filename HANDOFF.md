@@ -1,6 +1,6 @@
-# Wiwo.Nodes — handoff técnico
+# sac.wiwo — handoff técnico
 
-Este paquete contiene el código fuente y la configuración reproducible de Wiwo.Nodes / SAC Flow. No incluye credenciales, conversaciones, archivos de carga, base de datos local ni dependencias instaladas.
+Este paquete contiene el código fuente y la configuración reproducible de sac.wiwo / SAC Flow. No incluye credenciales, conversaciones, archivos de carga, base de datos local ni dependencias instaladas.
 
 ## Arranque local
 

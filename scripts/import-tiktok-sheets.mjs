@@ -62,7 +62,7 @@ const MARCA_POR_PLANILLA = [
 const TONO = { positivo: "positive", neutro: "neutral", negativo: "negative" };
 const PESTANA = "Histórico";
 
-/** Columna "Plataforma / RRSS" de la planilla → canal de Nodes. */
+/** Columna "Plataforma / RRSS" de la planilla → canal de sac.wiwo. */
 const CANAL_POR_PLATAFORMA = {
   tiktok: "tiktok",
   instagram: "instagram",

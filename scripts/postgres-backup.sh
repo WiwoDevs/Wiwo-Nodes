@@ -1,5 +1,5 @@
 #!/bin/sh
-# Respaldo de la base PostgreSQL de WIWO.Nodes.
+# Respaldo de la base PostgreSQL de sac.wiwo.
 #
 # Corre dentro del servicio "backup" de docker-compose.production.yml, con la imagen de
 # PostgreSQL de la misma versión que la base. PGHOST, PGUSER, PGPASSWORD y PGDATABASE vienen

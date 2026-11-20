@@ -1,5 +1,5 @@
 /**
- * Identidad de Wiwo Nodes: allowlist local, roles y cookie de sesión firmada.
+ * Identidad de sac.wiwo: allowlist local, roles y cookie de sesión firmada.
  *
  * Dos proveedores comparten este contrato:
  * - "google": inicio de sesión con Google (OAuth 2.0 / OpenID Connect) — ver google-auth.ts.
@@ -53,9 +53,9 @@ export interface IdentityConfig {
   google?: GoogleOAuthConfig;
   /** Ruta del frontend a la que se vuelve después del inicio de sesión. */
   postLoginRedirect: string;
-  /** Permiso mínimo que debe tener el usuario en la allowlist para entrar a Nodes. */
+  /** Permiso mínimo que debe tener el usuario en la allowlist para entrar a sac.wiwo. */
   requiredPermission: string;
-  /** Permiso que otorga rol admin dentro de Nodes. */
+  /** Permiso que otorga rol admin dentro de sac.wiwo. */
   adminPermission: string;
   /** Rol asignado a quien tiene `requiredPermission` pero no `adminPermission`. */
   defaultRole: ActorRole;
@@ -67,7 +67,7 @@ export interface AllowedUserRecord {
   email: string;
   name: string | null;
   permissions: string[];
-  /** Override opcional del rol dentro de Nodes; si falta se deriva de `permissions`. */
+  /** Override opcional del rol dentro de sac.wiwo; si falta se deriva de `permissions`. */
   nodesRole?: ActorRole;
   /** Rol propio asignado desde la app; `nodesRole` lleva su rol de base. */
   nodesRoleId?: string;
@@ -248,7 +248,7 @@ async function assignedAccessRecord(config: IdentityConfig, email: string, name:
   const role = assigned.role;
   if (!role) return undefined;
   if (role === "none") {
-    throw new IdentityError(403, "ACCESS_REVOKED", "Un administrador quitó el acceso de esta cuenta a Wiwo Nodes.");
+    throw new IdentityError(403, "ACCESS_REVOKED", "Un administrador quitó el acceso de esta cuenta a sac.wiwo.");
   }
   if (role === "admin") return { email, name, permissions: [config.adminPermission] };
   if ((ACTOR_ROLES as readonly string[]).includes(role)) {
@@ -317,7 +317,7 @@ export function resolveActorFromAllowedUser(
     throw new IdentityError(
       403,
       "PERMISSION_REQUIRED",
-      `La cuenta ${user.email} no tiene el permiso "${config.requiredPermission}" para Wiwo Nodes.`,
+      `La cuenta ${user.email} no tiene el permiso "${config.requiredPermission}" para sac.wiwo.`,
     );
   }
 

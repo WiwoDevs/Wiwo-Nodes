@@ -645,7 +645,7 @@ Query:
 
 Lee la pestaña "Histórico" si existe (si no, la primera hoja cuyas primeras filas tengan los encabezados) con las columnas de la planilla: "Fecha comentario" y "Reclamo / Mensaje" obligatorias; "Nombre usuario cliente", "Plataforma / RRSS", "Canal" (DM o comentario), "Clasificación / Categoría comentario", "Tonalidad" y "Estado" opcionales. Las filas de otras redes se omiten (ya llegan por Metricool). Cada fila válida se guarda como interacción entrante `source: "planilla"`, marcada a mano como caso SAC (`sacTriage.modelo = "manual"`), con el estado de la planilla (Resuelto, Pendiente, En proceso, Derivado). No duplica: la misma fila ya cargada (huella por marca, fecha, usuario y texto en `externalId`) se cuenta como `yaCargadas`, y el mismo texto que Metricool ya trajo para esa red (mismo día, o hasta 3 días si es distintivo) como `yaEnNodes`.
 
-Estos casos cuentan en Reportes, en el Excel de interacciones y en las rutas de METRIQ, pero no en la bandeja, Inicio ni `GET /api/stats/summary`: ya se atendieron fuera de Nodes y no se responden desde aquí. No escribe en Metricool.
+Estos casos cuentan en Reportes, en el Excel de interacciones y en las rutas de METRIQ, pero no en la bandeja, Inicio ni `GET /api/stats/summary`: ya se atendieron fuera de sac.wiwo y no se responden desde aquí. No escribe en Metricool.
 
 ```json
 {
@@ -1170,7 +1170,7 @@ La nota admite 1–2000 caracteres, registra autor/fecha, aumenta `version` y ag
 
 ### `GET /api/export/xlsx`
 
-Genera el libro desde las interacciones guardadas por Nodes. Acepta los mismos filtros que `/api/interactions` (`from`, `to`, `brandId`, `accountId`, `channel`, `type`, `status`…) y aplica el alcance de marcas del actor; sin filtros exporta todo el historial. El nombre del archivo refleja la marca y el rango (`sac-flow-<brandId>-<desde>_<hasta>.xlsx`). En la web, **Exportar** (Bandeja SAC y Resumen SAC) abre un diálogo con período (mes pasado por defecto, este mes, últimos 30 días, rango personalizado o todo el historial; límites de mes en la zona horaria del navegador) y marca. Los períodos anteriores a la primera sincronización pueden estar incompletos: Metricool solo entrega lo que aún tiene en su bandeja y no permite consultar rangos pasados.
+Genera el libro desde las interacciones guardadas por sac.wiwo. Acepta los mismos filtros que `/api/interactions` (`from`, `to`, `brandId`, `accountId`, `channel`, `type`, `status`…) y aplica el alcance de marcas del actor; sin filtros exporta todo el historial. El nombre del archivo refleja la marca y el rango (`sac-flow-<brandId>-<desde>_<hasta>.xlsx`). En la web, **Exportar** (Bandeja SAC y Resumen SAC) abre un diálogo con período (mes pasado por defecto, este mes, últimos 30 días, rango personalizado o todo el historial; límites de mes en la zona horaria del navegador) y marca. Los períodos anteriores a la primera sincronización pueden estar incompletos: Metricool solo entrega lo que aún tiene en su bandeja y no permite consultar rangos pasados.
 
 Headers:
 

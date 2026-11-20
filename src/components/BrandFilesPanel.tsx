@@ -208,7 +208,7 @@ export function BrandFilesPanel({
           </section>
 
           {error ? <p className="brand-admin-error" role="alert">{error}</p> : null}
-          <p className="account-credentials-panel__note"><LinkSimple size={14} /> WIWO.Nodes guarda referencias organizadas; no modifica ni elimina los archivos originales.</p>
+          <p className="account-credentials-panel__note"><LinkSimple size={14} /> sac.wiwo guarda referencias organizadas; no modifica ni elimina los archivos originales.</p>
         </div>
       </section>
     </div>

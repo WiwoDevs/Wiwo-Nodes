@@ -1,12 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <!-- wiwo.Nodes: "Nodes" a mano sobre azul WIWO, misma familia que el ícono "Me" de wiwo.me. -->
+  <!-- sac.wiwo: "SAC" a mano sobre azul WIWO, misma familia que el ícono "Me" de wiwo.me. -->
   <rect width="192" height="192" fill="#4242FF"/>
-  <g fill="none" stroke="#000" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 8)">
-    <path d="M20 117 Q19 90 21 63 Q34 92 45 118 Q46 90 44 58"/>
-    <path d="M77 92 C72 84 58 86 56 100 C54 112 60 118 68 117 C77 116 82 106 80 98 C79 91 74 86 67 88"/>
-    <path d="M111 93 C106 86 92 86 89 98 C86 110 92 118 100 117 C106 116 110 111 111 106"/>
-    <path d="M112 58 Q113 90 112 119"/>
-    <path d="M124 102 L145 100 C145 91 138 86 132 87 C124 88 121 97 122 105 C123 113 130 118 137 117 C141 116 144 114 146 111"/>
-    <path d="M173 92 C171 87 166 86 162 87 C156 89 155 96 160 99 L168 103 C174 106 174 114 168 117 C163 119 157 118 154 113"/>
+  <g fill="none" stroke="#000" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 6)">
+    <path d="M60 67 C56 59 48 56 40 57 C30 59 25 67 28 75 C31 83 41 86 49 90 C59 95 63 103 59 112 C55 120 43 123 34 119 C29 117 25 113 23 109"/>
+    <path d="M72 121 Q84 88 95 56 Q106 89 117 121"/>
+    <path d="M81 99 Q95 97 109 98"/>
+    <path d="M168 66 C162 58 154 56 146 57 C134 59 128 72 128 89 C128 106 135 119 147 121 C155 122 162 118 168 111"/>
   </g>
 </svg>
