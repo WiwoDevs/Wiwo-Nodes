@@ -994,7 +994,7 @@ La clasificación la escribe el worker (`SAC_FLOW_AI_INTERVAL_SECONDS`, hasta `S
 
 ### `GET /api/ai/availability`
 
-Si la recomendación de respuesta con IA está disponible para quien consulta (rol `viewer` o superior). Responde `{ replyDrafts, reason?, provider?, model?, brandIds, accountIds }`: `replyDrafts` es `true` solo con la IA lista, al menos una marca autorizada y el permiso `inbox.reply`; `reason` es `disabled`, `missing_api_key` o `no_brands`; `brandIds`/`accountIds` son las marcas activas del alcance del actor autorizadas en `SAC_FLOW_AI_BRAND_IDS`. Nunca incluye la clave.
+Si la recomendación de respuesta con IA está disponible para quien consulta (rol `viewer` o superior). Responde `{ replyDrafts, reason?, provider?, model?, brandIds, accountIds }`: `replyDrafts` es `true` solo con la IA lista, al menos una marca autorizada y el permiso `inbox.reply`; `reason` es `disabled`, `missing_api_key` o `no_brands`; `brandIds`/`accountIds` son las marcas activas del alcance del actor autorizadas en `SAC_FLOW_AI_BRAND_IDS`. Nunca incluye la clave. Con la IA apagada responde sin leer el almacén; encendida, las marcas se leen del catálogo guardado en memoria un minuto (lo mismo usa la ruta de sugerencias), para no sumar lecturas completas del repositorio JSON a la carga de la bandeja.
 
 ### `POST /api/interactions/:id/ai/draft`
 
@@ -1014,7 +1014,7 @@ Recomendación de respuesta con IA para un mensaje entrante (permiso `inbox.repl
 }
 ```
 
-`fuentes` solo contiene ids del QA entregado; sin fuentes, `sinRespuestaAprobada` es `true` y el texto es de contención o derivación. `advertencias` lista cifras, enlaces, correos o cuentas del texto que no están en el QA citado ni en lo que escribió el cliente. `requiereHumano` también es `true` si `aiTriage.sensible` lo es. El servidor guarda la sugerencia en memoria 30 minutos por contexto exacto (mensaje, hilo, QA y modelo): repetir la consulta devuelve `cached: true` sin llamar al proveedor; `regenerate: true` pide otra. No guarda borradores, no cambia el caso ni su `version`, no escribe en Metricool y nunca envía. Errores: `503 AI_NOT_AVAILABLE` (IA apagada o sin clave), `403 AI_BRAND_NOT_AUTHORIZED`, `409 INVALID_DIRECTION` (saliente), `409 AI_NO_TEXT`, `502 AI_DRAFT_FAILED` (falla del proveedor o respuesta inválida). El registro `ai_reply_draft` lleva ids, tokens y latencia, nunca textos.
+`fuentes` solo contiene ids del QA entregado; sin fuentes, `sinRespuestaAprobada` es `true` y el texto es de contención o derivación. `advertencias` lista cifras, enlaces, correos o cuentas del texto que no están en el QA citado ni en lo que escribió el cliente. `requiereHumano` también es `true` si `aiTriage.sensible` lo es. El servidor guarda la sugerencia en memoria 30 minutos por mensaje, QA vigente y modelo, y la consulta antes de leer el historial: repetir la consulta devuelve `cached: true` sin llamar al proveedor ni releer el almacén; `regenerate: true` pide otra. No guarda borradores, no cambia el caso ni su `version`, no escribe en Metricool y nunca envía. Errores: `503 AI_NOT_AVAILABLE` (IA apagada o sin clave), `403 AI_BRAND_NOT_AUTHORIZED`, `409 INVALID_DIRECTION` (saliente), `409 AI_NO_TEXT`, `502 AI_DRAFT_FAILED` (falla del proveedor o respuesta inválida). El registro `ai_reply_draft` lleva ids, tokens y latencia, nunca textos.
 
 ### `POST /api/interactions/triage`
 

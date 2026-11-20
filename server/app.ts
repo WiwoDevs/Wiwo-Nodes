@@ -3681,19 +3681,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    * Si la recomendación de respuesta con IA está disponible y para qué marcas del alcance del
    * actor. La web la usa para decidir entre la sugerencia con IA y la de reglas.
    */
+  /**
+   * Marcas para las rutas de IA, guardadas un minuto. Con el repositorio JSON cada lectura
+   * recorre el archivo completo y las lecturas van en fila: consultarlo en cada caso abierto
+   * retrasaba la carga de Gestión DMs y de la Bandeja.
+   */
+  let aiCatalogCache: { at: number; brands: Brand[] } | undefined;
+  const aiCatalogBrands = async (): Promise<Brand[]> => {
+    if (aiCatalogCache && Date.now() - aiCatalogCache.at < 60_000) return aiCatalogCache.brands;
+    const snapshot = await repository.snapshotCatalog();
+    aiCatalogCache = { at: Date.now(), brands: snapshot.brands };
+    return snapshot.brands;
+  };
+
   app.get("/api/ai/availability", async (request) => {
     const actor = requireRole(config, request, "viewer");
-    const snapshot = await repository.snapshotCatalog();
+    // Apagada (lo habitual en desarrollo) responde sin leer el almacén.
+    if (!aiProviderState.ready) {
+      return {
+        data: { replyDrafts: false, reason: aiProviderState.reason, brandIds: [], accountIds: [] },
+        meta: { ...apiMeta(config), externalWrites: false },
+      };
+    }
     const allowed = config.ai.brandIds;
-    const authorized = filterBrandsForActor(actor, snapshot.brands)
+    const authorized = filterBrandsForActor(actor, await aiCatalogBrands())
       .filter((brand) => brand.active && brand.account.active && (allowed === "all" || allowed.includes(brand.id)));
     const brandIds = authorized.map((brand) => brand.id);
-    const reason = !aiProviderState.ready ? aiProviderState.reason : !brandIds.length ? "no_brands" : undefined;
+    const reason = !brandIds.length ? "no_brands" as const : undefined;
     return {
       data: {
         replyDrafts: !reason && actorCan(actor, "inbox.reply"),
         ...(reason ? { reason } : {}),
-        ...(aiProviderState.ready ? { provider: aiProviderState.provider.name, model: aiProviderState.provider.model } : {}),
+        provider: aiProviderState.provider.name,
+        model: aiProviderState.provider.model,
         brandIds,
         accountIds: authorized.map((brand) => brand.account.id),
       },
@@ -3729,21 +3749,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (!interaction.text?.trim() || isMetricoolContentUnavailable(interaction.text)) {
       throw new ApiError(409, "AI_NO_TEXT", "Este mensaje no tiene texto que la IA pueda leer.");
     }
-    const catalog = await repository.snapshotCatalog();
-    const brand = catalog.brands.find((item) => item.id === interaction.brandId);
-    if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
     const allowed = config.ai.brandIds;
-    if (allowed !== "all" && !allowed.includes(brand.id)) {
+    if (allowed !== "all" && !allowed.includes(interaction.brandId)) {
       throw new ApiError(403, "AI_BRAND_NOT_AUTHORIZED", "Esta marca no está autorizada para usar la IA.");
     }
+    const brand = (await aiCatalogBrands()).find((item) => item.id === interaction.brandId);
+    if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
 
-    const history = threadHistory(interaction, await repository.listInteractions({ brandId: brand.id }));
+    // La caché se consulta antes de leer el historial: reabrir un caso no agrega lecturas.
     const answers = applicableApprovedAnswers(brand, interaction);
-    const key = draftCacheKey(interaction, history, answers, provider);
+    const key = draftCacheKey(interaction, answers, provider);
     const cached = body.regenerate ? undefined : replyDraftCache.get(key);
     if (cached) {
       return { data: { ...cached, cached: true }, meta: { ...apiMeta(config), externalWrites: false } };
     }
+    const history = threadHistory(interaction, await repository.listInteractions({ brandId: brand.id }));
 
     const startedAt = Date.now();
     try {

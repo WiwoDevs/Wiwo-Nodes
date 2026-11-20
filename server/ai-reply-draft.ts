@@ -113,8 +113,12 @@ function masked(text: string | undefined, max: number): string {
   return redactPersonalData((text ?? "").slice(0, max)).trim();
 }
 
-/** Identifica el contexto exacto que produjo un borrador: si nada cambió, se reutiliza. */
-export function draftCacheKey(interaction: Interaction, history: Interaction[], answers: SacApprovedAnswer[], provider: AiProvider): string {
+/**
+ * Identifica el contexto de un borrador: el mensaje, el QA vigente y el modelo. No incluye el
+ * historial para poder consultarse antes de leerlo; un mensaje nuevo del cliente es otro caso
+ * (otro id), y una respuesta del equipo cierra el caso, así que no hace falta.
+ */
+export function draftCacheKey(interaction: Interaction, answers: SacApprovedAnswer[], provider: AiProvider): string {
   const hash = createHash("sha256");
   hash.update(JSON.stringify([
     DRAFT_PROMPT_VERSION,
@@ -122,7 +126,6 @@ export function draftCacheKey(interaction: Interaction, history: Interaction[], 
     provider.model,
     interaction.id,
     interaction.text,
-    history.map((item) => [item.id, item.text, item.responseText ?? ""]),
     answers.map((answer) => [answer.id, answer.answer, answer.expiresAt ?? ""]),
   ]));
   return hash.digest("hex");

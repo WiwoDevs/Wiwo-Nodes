@@ -595,6 +595,48 @@ describe("Rutas de recomendación con IA", () => {
     expect(viewer.statusCode).toBe(403);
   });
 
+  it("no agrega lecturas del almacén: apagada no lo lee y una sugerencia en caché no relee el historial", async () => {
+    // Con el repositorio JSON cada lectura recorre el archivo completo y van en fila, así que
+    // las rutas de IA no deben sumar lecturas a la carga de Gestión DMs y la Bandeja.
+    async function countedApp(extra: Record<string, string>, provider?: AiProvider) {
+      const directory = await mkdtemp(path.join(os.tmpdir(), "sac-flow-ai-reads-"));
+      directories.push(directory);
+      const config = loadConfig({
+        METRICOOL_MODE: "demo",
+        SAC_FLOW_DATA_FILE: path.join(directory, "store.json"),
+        SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY: "test-automation-credentials-key-32-chars",
+        SAC_FLOW_TRUST_ACTOR_HEADERS: "true",
+        ...extra,
+      }, directory);
+      const repository = new JsonRepository(config.persistence.jsonFile);
+      const catalogReads = vi.spyOn(repository, "snapshotCatalog");
+      const listReads = vi.spyOn(repository, "listInteractions");
+      const app = await buildApp({ config, repository, ...(provider ? { aiProvider: provider } : {}) });
+      apps.push(app);
+      catalogReads.mockClear();
+      listReads.mockClear();
+      return { app, catalogReads, listReads };
+    }
+
+    const off = await countedApp({});
+    const offResponse = await off.app.inject({ method: "GET", url: "/api/ai/availability", headers: headers("agent") });
+    expect(offResponse.json().data).toMatchObject({ replyDrafts: false, reason: "disabled" });
+    expect(off.catalogReads).not.toHaveBeenCalled();
+
+    const { provider, calls } = draftProvider();
+    const on = await countedApp({ SAC_FLOW_AI_ENABLED: "true", BYTEPLUS_API_KEY: FAKE_KEY, SAC_FLOW_AI_BRAND_IDS: "*" }, provider);
+    const id = await inboundId(on.app);
+    await on.app.inject({ method: "GET", url: "/api/ai/availability", headers: headers("agent") });
+    await on.app.inject({ method: "GET", url: "/api/ai/availability", headers: headers("agent") });
+    await on.app.inject({ method: "POST", url: `/api/interactions/${id}/ai/draft`, headers: headers("agent"), payload: {} });
+    await on.app.inject({ method: "POST", url: `/api/interactions/${id}/ai/draft`, headers: headers("agent"), payload: {} });
+    // Una sola lectura del catálogo para todo lo anterior y un solo historial: la segunda
+    // sugerencia salió de la caché sin releer nada.
+    expect(on.catalogReads).toHaveBeenCalledTimes(1);
+    expect(on.listReads).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
+  });
+
   it("apagada responde 503 y una marca no autorizada 403, sin llamar al proveedor", async () => {
     const { provider, calls } = draftProvider();
     const off = await makeApp({});
