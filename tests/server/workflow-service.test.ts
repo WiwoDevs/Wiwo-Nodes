@@ -550,6 +550,31 @@ describe("Metricool Inbox normalization", () => {
     expect(JSON.stringify(result)).not.toContain("reactionCount");
   });
 
+  it("uses an image as the post thumbnail when a reel lists its video first", () => {
+    const thread = (mediaUrls: string[]) => normalizeMetricoolComments({
+      data: [{
+        id: "thread-reel",
+        self: "page-brand",
+        provider: "INSTAGRAMBUSINESS",
+        participants: [{ id: "page-brand", name: "Marca" }, { id: "profile-client", name: "Clienta" }],
+        root: {
+          id: "comment-reel",
+          element: { id: "post-reel", text: "Reel", mediaUrls },
+          owner: "profile-client",
+          text: "¿Hay en talla 38?",
+          creationDate: "2026-08-12T11:00:00.000Z",
+        },
+      }],
+    }, brand)[0]?.metricoolRef?.post?.mediaUrl;
+
+    expect(thread([
+      "https://cdn.example.test/o1/v/t2/reel.mp4?oe=6B097628",
+      "https://cdn.example.test/v/t51/cover.jpg?oe=6B097628",
+    ])).toBe("https://cdn.example.test/v/t51/cover.jpg?oe=6B097628");
+    // Si solo hay video, se conserva: la web lo muestra como su primer cuadro.
+    expect(thread(["https://cdn.example.test/o1/v/t2/reel.mp4?oe=6B097628"])).toBe("https://cdn.example.test/o1/v/t2/reel.mp4?oe=6B097628");
+  });
+
   it("infers comment direction from the brand participant when self is absent", () => {
     const result = normalizeMetricoolComments({
       data: [{

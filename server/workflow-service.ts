@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isVideoUrl } from "./post-thumbnails.js";
 import type {
   Brand,
   Channel,
@@ -128,8 +129,11 @@ function postReference(
   const element = asRecord(elementValue);
   const id = referenceId(elementValue) || fallbackId;
   if (!id) return undefined;
-  const mediaUrls = element && Array.isArray(element.mediaUrls) ? element.mediaUrls : [];
-  const mediaUrl = mediaUrls.map(safeHttpUrl).find(Boolean);
+  const mediaUrls = (element && Array.isArray(element.mediaUrls) ? element.mediaUrls : [])
+    .map(safeHttpUrl)
+    .filter((url): url is string => Boolean(url));
+  // Miniatura: la primera imagen; en reels y videos Metricool pone primero el .mp4.
+  const mediaUrl = mediaUrls.find((url) => !isVideoUrl(url)) ?? mediaUrls[0];
   return {
     id,
     url: safeHttpUrl(element?.link),

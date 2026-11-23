@@ -1064,6 +1064,12 @@ Recomendación de respuesta con IA para un mensaje entrante (permiso `inbox.repl
 
 Marca en lote, como caso o ruido, todos los mensajes entrantes de las conversaciones elegidas en la Bandeja: `{ contactKeys: string[] (1-200), esCasoSac: boolean }`, permiso `inbox.triage` y alcance de marcas del actor. Los mensajes que alguien ya marcó a mano no se cambian. Responde `{ data: { updated, contacts } }`.
 
+### `GET /api/media/post-thumbnail/:key`
+
+Miniatura de una publicación comentada, desde la copia que guarda wiwo.sac. Meta firma los enlaces de imagen con vencimiento y Metricool solo trae uno nuevo cuando llegan comentarios, así que `postContext.thumbnailUrl` apunta a esta ruta (`/api/media/post-thumbnail/<key>`, clave opaca de cuenta + publicación) cuando la imagen viene de una CDN de redes sociales conocida (Instagram, Facebook, LinkedIn, YouTube, TikTok, X o Metricool). Los videos (reels) siguen llegando como enlace HTTPS directo.
+
+La primera solicitud descarga la imagen del último enlace que trajo Metricool (solo HTTPS, sin credenciales, redirecciones solo hacia otra CDN permitida, `image/*`, máximo 2 MB y 8 s) y la guarda (PostgreSQL `post_thumbnails`, migración `0023_post_thumbnails.sql`; JSON en `data/post-thumbnails/`). Después se sirve la copia aunque el enlace haya vencido. Requiere sesión y acceso a la marca de la publicación; si no hay copia ni enlace vigente, o la persona no ve esa marca, responde `404 THUMBNAIL_NOT_FOUND` y la web muestra el ícono de publicación. Respuesta: la imagen con su `Content-Type`, `Cache-Control: private, max-age=604800` y `X-Content-Type-Options: nosniff`.
+
 ### `GET /api/stats/messages`
 
 Mensajes recibidos del tablero de Clientes. Query obligatoria `from` y `to` (`AAAA-MM-DD`, días UTC inclusive, `from <= to`, máximo un año; si no, `400`). Requiere `metrics.read` o `brands.manage` (el mismo acceso que la sección Clientes) y aplica el alcance de marcas del actor.

@@ -1793,3 +1793,6 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .manual-inbox-view .manual-inbox-composer__actions button:not(.manual-inbox-composer__send):hover:not(:disabled) { background: var(--neo-hover); }
 .manual-inbox-view .manual-inbox-conversation-header__avatar:not(.has-media) { background: var(--neo-muted); color: var(--ink); }
 .manual-inbox-view .manual-inbox-conversation-header__avatar.has-media { background: var(--neo-muted); }
+
+/* Miniatura de publicación (PostThumbnail): imagen o primer cuadro del video, recortada al recuadro. */
+.post-thumbnail { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
