@@ -17,6 +17,9 @@ async function expectNamedControls(page: import("@playwright/test").Page) {
 }
 
 async function openSacFlow(page: import("@playwright/test").Page) {
+  // Flujo SAC salió del menú por pedido del usuario (noviembre 2026): el flujo sigue en el
+  // servidor, pero la vista ya no tiene ruta.
+  test.skip(true, "Flujo SAC ya no está en el menú.");
   await page.getByRole("button", { name: "Flujo SAC", exact: true }).click();
   await expect(page.getByRole("heading", { name: "SAC Multicuenta · Metricool" })).toBeVisible();
 }
@@ -745,11 +748,12 @@ test("keeps primary navigation usable on mobile", async ({ page }, testInfo) => 
   });
   expect(geometry.direction).toBe("row");
   expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
-  const flowButton = page.getByRole("button", { name: "Flujo SAC", exact: true });
-  await flowButton.evaluate((element) => element.scrollIntoView({ inline: "center", block: "nearest" }));
-  await expect(flowButton).toBeInViewport();
-  await flowButton.click();
-  await expect(page.getByRole("button", { name: "Ejecutar flujo" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Flujo SAC", exact: true })).toHaveCount(0);
+  const clientsButton = page.getByRole("button", { name: "Clientes", exact: true });
+  await clientsButton.evaluate((element) => element.scrollIntoView({ inline: "center", block: "nearest" }));
+  await expect(clientsButton).toBeInViewport();
+  await clientsButton.click();
+  await expect(page.getByRole("heading", { name: "Clientes", exact: true }).first()).toBeVisible();
 });
 
 test("keeps visible controls accessibly named across the main views", async ({ page }, testInfo) => {

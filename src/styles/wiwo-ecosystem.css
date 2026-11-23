@@ -304,6 +304,9 @@ h1, h2, h3 { letter-spacing: -0.025em; }
   }
 
   .app-shell .brand-copy { display: grid; min-width: 0; flex: 1; line-height: 1.15; }
+  /* Menú abierto: el wordmark wiwo.sac (el mismo de la barra superior) en vez de la W. */
+  .app-shell .brand-copy .brand-wordmark { width: 112px; height: 25px; }
+  .app-shell:not(.sidebar-collapsed) .brand-mark { display: none; }
   .app-shell .brand-copy strong { overflow: hidden; color: var(--ink); font-size: 13.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
   .app-shell .brand-copy small { margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
 
@@ -1756,3 +1759,37 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .users-roles-brand:not(.is-on) strong { text-decoration: line-through; }
 .users-roles-brand small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .users-roles-brands__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+/* ── Gestión DMs/comentarios en tonos neutros del ecosistema WiWO ─────────────
+   Los estilos de la bandeja manual usan --accent-soft/--accent-line (azul suave) para fondos y
+   bordes de paneles, tarjetas, avisos y la franja «Respondiendo a». Por pedido del usuario todo va
+   en las superficies oscuras neutras (claras en modo normal): aquí esos tokens pasan a neutro y el
+   azul queda solo para lo seleccionado (borde) y el foco, como pide el sistema Neo. */
+.manual-inbox-view {
+  --accent-soft: var(--neo-hover-soft);
+  --accent-line: var(--neo-border);
+}
+.manual-inbox-view .manual-inbox-exact-comments { background: var(--neo-canvas); }
+.manual-inbox-view .manual-inbox-exact-comments button { border-color: var(--neo-border); background: var(--neo-card); box-shadow: none; }
+.manual-inbox-view .manual-inbox-exact-comments button:hover { background: var(--neo-hover); }
+.manual-inbox-view .manual-inbox-exact-comments button.is-selected {
+  border-color: var(--neo-blue);
+  background: var(--neo-hover);
+  box-shadow: 0 0 0 1px var(--neo-blue);
+}
+.manual-inbox-view .manual-inbox-contact.is-selected { background: var(--neo-hover); }
+.manual-inbox-view .manual-inbox-reply-target { border-left-color: var(--neo-blue); background: var(--neo-muted); }
+.manual-inbox-view .manual-inbox-message--outbound { background: var(--neo-muted); }
+.manual-inbox-view .manual-inbox-composer { background: var(--neo-card); box-shadow: none; }
+.manual-inbox-view .manual-inbox-deadline-warning,
+.manual-inbox-view .manual-inbox-delivery-warning { border-color: var(--neo-border); color: var(--muted); background: var(--neo-muted); }
+.manual-inbox-view .manual-inbox-deadline-warning svg,
+.manual-inbox-view .manual-inbox-delivery-warning svg { color: var(--amber); }
+.manual-inbox-view .manual-inbox-composer__actions button:not(.manual-inbox-composer__send) {
+  border-color: var(--neo-border);
+  color: var(--ink);
+  background: transparent;
+}
+.manual-inbox-view .manual-inbox-composer__actions button:not(.manual-inbox-composer__send):hover:not(:disabled) { background: var(--neo-hover); }
+.manual-inbox-view .manual-inbox-conversation-header__avatar:not(.has-media) { background: var(--neo-muted); color: var(--ink); }
+.manual-inbox-view .manual-inbox-conversation-header__avatar.has-media { background: var(--neo-muted); }

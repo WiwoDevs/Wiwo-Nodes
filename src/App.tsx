@@ -143,9 +143,9 @@ function mergeInboxRows(current: Interaction[], changed: Interaction[]): Interac
 
 /**
  * Menú lateral, como el de WiwoMetriQ: Inicio arriba y solo (sin grupo) y después los grupos con
- * etiqueta. Un grupo sin secciones visibles para el rol no se dibuja. Automatización, Plantillas y
- * Credenciales salieron del menú por pedido del usuario: su código y sus datos siguen en el
- * servidor, pero no tienen ruta visible.
+ * etiqueta. Un grupo sin secciones visibles para el rol no se dibuja. Automatización, Plantillas,
+ * Credenciales y Flujo SAC salieron del menú por pedido del usuario: su código y sus datos siguen en
+ * el servidor (el flujo SAC sigue corriendo), pero no tienen ruta visible.
  */
 const NAV_GROUPS = ["Bandejas", "Operación SAC", "Sistema"] as const;
 type NavGroup = (typeof NAV_GROUPS)[number];
@@ -165,7 +165,6 @@ const navigation: Array<{
   { id: "manual-comments", label: "Gestión comentarios", railLabel: "Gestión comen­tarios", icon: ChatCircleText, group: "Bandejas" },
   { id: "dashboard", label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
   { id: "reports", label: "Reportes", icon: PresentationChart, group: "Operación SAC" },
-  { id: "workflow", label: "Flujo SAC", icon: GitBranch, group: "Operación SAC" },
   { id: "accounts", label: "Clientes", icon: Buildings, badge: "0", group: "Sistema" },
   { id: "automation-executions", label: "Ejecuciones", railLabel: "Ejecu­ciones", icon: ClockCounterClockwise, group: "Sistema" },
   { id: "users", label: "Usuarios", icon: UsersThree, group: "Sistema", adminOnly: true },
@@ -484,6 +483,8 @@ export function App({ onSignOut, sessionActor }: {
   /** La persona en sesión puede abrir esta sección (menú, accesos directos y navegación). */
   const canSeeView = useCallback((destination: ViewId): boolean => {
     if (!navActor) return destination === "platform-home";
+    // Solo se abre lo que está en el menú (las secciones retiradas no tienen ruta).
+    if (!navigation.some((item) => item.id === destination)) return false;
     if (navActor.role === "admin") return true;
     if (navigation.some((item) => item.id === destination && item.adminOnly)) return false;
     const required = VIEW_PERMISSIONS[destination];
@@ -2056,8 +2057,12 @@ export function App({ onSignOut, sessionActor }: {
       <a className="skip-link" href="#main-content">Saltar al contenido</a>
       <aside className="app-sidebar">
         <div className="brand-lockup">
-          <span className="brand-mark" role="img" aria-label="wiwo" />
-          <span className="brand-copy"><strong>Operación SAC</strong><small>{isLoadingData ? "Cargando espacio" : `MGC · ${operationalAccounts.length} marcas`}</small></span>
+          {/* Mismo logo wiwo.sac de la barra superior; en el riel contraído solo cabe la W. */}
+          <span className="brand-mark" role="img" aria-label="wiwo.sac" />
+          <span className="brand-copy">
+            <span className="wiwo-logo brand-wordmark" role="img" aria-label="wiwo.sac" />
+            <small>{isLoadingData ? "Cargando espacio" : `MGC · ${operationalAccounts.length} marcas`}</small>
+          </span>
           <button className="icon-button sidebar-toggle" onClick={toggleSidebar} aria-label="Contraer menú" title="Contraer menú" aria-expanded={!isSidebarCollapsed}>
             <SidebarSimple size={18} />
           </button>
