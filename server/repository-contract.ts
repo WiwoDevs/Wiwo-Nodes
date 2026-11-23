@@ -1,3 +1,4 @@
+import type { StoredPostThumbnail } from "./post-thumbnails.js";
 import type {
   AccessRole,
   Brand,
@@ -130,6 +131,10 @@ export interface SacFlowRepository {
   recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void>;
   /** Ajustes de roles de base y roles propios guardados. */
   listAccessRoles(): Promise<AccessRoleRecord[]>;
+  /** Copia guardada de la miniatura de una publicación (ver post-thumbnails.ts). */
+  getPostThumbnail(key: string): Promise<StoredPostThumbnail | undefined>;
+  /** Guarda (o reemplaza) la copia de una miniatura. */
+  savePostThumbnail(thumbnail: StoredPostThumbnail): Promise<void>;
   /** Crea o reemplaza un rol guardado. */
   saveAccessRole(record: AccessRoleRecord): Promise<AccessRoleRecord>;
   /** Elimina un rol guardado (un rol propio o el ajuste de un rol de base). */

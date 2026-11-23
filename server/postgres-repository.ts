@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import pg, { type QueryResultRow } from "pg";
+import type { StoredPostThumbnail } from "./post-thumbnails.js";
 import { createDemoStore } from "./seed.js";
 import { createDemoAutomationState } from "./automation-seed.js";
 import type { SacFlowRepository, SetUserAccessRoleInput, SetUserHiddenBrandsInput, SetUserPermissionOverridesInput } from "./repository-contract.js";
@@ -1914,6 +1915,42 @@ export class PostgresRepository implements SacFlowRepository {
         [organizationId, input.email, input.name, input.at],
       );
     });
+  }
+
+  async getPostThumbnail(key: string): Promise<StoredPostThumbnail | undefined> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<{ brand_id: string; content_type: string; data: Buffer; source_host: string; fetched_at: Date | string }>(
+        `SELECT brand_id, content_type, data, source_host, fetched_at
+         FROM post_thumbnails WHERE organization_id = $1 AND thumbnail_key = $2`,
+        [organizationId, key],
+      );
+      const row = result.rows[0];
+      if (!row) return undefined;
+      return {
+        key,
+        brandId: row.brand_id,
+        contentType: row.content_type,
+        data: row.data,
+        sourceHost: row.source_host,
+        fetchedAt: row.fetched_at instanceof Date ? row.fetched_at.toISOString() : new Date(row.fetched_at).toISOString(),
+      };
+    });
+  }
+
+  async savePostThumbnail(thumbnail: StoredPostThumbnail): Promise<void> {
+    await this.withTenantClient(async (client, organizationId) => {
+      await client.query(
+        `INSERT INTO post_thumbnails (organization_id, thumbnail_key, brand_id, content_type, data, source_host, fetched_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+         ON CONFLICT (organization_id, thumbnail_key) DO UPDATE SET
+           brand_id = EXCLUDED.brand_id,
+           content_type = EXCLUDED.content_type,
+           data = EXCLUDED.data,
+           source_host = EXCLUDED.source_host,
+           fetched_at = EXCLUDED.fetched_at`,
+        [organizationId, thumbnail.key, thumbnail.brandId, thumbnail.contentType, thumbnail.data, thumbnail.sourceHost, thumbnail.fetchedAt],
+      );
+    }, { write: true });
   }
 
   async listAccessRoles(): Promise<AccessRoleRecord[]> {

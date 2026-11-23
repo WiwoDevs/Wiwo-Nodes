@@ -101,6 +101,12 @@ import {
   interactionBulkTriageSchema,
 } from "./schemas.js";
 import { buildSacReport, duplicateAccountGroups, esCasoSac, esMensajeGestionado, esTriajeManual, monthPeriod } from "./sac-report.js";
+import {
+  downloadPostThumbnail,
+  registeredPostThumbnail,
+  type StoredPostThumbnail,
+  type ThumbnailFetcher,
+} from "./post-thumbnails.js";
 import { applySacUsagePlan, messageVolumeRows, planSacUsageSeed, shouldSeedSacUsage, type SacUsageSeedPlan } from "./sac-usage.js";
 import { buildAiAgreement } from "./ai-shadow-triage.js";
 import { detectNoise, isDiscardableNoise } from "./noise-detection.js";
@@ -234,6 +240,8 @@ export interface BuildAppOptions {
   googleClient?: GoogleOAuthClient;
   /** Proveedor de IA simulado (pruebas); por defecto se arma desde `config.ai`. */
   aiProvider?: AiProvider;
+  /** Descarga de miniaturas simulada (pruebas); por defecto `fetch`. */
+  thumbnailFetcher?: ThumbnailFetcher;
 }
 
 export interface SacFlowApp extends FastifyInstance {
@@ -4024,6 +4032,48 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       data: { from: query.from, to: query.to, rows, generatedAt: new Date().toISOString() },
       meta: { ...apiMeta(config), excludedSources: ["planilla"] },
     };
+  });
+
+  /**
+   * Miniatura de una publicación desde la copia que guarda wiwo.sac (post-thumbnails.ts). La
+   * primera vez se descarga del último enlace que trajo Metricool; después se sirve guardada,
+   * aunque el enlace de Meta ya haya vencido. Sigue el alcance de marcas de quien la pide; si no
+   * hay copia ni enlace vigente responde 404 y la web muestra el ícono.
+   */
+  const thumbnailDownloads = new Map<string, Promise<StoredPostThumbnail | undefined>>();
+  app.get("/api/media/post-thumbnail/:key", async (request, reply) => {
+    const actor = requestActor(config, request);
+    const key = String((request.params as { key?: unknown }).key ?? "");
+    const notFound = () => new ApiError(404, "THUMBNAIL_NOT_FOUND", "La miniatura de esta publicación no está disponible.");
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(key)) throw notFound();
+    let stored = await repository.getPostThumbnail(key);
+    if (!stored) {
+      const known = registeredPostThumbnail(key);
+      if (!known || !canAccessBrand(actor, known.brandId)) throw notFound();
+      let pending = thumbnailDownloads.get(key);
+      if (!pending) {
+        pending = (async () => {
+          const downloaded = await downloadPostThumbnail(known.url, options.thumbnailFetcher);
+          if (!downloaded) return undefined;
+          const record: StoredPostThumbnail = { key, brandId: known.brandId, ...downloaded, fetchedAt: new Date().toISOString() };
+          try {
+            await repository.savePostThumbnail(record);
+          } catch (error) {
+            request.log.warn({ err: error instanceof Error ? error.message : "desconocido" }, "No se pudo guardar la miniatura.");
+          }
+          return record;
+        })().finally(() => thumbnailDownloads.delete(key));
+        thumbnailDownloads.set(key, pending);
+      }
+      stored = await pending;
+      if (!stored) throw notFound();
+    }
+    if (!canAccessBrand(actor, stored.brandId)) throw notFound();
+    return reply
+      .header("Cache-Control", "private, max-age=604800")
+      .header("X-Content-Type-Options", "nosniff")
+      .type(stored.contentType)
+      .send(stored.data);
   });
 
   app.get("/api/stats/summary", async (request) => {

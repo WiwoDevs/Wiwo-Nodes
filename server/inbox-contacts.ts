@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { conversationKey } from "./sac-automation.js";
+import { isCacheableThumbnailUrl, postThumbnailKey, registerPostThumbnail } from "./post-thumbnails.js";
 import { detectNoise, type NoiseSignal } from "./noise-detection.js";
 import {
   isMetricoolContentUnavailable,
@@ -140,11 +141,20 @@ export function publicPostContext(interaction: Interaction): PublicPostContext |
   const post = interaction.metricoolRef?.post;
   const postId = post?.id || interaction.metricoolRef?.postId;
   if (!postId) return undefined;
+  // Las imágenes de las CDNs de las redes se sirven desde la copia que guarda wiwo.sac
+  // (/api/media/post-thumbnail/:key): el enlace de Meta vence a los pocos días.
+  const original = safePublicUrl(post?.mediaUrl);
+  let thumbnailUrl = original;
+  if (isCacheableThumbnailUrl(original)) {
+    const key = postThumbnailKey(interaction.accountId, postId);
+    registerPostThumbnail(key, interaction.brandId, original);
+    thumbnailUrl = `/api/media/post-thumbnail/${key}`;
+  }
   return {
     postId,
     permalink: safePublicUrl(post?.url),
     caption: post?.text,
-    thumbnailUrl: safePublicUrl(post?.mediaUrl),
+    thumbnailUrl,
     publishedAt: safeIsoTimestamp(post?.publishedAt),
   };
 }

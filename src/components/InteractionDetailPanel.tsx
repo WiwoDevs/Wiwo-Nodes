@@ -32,6 +32,7 @@ import type {
 } from "../types";
 import { interactionKindLabel, platformLabel, SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
+import { PostThumbnail, safeThumbnailUrl } from "./PostThumbnail";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb } from "./ThinkingOrb";
 import { AiReplySuggestion } from "./AiReplySuggestion";
@@ -170,7 +171,7 @@ function PostContextPreview({
   compact?: boolean;
 }) {
   const permalink = safeHttpsUrl(postContext?.permalink);
-  const thumbnailUrl = safeHttpsUrl(postContext?.thumbnailUrl);
+  const thumbnailUrl = safeThumbnailUrl(postContext?.thumbnailUrl);
   const caption = postContext?.caption?.trim();
 
   return (
@@ -179,16 +180,7 @@ function PostContextPreview({
       aria-label="Publicación comentada"
     >
       <span className="case-post-context__media">
-        {thumbnailUrl ? (
-          <img
-            src={thumbnailUrl}
-            alt=""
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <ImageSquare size={compact ? 18 : 24} weight="duotone" aria-hidden="true" />
-        )}
+        <PostThumbnail url={thumbnailUrl} iconSize={compact ? 18 : 24} />
       </span>
       <span className="case-post-context__copy">
         <strong>Publicación comentada</strong>

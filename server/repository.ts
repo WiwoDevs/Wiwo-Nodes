@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import type { StoredPostThumbnail } from "./post-thumbnails.js";
 import { createDemoStore } from "./seed.js";
 import { createDemoAutomationState } from "./automation-seed.js";
 import type { SacFlowRepository, SetUserAccessRoleInput, SetUserHiddenBrandsInput, SetUserPermissionOverridesInput } from "./repository-contract.js";
@@ -897,6 +898,36 @@ export class JsonRepository implements SacFlowRepository {
       }
       store.userAccess = records;
     });
+  }
+
+  /**
+   * Miniaturas en archivos junto al JSON (carpeta post-thumbnails/), no dentro del store: son
+   * binarios y no deben inflar ni volver lento el archivo de datos.
+   */
+  private thumbnailPath(key: string, extension: "bin" | "json"): string {
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(key)) throw new Error("Clave de miniatura inválida.");
+    return path.join(path.dirname(this.filePath), "post-thumbnails", `${key}.${extension}`);
+  }
+
+  async getPostThumbnail(key: string): Promise<StoredPostThumbnail | undefined> {
+    try {
+      const meta = JSON.parse(await readFile(this.thumbnailPath(key, "json"), "utf8")) as Omit<StoredPostThumbnail, "data">;
+      const data = await readFile(this.thumbnailPath(key, "bin"));
+      return { ...meta, key, data };
+    } catch {
+      return undefined;
+    }
+  }
+
+  async savePostThumbnail(thumbnail: StoredPostThumbnail): Promise<void> {
+    const dataPath = this.thumbnailPath(thumbnail.key, "bin");
+    await mkdir(path.dirname(dataPath), { recursive: true });
+    const { data, ...meta } = thumbnail;
+    for (const [target, content] of [[dataPath, data], [this.thumbnailPath(thumbnail.key, "json"), JSON.stringify(meta)]] as const) {
+      const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+      await writeFile(temporary, content);
+      await rename(temporary, target);
+    }
   }
 
   async listAccessRoles(): Promise<AccessRoleRecord[]> {

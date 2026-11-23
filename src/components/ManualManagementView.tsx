@@ -36,6 +36,7 @@ import {
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
+import { PostThumbnail, safeThumbnailUrl } from "./PostThumbnail";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb, BusyOrb } from "./ThinkingOrb";
 import { EmojiPicker } from "./EmojiPicker";
@@ -360,20 +361,11 @@ function timelineFor(detail: InteractionDetail): ConversationMessage[] {
 
 function PostPreview({ context }: { context?: InteractionPostContext }) {
   const permalink = safeHttpsUrl(context?.permalink);
-  const thumbnail = safeHttpsUrl(context?.thumbnailUrl);
+  const thumbnail = safeThumbnailUrl(context?.thumbnailUrl);
   return (
     <section className={`manual-inbox-post-preview${thumbnail ? "" : " manual-inbox-post-preview--no-media"}`} aria-label="Publicación comentada">
       <div className="manual-inbox-post-preview__media">
-        {thumbnail ? (
-          <img
-            src={thumbnail}
-            alt=""
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <ImageSquare size={30} weight="duotone" aria-hidden="true" />
-        )}
+        <PostThumbnail url={thumbnail} iconSize={30} />
       </div>
       <div className="manual-inbox-post-preview__copy">
         <span>Publicación original</span>
@@ -606,7 +598,7 @@ export function ManualManagementView({
         || left.id.localeCompare(right.id));
   }, [isCommentSurface, postComments, postCommentsPostKey, selectedEntry]);
   const selectedPermalink = safeHttpsUrl(selectedContext?.permalink);
-  const selectedPostThumbnail = safeHttpsUrl(selectedContext?.thumbnailUrl);
+  const selectedPostThumbnail = safeThumbnailUrl(selectedContext?.thumbnailUrl);
   const selectedNoiseCount = selectedPendingComments.filter((comment) => comment.noise).length;
   const selectedCommentIsOpen = !isCommentSurface
     || Boolean(visibleDetail && selectedPendingComments.some((comment) => comment.id === visibleDetail.id));
@@ -1013,7 +1005,7 @@ export function ManualManagementView({
                     || Boolean(!entry.postId && selectedContactKey
                       && entry.items.some((interaction) => interaction.contactKey === selectedContactKey));
                   const postContext = entry.postSummary?.postContext ?? entry.target.postContext;
-                  const postThumbnail = entry.postId ? safeHttpsUrl(postContext?.thumbnailUrl) : undefined;
+                  const postThumbnail = entry.postId ? safeThumbnailUrl(postContext?.thumbnailUrl) : undefined;
                   const entryTitle = entry.postId
                     ? postContext?.caption?.trim() || `Publicación ${entry.postId}`
                     : entry.target.customerName;
@@ -1040,10 +1032,8 @@ export function ManualManagementView({
                         : undefined}
                     >
                       <span className={`manual-inbox-contact__avatar${entry.postId ? " is-post" : ""}`} aria-hidden="true">
-                        {postThumbnail ? (
-                          <img src={postThumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
-                        ) : entry.postId ? (
-                          <ImageSquare size={20} weight="duotone" aria-hidden="true" />
+                        {entry.postId ? (
+                          <PostThumbnail url={postThumbnail} />
                         ) : (
                           entry.target.customerName.slice(0, 2).toLocaleUpperCase("es-CL")
                         )}
@@ -1113,9 +1103,7 @@ export function ManualManagementView({
                     <div className="manual-inbox-conversation-header__identity">
                       <span className={`manual-inbox-conversation-header__avatar${isCommentSurface && selectedPostThumbnail ? " has-media" : ""}`} aria-hidden="true">
                         {isCommentSurface
-                          ? selectedPostThumbnail
-                            ? <img src={selectedPostThumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true; }} />
-                            : <ImageSquare size={20} weight="duotone" />
+                          ? <PostThumbnail url={selectedPostThumbnail} />
                           : visibleDetail.customerName.slice(0, 2).toLocaleUpperCase("es-CL")}
                       </span>
                       {/* En comentarios el texto del post ya está en su tarjeta de la izquierda: aquí solo
