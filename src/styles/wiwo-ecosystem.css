@@ -1514,6 +1514,11 @@ input[type="radio"] { accent-color: var(--neo-blue); }
   white-space: nowrap;
 }
 .manual-inbox-reply-target__quote .content-context__fallback { display: none; }
+/* El texto del comentario trae pre-wrap (respeta saltos de línea en las tarjetas); en la cita se
+   recorta a una sola línea con puntos suspensivos, así el compositor no pierde alto. */
+.manual-inbox-reply-target__quote .content-context,
+.manual-inbox-reply-target__quote .content-context__text,
+.manual-inbox-reply-target__quote .content-context__label { display: inline; white-space: nowrap; }
 .manual-inbox-draft-state:empty { display: none; }
 
 /* ── Clientes: filtros, tablero de mensajes recibidos y marca «En SAC» ─────────
