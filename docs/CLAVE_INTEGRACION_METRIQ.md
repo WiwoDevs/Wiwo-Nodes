@@ -2,7 +2,7 @@
 
 wiwo.sac ya tiene una API para que MetriQ lea los datos SAC: casos por marca, totales mensuales, cifras del reporte y el Excel del mes. Está publicada en producción, pero **queda cerrada hasta configurar una clave compartida** en los dos servidores.
 
-- **Es de solo lectura.** Solo acepta `GET` en `https://nodes.wiwo.me/api/integrations/*`, y la clave no abre ninguna otra ruta de wiwo.sac.
+- **Es de solo lectura.** Solo acepta `GET` en `https://sac.wiwo.me/api/integrations/*`, y la clave no abre ninguna otra ruta de wiwo.sac.
 - **La usa solo el servidor de MetriQ.** Nunca va al navegador.
 
 ## 1. Generar la clave (una sola vez)
@@ -27,7 +27,7 @@ En la carpeta del despliegue de wiwo.sac (la de `docker-compose.production.yml`)
    ```
 3. Comprobar. Este comando debe responder `200`; sin la clave, la respuesta es `401`:
    ```bash
-   curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(grep '^SAC_FLOW_SERVICE_API_KEY=' .env.production | cut -d= -f2 | cut -d, -f1)" https://nodes.wiwo.me/api/integrations/sac-brands
+   curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(grep '^SAC_FLOW_SERVICE_API_KEY=' .env.production | cut -d= -f2 | cut -d, -f1)" https://sac.wiwo.me/api/integrations/sac-brands
    ```
 
 Cuidados:
@@ -40,7 +40,7 @@ Cuidados:
 En el archivo de entorno del servidor de MetriQ, donde ya están sus otras claves de servidor (`METRICOOL_USER_TOKEN`, `META_ACCESS_TOKEN`…):
 
 ```
-NODES_API_URL=https://nodes.wiwo.me
+NODES_API_URL=https://sac.wiwo.me
 NODES_SERVICE_API_KEY=<la misma clave>
 ```
 
