@@ -5,7 +5,8 @@ Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo 
 - **Producción:** https://nodes.wiwo.me. Cada push a `main` se despliega solo (ver [Despliegue](#despliegue)).
 - **Inicio de sesión:** Google, contra una lista de personas autorizadas. No hay usuario y contraseña en producción.
 - **Datos:** PostgreSQL en producción y JSON local en desarrollo. Metricool solo se lee, salvo las respuestas que una persona confirma.
-- **Aspecto:** el mismo diseño que **WiwoLab** (colores, tarjetas, botones y menú), en modo oscuro por defecto y con modo claro desde la barra superior. Mientras algo carga se ve el **orb de WIWO** con "Cargando…".
+- **Aspecto:** el sistema visual del ecosistema WiWO (el Neo Design System de **WiwoMetriQ**, con el wordmark y los tokens de **WiWo for Creators** y la barra superior de **WiwoLab**): menú lateral desplegable con secciones que se contrae a un riel de íconos, logo azul en claro y crema en oscuro, tarjetas neutras y botones píldora. Modo oscuro por defecto y modo claro desde la barra superior. Mientras algo carga se ve el **orb de WIWO** con "Cargando…".
+- **Sonido:** el soundbranding WiWO (`public/sonidos/`, `src/lib/sonidos-wiwo.ts`): la firma de marca al entrar, un sonido de éxito al terminar procesos lentos (sincronizar, exportar, importar, acciones en lote) y uno de error cuando falla algo que pidió la persona. Se silencia con el botón de parlante de la barra superior; la preferencia (`localStorage["wiwo-sonidos"]`) es la misma en todas las plataformas WiWO.
 
 ---
 

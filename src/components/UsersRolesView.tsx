@@ -28,7 +28,7 @@ import type { AccessControlListing, AccessRole, RoleView, UserAccessView } from 
 import { confirmAction } from "../lib/confirm";
 import { BusyOrb } from "./ThinkingOrb";
 
-type Toast = { tone: "success" | "warning"; title: string; detail: string };
+type Toast = { tone: "success" | "warning"; title: string; detail: string; sound?: boolean };
 type Tab = "people" | "roles";
 
 const NO_ACCESS = "none";

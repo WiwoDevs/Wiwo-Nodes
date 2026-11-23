@@ -91,7 +91,7 @@ import { ThinkingOrb, OrbLoader, BusyOrb } from "./ThinkingOrb";
 export type AutomationSection = "home" | "workflows" | "executions" | "templates" | "credentials";
 export type AutomationHomeDestination = "platform-home" | "automations" | "automation-executions" | "workflow" | "dashboard" | "interactions" | "accounts";
 
-type ToastPayload = { tone: "success" | "warning"; title: string; detail: string };
+type ToastPayload = { tone: "success" | "warning"; title: string; detail: string; sound?: boolean };
 type AutomationPlatformProps = {
   section: AutomationSection;
   canAdmin: boolean;
@@ -622,7 +622,7 @@ export function AutomationPlatform({
         setCredentialTypes(catalog.credentialTypes);
         setTemplates(loadedTemplates);
       })
-      .catch((error) => mounted && onToast({ tone: "warning", title: "No se pudo cargar Automation Studio", detail: error instanceof Error ? error.message : "Error desconocido." }))
+      .catch((error) => mounted && onToast({ tone: "warning", sound: false, title: "No se pudo cargar Automation Studio", detail: error instanceof Error ? error.message : "Error desconocido." }))
       .finally(() => mounted && setLoading(false));
     return () => { mounted = false; };
   }, [onToast]);
@@ -695,7 +695,7 @@ export function AutomationPlatform({
       });
       await refresh();
       setSelectedWorkflowId(imported.id);
-      onToast({ tone: "success", title: "Workflow importado", detail: "IDs y credenciales fueron neutralizados; valida antes de publicar." });
+      onToast({ tone: "success", sound: true, title: "Workflow importado", detail: "IDs y credenciales fueron neutralizados; valida antes de publicar." });
     } catch (error) {
       onToast({ tone: "warning", title: "No se pudo importar", detail: error instanceof Error ? error.message : "Archivo inválido." });
     } finally {
@@ -793,7 +793,7 @@ export function AutomationPlatform({
           <span className="eyebrow"><ChatCircleDots weight="fill" /> SAC multicuenta</span>
           <h2 id="sac-home-title" className="sac-home-greeting">
             <span className="wiwo-orb" aria-hidden="true" />
-            {salutationFor()}{greetingName ? <>, <span className="gradient-text">{greetingName}</span></> : null}
+            {salutationFor()}{greetingName ? <>, <span className="wiwo-accent-name">{greetingName}</span></> : null}
           </h2>
           <p className="sac-home-lead">Lo que necesita atención, primero.</p>
           <p>{isAgentHome ? "Toma el caso que vence antes, respóndelo y pasa al siguiente. Tus casos aparecen primero." : "Prioriza DMs y comentarios, revisa las cuentas con alertas y mantén el flujo SAC bajo control desde un solo lugar."}</p>

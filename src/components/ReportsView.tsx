@@ -30,7 +30,7 @@ type ReportsViewProps = {
   /** Marcas visibles a las que se les puede cargar el Excel. */
   importBrands?: ManualRecordsBrandOption[];
   inboxSync?: InboxSyncStatus;
-  onToast: (toast: { tone: "success" | "warning"; title: string; detail: string }) => void;
+  onToast: (toast: { tone: "success" | "warning"; title: string; detail: string; sound?: boolean }) => void;
 };
 
 const formatCount = new Intl.NumberFormat("es-CL").format;
@@ -308,7 +308,7 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
     try {
       // Mismos límites del reporte: días completos en UTC.
       await downloadExport({ from: `${report.from}T00:00:00.000Z`, to: `${report.to}T23:59:59.999Z`, brandId });
-      onToast({ tone: "success", title: "Excel descargado", detail: `${brandId ? selected?.brandName ?? "Marca" : "Todas las marcas"} · ${report.label}` });
+      onToast({ tone: "success", sound: true, title: "Excel descargado", detail: `${brandId ? selected?.brandName ?? "Marca" : "Todas las marcas"} · ${report.label}` });
     } catch (cause) {
       onToast({ tone: "warning", title: "No se pudo generar el Excel", detail: cause instanceof Error ? cause.message : "Intenta nuevamente." });
     } finally {
@@ -490,7 +490,7 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
           onLoaded={(summary, brandName) => {
             setImportOpen(false);
             onToast({
-              tone: "success",
+              tone: "success", sound: true,
               title: `${summary.creadas.toLocaleString("es-CL")} caso(s) de ${brandName} cargados`,
               detail: "Ya cuentan en Reportes y llegan a MetriQ. No aparecen en la bandeja.",
             });

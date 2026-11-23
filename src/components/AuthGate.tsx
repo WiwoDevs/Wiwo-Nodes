@@ -11,6 +11,7 @@ import { LoginScreen } from "./LoginScreen";
 import { LoginShell } from "./LoginShell";
 import { OrbLoader } from "./ThinkingOrb";
 import type { SessionActor } from "../types";
+import { consumeIntroPending, playBrandIntro } from "../lib/brand-sounds";
 
 type GateState =
   | { status: "checking" }
@@ -51,6 +52,8 @@ export function AuthGate({ children }: AuthGateProps) {
     }
     setActor(current);
     setState({ status: "open" });
+    // Vuelta de Google con la sesión abierta: la firma de marca, una vez.
+    if (consumeIntroPending()) playBrandIntro();
   }, []);
 
   const check = useCallback(async () => {

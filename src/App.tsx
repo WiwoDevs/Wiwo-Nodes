@@ -3,7 +3,6 @@ import {
   ArrowsClockwise,
   Bell,
   Buildings,
-  CaretDown,
   ChartLineUp,
   PresentationChart,
   ChatCircleDots,
@@ -11,7 +10,6 @@ import {
   ChatsCircle,
   CheckCircle,
   ClockCounterClockwise,
-  FlowArrow,
   GearSix,
   GitBranch,
   House,
@@ -41,7 +39,6 @@ import { isExpired, needsAction } from "./lib/reply-window";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { ExportDialog, type ExportFilters } from "./components/ExportDialog";
 import type { WorkflowEditorStatus } from "./components/WorkflowCanvas";
-import wiwoSacLogo from "./assets/wiwo-sac-logo.png";
 import type { AutomationSection } from "./components/AutomationPlatform";
 import {
   addInteractionInternalNote,
@@ -93,6 +90,9 @@ import {
   type WorkflowValidation,
 } from "./lib/api";
 import { useTheme } from "./lib/theme";
+import { useSidebarMode } from "./lib/sidebar";
+import { playToastSound } from "./lib/brand-sounds";
+import { SoundToggle } from "./components/SoundToggle";
 import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor } from "./types";
 import { confirmAction } from "./lib/confirm";
 import { useMinuteTick } from "./lib/use-minute-tick";
@@ -418,6 +418,9 @@ function suggestedDraft(interaction: Interaction): string {
   return opening("gracias por escribirnos. Revisamos tu consulta y te respondemos por este mismo canal.");
 }
 
+/** Aviso flotante. `sound`: true hace sonar un éxito (proceso lento); false silencia un fallo de fondo. */
+type AppToast = { tone: "success" | "warning"; title: string; detail: string; sound?: boolean };
+
 export function App({ onSignOut, sessionActor }: {
   onSignOut?: () => Promise<void>;
   /** Usuario ya validado por el inicio de sesión: se muestra mientras cargan los datos. */
@@ -428,7 +431,7 @@ export function App({ onSignOut, sessionActor }: {
   const [inboxFocus, setInboxFocus] = useState<InteractionsViewProps["focus"]>();
   const clearInboxFocus = useCallback(() => setInboxFocus(undefined), []);
   const [editorTab, setEditorTab] = useState<EditorTab>("editor");
-  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { isCollapsed: isSidebarCollapsed, toggleSidebar } = useSidebarMode();
   const [isExportOpen, setExportOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const [isRunning, setIsRunning] = useState(false);
@@ -469,13 +472,13 @@ export function App({ onSignOut, sessionActor }: {
   const [manualCommentsIssue, setManualCommentsIssue] = useState<string | null>(null);
   const [manualDraftDirty, setManualDraftDirty] = useState(false);
   const [isSavingSettings, setSavingSettings] = useState(false);
-  const [toast, setToast] = useState<{ tone: "success" | "warning"; title: string; detail: string } | null>(null);
+  const [toast, setToast] = useState<AppToast | null>(null);
   const inboxRefreshPromise = useRef<Promise<boolean> | null>(null);
   const detailRequestSequence = useRef(0);
   const manualCommentsRequestSequence = useRef(0);
   const manualPostCommentsRequestSequence = useRef(0);
   const selectedInteractionIdRef = useRef<string | null>(null);
-  const showPlatformToast = useCallback((payload: { tone: "success" | "warning"; title: string; detail: string }) => setToast(payload), []);
+  const showPlatformToast = useCallback((payload: AppToast) => setToast(payload), []);
 
   const page = pageTitles[view];
   // Credenciales y variables solo para admin; el servidor tampoco las entrega a otros roles.
@@ -741,6 +744,8 @@ export function App({ onSignOut, sessionActor }: {
 
   useEffect(() => {
     if (!toast) return;
+    // Soundbranding: el aviso de un proceso lento o de una acción fallida suena (src/lib/brand-sounds.ts).
+    playToastSound(toast);
     const timeout = window.setTimeout(() => setToast(null), 4800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
@@ -935,7 +940,7 @@ export function App({ onSignOut, sessionActor }: {
       const history = await listExecutions();
       setExecutions(history);
     } catch (error) {
-      setToast({ tone: "warning", title: "No se pudo cargar el historial", detail: error instanceof Error ? error.message : "Revisa la API." });
+      setToast({ tone: "warning", sound: false, title: "No se pudo cargar el historial", detail: error instanceof Error ? error.message : "Revisa la API." });
     } finally {
       setLoadingExecutions(false);
     }
@@ -1004,7 +1009,7 @@ export function App({ onSignOut, sessionActor }: {
       if (!confirmed) return;
       const result = await archiveExpiredInteractions({ ...scope, dryRun: false });
       setToast({
-        tone: "success",
+        tone: "success", sound: true,
         title: "Casos archivados",
         detail: `${format(result.archived)} casos fuera de plazo quedaron como histórico.${result.skippedSensitive ? ` ${format(result.skippedSensitive)} sensibles siguen en revisión.` : ""}`,
       });
@@ -1049,7 +1054,7 @@ export function App({ onSignOut, sessionActor }: {
       if (!confirmed) return;
       const result = await discardNoiseInteractions({ ...scope, dryRun: false });
       setToast({
-        tone: "success",
+        tone: "success", sound: true,
         title: "Spam descartado",
         detail: `${format(result.discarded)} casos quedaron cerrados como spam.${result.skippedSensitive ? ` ${format(result.skippedSensitive)} sensibles siguen en revisión.` : ""}`,
       });
@@ -1112,7 +1117,7 @@ export function App({ onSignOut, sessionActor }: {
       setExecutions((current) => [result, ...current.filter((item) => item.executionId !== result.executionId)]);
       if (action === "sync") await refreshOperationalData();
       setToast({
-        tone: "success",
+        tone: "success", sound: true,
         title: action === "run" ? "Flujo completado" : "Metricool sincronizado",
         detail: `${result.newInteractions} nuevas · ${result.autoReplied} respondidas · ${result.escalated} derivadas`,
       });
@@ -1144,7 +1149,7 @@ export function App({ onSignOut, sessionActor }: {
         return;
       }
       setToast({
-        tone: "success",
+        tone: "success", sound: true,
         title: "Bandeja actualizada",
         detail: `${result.newInteractions} nuevas · ${result.processed} procesadas`,
       });
@@ -1166,7 +1171,7 @@ export function App({ onSignOut, sessionActor }: {
 
   async function runExport(filters: ExportFilters) {
     await downloadExport(filters);
-    setToast({ tone: "success", title: "Excel generado", detail: "La descarga incluye detalle y resumen por marca." });
+    setToast({ tone: "success", sound: true, title: "Excel generado", detail: "La descarga incluye detalle y resumen por marca." });
   }
 
   async function openInteractionDetail(
@@ -1257,7 +1262,7 @@ export function App({ onSignOut, sessionActor }: {
         await refreshInteractionDetail(selectedId);
       }
       setToast({
-        tone: "success",
+        tone: "success", sound: true,
         title: `${interactions.length} borradores guardados`,
         detail: "Quedaron registrados en backend para revisión humana.",
       });
@@ -1588,7 +1593,7 @@ export function App({ onSignOut, sessionActor }: {
     if (!confirmed) return false;
     try {
       const result = await markContactsTriage(contactKeys, esCasoSac);
-      setToast({ tone: "success", title: result.updated === 1 ? "1 mensaje marcado" : `${result.updated} mensajes marcados`, detail: `De ${result.contacts} ${result.contacts === 1 ? "conversación" : "conversaciones"}, como ${esCasoSac ? "caso SAC" : "ruido"} para el reporte.` });
+      setToast({ tone: "success", sound: true, title: result.updated === 1 ? "1 mensaje marcado" : `${result.updated} mensajes marcados`, detail: `De ${result.contacts} ${result.contacts === 1 ? "conversación" : "conversaciones"}, como ${esCasoSac ? "caso SAC" : "ruido"} para el reporte.` });
       return true;
     } catch (error) {
       setToast({ tone: "warning", title: "No se pudo marcar en lote", detail: error instanceof Error ? error.message : "Intenta nuevamente." });
@@ -1759,7 +1764,7 @@ export function App({ onSignOut, sessionActor }: {
     await refreshOperationalData();
     setToast(failed.length
       ? { tone: "warning", title: `No se pudieron ocultar ${failed.length} marca(s)`, detail: failed.join(", ") }
-      : { tone: "success", title: `${accounts.length} marca(s) oculta(s)`, detail: "No se borró historial; dejan de sincronizar y de aparecer en la operación, Reportes y MetriQ." });
+      : { tone: "success", sound: true, title: `${accounts.length} marca(s) oculta(s)`, detail: "No se borró historial; dejan de sincronizar y de aparecer en la operación, Reportes y MetriQ." });
   }
 
   /** Oculta o vuelve a mostrar un cliente (solo admin principal). */
@@ -1872,7 +1877,7 @@ export function App({ onSignOut, sessionActor }: {
     try {
       await downloadBrandWorkbook(account.brandId ?? account.id, account.name);
       setToast({
-        tone: "success",
+        tone: "success", sound: true,
         title: `Copia de ${account.name} generada`,
         detail: "Se preservó la estructura original y solo se agregaron registros no duplicados.",
       });
@@ -1962,7 +1967,7 @@ export function App({ onSignOut, sessionActor }: {
       const result = await syncMetricool([account.id]);
       await refreshOperationalData();
       setToast({
-        tone: "success",
+        tone: "success", sound: true,
         title: `${account.name} sincronizada`,
         detail: `${result.newInteractions} nuevas · ${result.escalated} derivadas`,
       });
@@ -1987,7 +1992,7 @@ export function App({ onSignOut, sessionActor }: {
       setLiveCheckedAt(result.checkedAt ?? result.lastAt ?? new Date().toISOString());
       await syncInboxChanges();
       if (result.created) {
-        setToast({ tone: "success", title: `${account.name} al día`, detail: `${result.created} mensaje(s) nuevo(s).` });
+        setToast({ tone: "success", sound: true, title: `${account.name} al día`, detail: `${result.created} mensaje(s) nuevo(s).` });
       }
     } catch (error) {
       setToast({
@@ -2031,46 +2036,48 @@ export function App({ onSignOut, sessionActor }: {
       <a className="skip-link" href="#main-content">Saltar al contenido</a>
       <aside className="app-sidebar">
         <div className="brand-lockup">
-          <span className="brand-mark"><FlowArrow size={24} weight="bold" /></span>
-          <span className="brand-copy"><strong>wiwo.sac</strong><small>SAC Automation</small></span>
-          <button className="icon-button sidebar-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label="Contraer menú">
+          <span className="brand-mark" role="img" aria-label="wiwo" />
+          <span className="brand-copy"><strong>Operación SAC</strong><small>{isLoadingData ? "Cargando espacio" : `MGC · ${operationalAccounts.length} marcas`}</small></span>
+          <button className="icon-button sidebar-toggle" onClick={toggleSidebar} aria-label="Contraer menú" title="Contraer menú" aria-expanded={!isSidebarCollapsed}>
             <SidebarSimple size={18} />
           </button>
         </div>
 
         <nav className="primary-nav" aria-label="Navegación principal">
-          {["Operación SAC", "Automatización", "Sistema"].map((group) => (
-            <div className="nav-group" key={group}>
-              <span className="nav-section-label">{group}</span>
-              {navItems.filter((item) => item.group === group).map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button key={item.id} className={view === item.id ? "is-active" : ""} aria-current={view === item.id ? "page" : undefined} onClick={() => navigateToView(item.id)} title={item.label}>
-                    <Icon size={19} weight={view === item.id ? "fill" : "regular"} />
-                    <span>{"railLabel" in item ? item.railLabel : item.label}</span>
-                    {item.badge ? <small>{item.badge}</small> : null}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          {["Operación SAC", "Automatización", "Sistema"].map((group) => {
+            const items = navItems.filter((item) => item.group === group);
+            if (!items.length) return null;
+            return (
+              <div className="nav-group" key={group}>
+                <span className="nav-section-label">{group}</span>
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  const isCurrent = view === item.id;
+                  return (
+                    <button key={item.id} className={isCurrent ? "is-active" : ""} aria-current={isCurrent ? "page" : undefined} onClick={() => navigateToView(item.id)} title={item.label}>
+                      <Icon size={19} weight={isCurrent ? "fill" : "regular"} />
+                      <span className="nav-label">{item.label}</span>
+                      <span className="nav-micro" aria-hidden="true">{"railLabel" in item ? item.railLabel : item.label}</span>
+                      {item.badge && item.badge !== "0" ? <small>{item.badge}</small> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
         </nav>
 
-        <div className="sidebar-project">
-          <span className="nav-section-label">Proyecto</span>
-          <button>
-            <span className="project-avatar">M</span>
-            <span><strong>MGC · Operaciones</strong><small>{isLoadingData ? "Cargando espacio" : `${operationalAccounts.length} marcas · SAC principal`}</small></span>
-            <CaretDown size={14} />
+        <div className="sidebar-rail-toggle">
+          <button className="icon-button" onClick={toggleSidebar} aria-label="Expandir menú" title="Expandir menú" aria-expanded={!isSidebarCollapsed}>
+            <SidebarSimple size={18} />
           </button>
         </div>
-
       </aside>
 
       <main className="app-main" id="main-content">
         <header className="topbar">
           <div className="topbar-wordmark">
-            <img src={wiwoSacLogo} alt="wiwo.sac" />
+            <span className="wiwo-logo" role="img" aria-label="wiwo.sac" />
           </div>
           <div className="page-heading">
             <div className="breadcrumb"><span>{activeNav?.label}</span><span>/</span><strong>Operación SAC</strong></div>
@@ -2080,6 +2087,7 @@ export function App({ onSignOut, sessionActor }: {
             </div>
           </div>
           <div className="topbar-actions">
+            <SoundToggle />
             <button className="icon-button theme-toggle" aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"} title={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggleTheme}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button>
             <button className="icon-button" aria-label="Buscar conversaciones" onClick={() => navigateToView("interactions")}><MagnifyingGlass size={19} /></button>
             <button className="icon-button notification-button" aria-label={`Abrir pendientes SAC: ${visibleData.interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review").length}`} onClick={() => navigateToView("interactions")}><Bell size={19} />{visibleData.interactions.some((interaction) => interaction.status === "pending" || interaction.status === "needs_review") ? <span /> : null}</button>

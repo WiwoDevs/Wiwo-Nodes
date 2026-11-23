@@ -1,0 +1,1120 @@
+/*
+ * Capa del ecosistema WiWO — wiwo.sac con el sistema visual que comparten WiwoMetriQ (Neo Design System:
+ * app/globals.css, tokens/wiwo.tokens.json y su shell con menú lateral desplegable), WiWo for Creators
+ * (apps/web/src/app/globals.css: wordmark recoloreable, tokens de marca) y WiwoLab (barra superior de
+ * vidrio con el wordmark al centro, botones píldora, Thinking Orb). Se carga después de styles.css:
+ * retoma sus tokens con los valores Neo y ajusta las piezas compartidas (menú lateral, barra superior,
+ * tarjetas, botones, campos, diálogos y cargas). Los colores de estado de wiwo.sac (plazos, éxito,
+ * riesgo, aviso) siguen en styles.css.
+ *
+ * Reglas Neo que se respetan acá: el azul es identidad/foco/selección; el verde es acción (siempre
+ * con tinta encima, nunca texto sobre claro); el beige es acento (el logo en oscuro), no superficie;
+ * superficies neutras (casi negro en oscuro, blanco roto en claro); cards de 12 px y controles píldora.
+ */
+
+/* ── 1. Tokens Neo ─────────────────────────────────────────────────────────
+   Oscuro es el predeterminado de wiwo.sac; `data-theme="light"` es el modo normal. Los nombres
+   --lab-* se conservan como alias internos para las reglas de más abajo y de styles.css. */
+:root {
+  /* Primitivos fijos (no invierten) */
+  --neo-blue: #4242ff;
+  --neo-blue-deep: #2e2ee6;
+  --neo-green: #3bff00;
+  --neo-ink: #1a1a1a;            /* tinta fija: texto sobre verde, velos */
+  --neo-onfill: #fafafa;         /* texto claro sobre fills oscuros o azules */
+  --neo-beige: #f8fad7;
+  --neo-accent-flow: linear-gradient(103deg, #3bff00 0%, #3bff00 22%, #4242ff 50%, #3bff00 78%, #3bff00 100%);
+
+  /* Semánticos — oscuro */
+  --neo-canvas: #121212;
+  --neo-sidebar: #0d0d0d;
+  --neo-card: #1c1c1c;
+  --neo-muted: #262626;
+  --neo-muted-fg: #a3a39e;
+  --neo-fg: #f5f5f3;
+  --neo-border: rgba(255, 255, 255, 0.11);
+  --neo-input: rgba(255, 255, 255, 0.16);
+  --neo-sidebar-border: rgba(255, 255, 255, 0.1);
+  --neo-sidebar-accent: rgba(255, 255, 255, 0.07);
+  --neo-link: #9aa0ff;           /* azul legible como texto sobre oscuro */
+  --neo-focus-glow: rgba(66, 66, 255, 0.32);
+  --neo-glass-fill: rgba(24, 24, 24, 0.66);
+  --neo-glass-stroke: rgba(255, 255, 255, 0.14);
+  --neo-glass-highlight: rgba(255, 255, 255, 0.06);
+  --logo-fill: var(--neo-beige); /* el logo va crema en oscuro, como MetriQ y Creators */
+
+  /* Forma, sombra y movimiento Neo */
+  --radius-card: 12px;
+  --radius-item: 8px;
+  --radius-field: 10px;
+  --shape-xs: 6px;
+  --shape-sm: 12px;
+  --shape-md: 18px;
+  --shape-lg: 28px;
+  --shape-full: 999px;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 18px 42px -12px rgba(0, 0, 0, 0.5);
+  --shadow-expressive: 0 24px 70px rgba(66, 66, 255, 0.18), 0 8px 28px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 16px 40px -16px rgba(0, 0, 0, 0.55);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  --motion-micro: 160ms;
+  --motion-state: 280ms;
+  --motion-expressive: 420ms;
+  --motion-fast: var(--motion-micro);
+  --motion-medium: var(--motion-state);
+  --motion-slow: var(--motion-expressive);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+
+  /* Alias que usan las reglas heredadas */
+  --lab-background: var(--neo-canvas);
+  --lab-foreground: var(--neo-fg);
+  --lab-card: var(--neo-card);
+  --lab-muted: var(--neo-muted);
+  --lab-muted-foreground: var(--neo-muted-fg);
+  --lab-border: var(--neo-border);
+  --lab-primary: var(--neo-blue);
+  --lab-primary-soft: rgba(66, 66, 255, 0.16);
+  --lab-primary-line: rgba(122, 128, 255, 0.42);
+  --lab-accent: var(--neo-green);
+  --lab-on-accent: var(--neo-ink);
+  --lab-danger: #ef4444;
+  --lab-danger-hover: #dc2626;
+  --lab-glass-fill: var(--neo-glass-fill);
+  --lab-glass-stroke: var(--neo-glass-stroke);
+  --lab-radius-card: var(--radius-card);
+  --lab-radius-item: var(--radius-field);
+
+  /* Tokens de wiwo.sac con los valores Neo */
+  --bg: var(--neo-canvas);
+  --bg-sidebar: var(--neo-sidebar);
+  --ink: var(--neo-fg);
+  --ink-2: #e2e2dd;
+  --muted: var(--neo-muted-fg);
+  --muted-2: #7c7c78;
+  --surface: var(--neo-card);
+  --surface-soft: var(--neo-muted);
+  --surface-strong: #333333;
+  --surface-warm: var(--neo-muted);
+  --surface-overlay: var(--neo-card);
+  --border: var(--neo-border);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --accent: var(--neo-blue);
+  --accent-dark: var(--neo-blue-deep);
+  --accent-soft: var(--lab-primary-soft);
+  --accent-line: var(--lab-primary-line);
+  --accent-text: var(--neo-link);
+  --accent-gradient: var(--neo-blue);
+  --shadow-sm: var(--shadow-1);
+  --shadow-md: var(--shadow-2xl);
+  --hover: var(--neo-muted);
+  --focus-ring: var(--neo-blue);
+  --focus-glow: var(--neo-focus-glow);
+  color: var(--ink);
+  background: var(--bg);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --neo-canvas: #fafaf8;
+  --neo-sidebar: #f2f2ef;
+  --neo-card: #ffffff;
+  --neo-muted: #f2f2ef;
+  --neo-muted-fg: #5c5c58;
+  --neo-fg: #1a1a1a;
+  --neo-border: #e6e6e1;
+  --neo-input: #d4d4ce;
+  --neo-sidebar-border: rgba(26, 26, 26, 0.1);
+  --neo-sidebar-accent: rgba(26, 26, 26, 0.06);
+  --neo-link: var(--neo-blue);
+  --neo-focus-glow: rgba(66, 66, 255, 0.18);
+  --neo-glass-fill: rgba(255, 255, 255, 0.62);
+  --neo-glass-stroke: rgba(255, 255, 255, 0.6);
+  --neo-glass-highlight: rgba(255, 255, 255, 0.55);
+  --logo-fill: var(--neo-blue);  /* azul de marca en claro */
+
+  --shadow-1: 0 1px 2px rgba(26, 26, 26, 0.05), 0 6px 20px rgba(26, 26, 26, 0.04);
+  --shadow-2: 0 18px 42px -14px rgba(26, 26, 26, 0.18);
+  --shadow-elevated: 0 16px 40px -16px rgba(26, 26, 26, 0.28);
+  --shadow-2xl: 0 25px 50px -12px rgba(26, 26, 26, 0.22);
+  --lab-primary-soft: rgba(66, 66, 255, 0.08);
+  --lab-primary-line: rgba(66, 66, 255, 0.3);
+
+  --ink-2: #3a3a38;
+  --muted-2: #8a8a84;
+  --surface-strong: #e6e6e1;
+  --border-strong: #d4d4ce;
+}
+
+/* ── 2. Base y lienzo (MetriQ: body con lavado de marca fijo) ───────────────
+   No es un fondo plano: un lavado muy tenue de azul abajo a la derecha y verde arriba, anclado a la
+   ventana. El <main> no pinta fondo propio para no taparlo; el menú lateral sí es opaco. */
+:root body,
+:root[data-theme="light"] body {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(86% 62% at 100% 96%, rgba(66, 66, 255, 0.18), transparent 64%),
+    radial-gradient(70% 52% at 4% 0%, rgba(255, 255, 255, 0.045), transparent 58%),
+    radial-gradient(48% 40% at 96% 2%, rgba(59, 255, 0, 0.06), transparent 62%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  color: var(--ink);
+}
+
+:root[data-theme="light"] body {
+  background-image:
+    radial-gradient(86% 62% at 100% 96%, rgba(66, 66, 255, 0.14), transparent 64%),
+    radial-gradient(70% 52% at 4% 0%, rgba(248, 250, 215, 0.75), transparent 58%),
+    radial-gradient(48% 40% at 96% 2%, rgba(59, 255, 0, 0.07), transparent 62%);
+}
+
+body::before { content: none; }
+
+@keyframes lab-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Reveal editorial Neo: entra desde abajo con un blur que se disuelve. */
+@keyframes wiwo-reveal-up {
+  from { opacity: 0; transform: translateY(12px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+/* El gradiente Neo que fluye (CTA, barra de acento y nombre del saludo). */
+@keyframes wiwo-cta-flow {
+  from { background-position: 0% 50%; }
+  to { background-position: -200% 50%; }
+}
+
+.app-main,
+.content-page,
+.platform-page,
+.platform-canvas,
+.workflow-tab-content { background: transparent; }
+
+h1, h2, h3 { letter-spacing: -0.025em; }
+
+/* Scrollbars ocultas, como en Lab: se desplaza con rueda, touchpad o dedo. */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+:where(a, button, [role="button"], summary, label, input, select, textarea) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Neo: foco visible real (3 px azul). */
+:where(a, button, input, select, textarea, summary, [role="button"]):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--lab-primary-line); color: var(--ink); }
+
+/* Marca: el logo se dibuja como máscara sobre --logo-fill (azul en claro, crema en oscuro). */
+.wiwo-logo,
+.brand-mark {
+  display: block;
+  background-color: var(--logo-fill);
+  -webkit-mask: url("../assets/wiwo-sac-logo.png") no-repeat center / contain;
+  mask: url("../assets/wiwo-sac-logo.png") no-repeat center / contain;
+}
+
+.brand-mark {
+  -webkit-mask-image: url("../assets/wiwo-mark.svg");
+  mask-image: url("../assets/wiwo-mark.svg");
+}
+
+/* ── 3. Menú lateral desplegable (MetriQ: components/dashboard/app-shell + sidebar-nav) ──
+   Ancho completo con secciones, o riel de 80 px con ícono y micro-etiqueta. El estado lo decide
+   `.sidebar-collapsed` (src/lib/sidebar.ts lo recuerda por navegador). */
+.app-sidebar,
+.app-shell .app-sidebar {
+  border-right: 1px solid var(--neo-sidebar-border);
+  background: var(--neo-sidebar);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.app-shell .primary-nav button .nav-micro,
+.app-shell .sidebar-rail-toggle { display: none; }
+
+@media (min-width: 781px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+    transition: grid-template-columns var(--motion-state) var(--ease-out);
+  }
+  .app-shell { --sidebar-w: 248px; }
+  .app-shell.sidebar-collapsed { --sidebar-w: 80px; }
+
+  .app-shell .app-sidebar { gap: 10px; padding: 12px; }
+
+  .app-shell .brand-lockup {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 2px 0 6px;
+    border: 0;
+  }
+
+  .app-shell .brand-mark {
+    width: 30px;
+    height: 23px;
+    flex: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .app-shell .brand-copy { display: grid; min-width: 0; flex: 1; line-height: 1.15; }
+  .app-shell .brand-copy strong { overflow: hidden; color: var(--ink); font-size: 13.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .app-shell .brand-copy small { margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+
+  .app-shell .sidebar-toggle { display: inline-grid; width: 34px; height: 34px; color: var(--muted); }
+
+  .app-shell .primary-nav {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 0 8px;
+    overflow-y: auto;
+  }
+
+  .app-shell .primary-nav .nav-group { display: flex; flex-direction: column; gap: 2px; justify-items: stretch; }
+
+  .app-shell .primary-nav .nav-group + .nav-group {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--neo-sidebar-border);
+  }
+
+  .app-shell .nav-section-label {
+    display: block;
+    margin: 4px 12px 6px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    opacity: 0.75;
+    text-transform: uppercase;
+  }
+
+  .app-shell .primary-nav button {
+    display: flex;
+    width: 100%;
+    height: 38px;
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--shape-full);
+    color: color-mix(in srgb, var(--ink) 62%, transparent);
+    background: transparent;
+    box-shadow: none;
+    font-size: 13.5px;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.2;
+    text-align: left;
+    transition: background-color var(--motion-micro) ease, color var(--motion-micro) ease;
+  }
+
+  .app-shell .primary-nav button svg { width: 18px; height: 18px; flex: none; }
+
+  .app-shell .primary-nav button .nav-label {
+    display: block;
+    width: auto;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    font-size: inherit;
+    line-height: inherit;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-shell .primary-nav button small {
+    display: inline-block;
+    min-width: 0;
+    margin-left: auto;
+    padding: 2px 7px;
+    border-radius: var(--shape-full);
+    color: var(--muted);
+    background: var(--neo-sidebar-accent);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .app-shell .primary-nav button:hover {
+    color: var(--ink);
+    background: var(--neo-sidebar-accent);
+  }
+
+  .app-shell .primary-nav button.is-active,
+  .app-shell .primary-nav button.is-active:hover {
+    color: var(--ink);
+    background: var(--neo-sidebar-accent);
+    box-shadow: none;
+    font-weight: 600;
+  }
+
+  .app-shell .primary-nav button.is-active svg { color: var(--accent-text); }
+
+  .app-shell .primary-nav button.is-active small { color: var(--ink); background: var(--neo-sidebar-accent); }
+
+  /* Riel colapsado: ícono + micro-etiqueta, el logo como la W suelta, el botón de expandir al pie. */
+  .app-shell.sidebar-collapsed .app-sidebar { padding: 12px 8px; }
+  .app-shell.sidebar-collapsed .brand-lockup { justify-content: center; padding: 4px 0 0; }
+  .app-shell.sidebar-collapsed .brand-copy,
+  .app-shell.sidebar-collapsed .sidebar-toggle,
+  .app-shell.sidebar-collapsed .primary-nav button .nav-label,
+  .app-shell.sidebar-collapsed .primary-nav button small { display: none; }
+
+  .app-shell.sidebar-collapsed .nav-section-label {
+    height: 0;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .app-shell.sidebar-collapsed .primary-nav .nav-group + .nav-group { margin-top: 8px; padding-top: 8px; }
+
+  .app-shell.sidebar-collapsed .primary-nav button {
+    height: auto;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 2px;
+    border-radius: var(--radius-item);
+    text-align: center;
+  }
+
+  .app-shell.sidebar-collapsed .primary-nav button svg { width: 20px; height: 20px; }
+
+  .app-shell.sidebar-collapsed .primary-nav button .nav-micro {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 10px;
+    font-weight: inherit;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-align: center;
+    hyphens: manual;
+    overflow-wrap: anywhere;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-rail-toggle {
+    display: grid;
+    flex: none;
+    place-items: center;
+    padding-top: 8px;
+    border-top: 1px solid var(--neo-sidebar-border);
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-rail-toggle .icon-button { width: 36px; height: 36px; color: var(--muted); }
+}
+
+/* Teléfono: barra inferior con ícono y etiqueta corta. */
+@media (max-width: 780px) {
+  .app-shell .app-sidebar {
+    border-top: 1px solid var(--neo-glass-stroke);
+    border-right: 0;
+    background: var(--neo-glass-fill);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+  }
+  /* El menú es la barra inferior: el estado de riel/ancho completo no aplica. */
+  .app-shell,
+  .app-shell.sidebar-collapsed { grid-template-columns: 1fr; }
+  .app-shell .primary-nav button .nav-label,
+  .app-shell .sidebar-rail-toggle { display: none; }
+  .app-shell .primary-nav button .nav-micro { display: block; hyphens: manual; }
+  .app-shell .primary-nav button.is-active { color: var(--accent-text); background: var(--neo-sidebar-accent); }
+}
+
+/* ── 4. Barra superior (Lab/MetriQ: vidrio sobre el lienzo, wordmark al centro) ── */
+.topbar,
+:root[data-theme="light"] .topbar {
+  min-height: 60px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  box-shadow: none;
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(12px) saturate(1.2);
+}
+
+@media (max-height: 820px) and (min-width: 861px) {
+  .topbar { min-height: 52px; }
+}
+
+.topbar-wordmark { width: 124px; height: 27px; }
+.topbar-wordmark .wiwo-logo { width: 100%; height: 100%; }
+
+.page-heading .breadcrumb { display: none; }
+.page-heading > div:last-child { padding-left: 0; border-left: 0; }
+.page-heading h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+.page-heading p { font-size: 12px; }
+
+/* Botón de ícono: 40 px, redondo, sin borde; el hover pinta el muted. */
+.icon-button,
+.topbar-actions .icon-button,
+.topbar-actions > .icon-button {
+  border-color: transparent;
+  border-radius: var(--shape-full);
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+  transition: background-color var(--motion-fast) var(--ease-expressive), transform var(--motion-fast) var(--ease-expressive);
+}
+
+.topbar-actions .icon-button,
+.topbar-actions > .icon-button { width: 40px; height: 40px; color: color-mix(in srgb, var(--ink) 75%, transparent); }
+
+.icon-button:hover,
+.topbar-actions .icon-button:hover,
+:root[data-theme="light"] .icon-button:hover {
+  border-color: transparent;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.icon-button:active:not(:disabled) { transform: scale(0.96); }
+
+.notification-button > span { border-color: var(--bg); background: var(--neo-green); box-shadow: 0 0 8px -1px var(--neo-green); }
+
+/* Avatar del perfil: círculo de 32 px en azul de marca con la inicial. */
+.profile-avatar {
+  width: 32px;
+  height: 32px;
+  color: #fff;
+  background: var(--lab-primary);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.profile-popover {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--lab-card);
+  box-shadow: var(--shadow-elevated);
+}
+
+.profile-chip { border-radius: var(--shape-full); color: var(--ink); background: var(--lab-muted); }
+.profile-chip--role { color: #fff; background: var(--lab-primary); }
+
+/* ── 5. Botones (Neo: píldoras) ─────────────────────────────────────────────
+   primario = verde de marca con tinta · secundario = contorno · peligro = rojo sólido. */
+.button {
+  border-radius: var(--shape-full);
+  font-weight: 600;
+  transition: opacity var(--motion-fast) var(--ease-expressive), background-color var(--motion-fast) var(--ease-expressive), border-color var(--motion-fast) var(--ease-expressive), transform var(--motion-fast) var(--ease-expressive), filter var(--motion-fast) ease;
+}
+
+.button:active:not(:disabled) { transform: scale(0.98); }
+.button:disabled { opacity: 0.48; }
+
+.button.primary,
+.button--primary,
+.app-shell .button.primary,
+.confirm-dialog .button--primary {
+  border-color: transparent;
+  color: var(--lab-on-accent);
+  background: var(--lab-accent);
+  box-shadow: none;
+  font-weight: 700;
+}
+
+.button.primary:hover,
+.button--primary:hover,
+.app-shell .button.primary:hover {
+  opacity: 1;
+  color: var(--lab-on-accent);
+  background: var(--lab-accent);
+  filter: brightness(1.06);
+}
+
+/* Acciones principales con clase propia (Gestión DMs/comentarios): el mismo verde. */
+.manual-inbox-composer__actions .manual-inbox-composer__send,
+.manual-inbox-composer__actions .manual-inbox-composer__send:hover,
+.manual-inbox-status-form .manual-inbox-status-form__submit {
+  border-color: transparent;
+  border-radius: var(--shape-full);
+  color: var(--lab-on-accent);
+  background: var(--lab-accent);
+  box-shadow: none;
+  font-weight: 700;
+}
+
+.manual-inbox-composer__actions .manual-inbox-composer__send:hover,
+.manual-inbox-status-form .manual-inbox-status-form__submit:hover { filter: brightness(1.06); }
+
+.manual-inbox-composer__actions button { border-radius: var(--shape-full); }
+
+.button.secondary,
+.button--secondary,
+:root[data-theme="light"] .button.secondary,
+:root[data-theme="light"] .button--secondary {
+  border-color: var(--neo-input);
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+}
+
+.button.secondary:hover,
+.button--secondary:hover,
+:root[data-theme="light"] .button.secondary:hover,
+:root[data-theme="light"] .button--secondary:hover {
+  border-color: var(--neo-input);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.button--danger,
+.button.danger,
+.confirm-dialog--danger .button--danger {
+  border-color: transparent;
+  color: #fff;
+  background: var(--lab-danger);
+  box-shadow: none;
+}
+
+.button--danger:hover,
+.button.danger:hover,
+.confirm-dialog--danger .button--danger:hover {
+  filter: none;
+  color: #fff;
+  background: var(--lab-danger-hover);
+}
+
+.text-button { color: var(--accent-text); font-weight: 600; }
+
+/* ── 6. Campos ──────────────────────────────────────────────────────────── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+:root select,
+:root textarea,
+:root[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea {
+  border-color: var(--neo-input);
+  background-color: var(--bg);
+  color: var(--ink);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+:root select:focus,
+:root textarea:focus {
+  border-color: var(--lab-primary);
+  background-color: var(--bg);
+  box-shadow: 0 0 0 3px var(--focus-glow);
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  border-radius: var(--radius-field);
+}
+
+input::placeholder,
+textarea::placeholder { color: var(--muted); opacity: 0.8; }
+
+input,
+select,
+textarea { color-scheme: dark; }
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea { color-scheme: light; }
+
+select option,
+:root[data-theme="light"] select option { background: var(--lab-card); color: var(--ink); }
+
+input[type="checkbox"],
+input[type="radio"] { accent-color: var(--neo-blue); }
+
+/* ── 7. Tarjetas (Neo: card sólida, borde de línea, 12 px) ────────────────── */
+.kpi-card,
+.panel,
+.account-card,
+.settings-card,
+.integration-card,
+.requirements-card,
+.health-card,
+.platform-card,
+.platform-kpis article,
+.evaluation-grid article,
+.template-grid article,
+.execution-detail,
+.operational-jobs,
+.workflow-table,
+.execution-master,
+.execution-inspect,
+.credential-column,
+.sac-home-kpis > button,
+.sac-home-panel,
+.manual-inbox-header,
+.manual-inbox-column,
+.reports-card,
+.reports-panel,
+.users-roles-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.sac-home-kpis > button {
+  transition: transform var(--motion-state) var(--ease-out), border-color var(--motion-state) var(--ease-out), box-shadow var(--motion-state) var(--ease-out);
+}
+
+.sac-home-kpis > button:hover:not(:disabled) {
+  border-color: var(--lab-primary-line);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
+}
+
+/* Ítems dentro de una tarjeta: filas de 8 px que se pintan al pasar. */
+.sac-queue-list > button,
+.sac-account-list > button {
+  border-color: transparent;
+  border-radius: var(--radius-item);
+  background: transparent;
+  box-shadow: none;
+}
+
+.sac-queue-list > button:hover,
+.sac-account-list > button:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+
+/* Rótulos de sección Neo: mayúsculas espaciadas, en gris (MetriQ: «Tu trabajo»). */
+.eyebrow,
+.panel-kicker {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.eyebrow svg { color: var(--accent-text); }
+
+/* Barra de acento Neo: el gradiente verde→azul que fluye, en formato barra fina. */
+.wiwo-accent-bar {
+  background-image: var(--neo-accent-flow);
+  background-size: 200% 100%;
+  animation: wiwo-cta-flow 6s linear infinite;
+}
+
+/* Nombre del saludo: el mismo gradiente que fluye, recortado al texto. */
+.wiwo-accent-name {
+  display: inline-block;
+  background-image: var(--neo-accent-flow);
+  background-size: 200% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation:
+    wiwo-reveal-up var(--motion-expressive) var(--ease-out) both,
+    wiwo-cta-flow 6s linear infinite;
+  animation-delay: 45ms, 0s;
+}
+
+/* ── 8. Inicio: saludo editorial sin caja (MetriQ: app/(dashboard)/page.tsx) ── */
+.sac-home-intro,
+:root[data-theme="light"] .sac-home-intro {
+  padding: 8px 4px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.sac-home-intro__copy > * { animation: wiwo-reveal-up var(--motion-expressive) var(--ease-out) both; }
+.sac-home-intro__copy > :nth-child(2) { animation-delay: 60ms; }
+.sac-home-intro__copy > :nth-child(3) { animation-delay: 140ms; }
+.sac-home-intro__copy > :nth-child(4) { animation-delay: 220ms; }
+.sac-home-intro__copy > :nth-child(5) { animation-delay: 300ms; }
+
+.sac-home-intro h2.sac-home-greeting {
+  font-size: clamp(2rem, 1.5rem + 2vw, 3.2rem);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+}
+
+.sac-home-intro__copy > p.sac-home-lead {
+  margin-top: 12px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sac-home-intro__copy > p:not(.sac-home-lead) { color: var(--muted); }
+
+/* Barra de acento animada como puntuación, antes de las acciones. */
+.sac-home-actions { position: relative; margin-top: 40px; }
+.sac-home-actions::before {
+  content: "";
+  position: absolute;
+  top: -22px;
+  left: 0;
+  width: 96px;
+  height: 4px;
+  border-radius: var(--shape-full);
+  background-image: var(--neo-accent-flow);
+  background-size: 200% 100%;
+  animation: wiwo-cta-flow 6s linear infinite;
+}
+
+.sac-home-status > span {
+  border-color: var(--border);
+  border-radius: var(--shape-full);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.sac-home-status .is-warning { color: var(--accent-text); }
+
+.sac-home-kpis,
+.sac-home-operations,
+.sac-home-team-row,
+.sac-automation-overview { animation: wiwo-reveal-up var(--motion-expressive) var(--ease-out) both; }
+.sac-home-kpis { animation-delay: 120ms; }
+.sac-home-operations { animation-delay: 200ms; }
+.sac-home-team-row { animation-delay: 260ms; }
+.sac-automation-overview { animation-delay: 320ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wiwo-accent-bar,
+  .wiwo-accent-name,
+  .sac-home-actions::before,
+  .sac-home-intro__copy > *,
+  .sac-home-kpis,
+  .sac-home-operations,
+  .sac-home-team-row,
+  .sac-automation-overview { animation: none; }
+  .app-shell,
+  .app-shell.sidebar-collapsed { transition: none; }
+}
+
+/* ── 9. Diálogos y menús (Lab: confirm-context, ui/select, preview-modal) ──── */
+.confirm-dialog-backdrop,
+.account-credentials-backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.confirm-dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--lab-radius-card);
+  background: var(--bg);
+  box-shadow: var(--shadow-2xl);
+}
+
+.confirm-dialog__copy h2 { font-size: 16px; font-weight: 600; }
+.confirm-dialog__copy p { color: var(--muted); font-size: 14px; }
+
+/* Lab: Cancelar en bg-muted y la acción en azul (o rojo si es peligrosa), rounded-2xl. */
+.confirm-dialog__actions .button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--lab-radius-card);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.confirm-dialog__actions .button--secondary,
+:root[data-theme="light"] .confirm-dialog__actions .button--secondary { color: var(--ink); background: var(--lab-muted); }
+.confirm-dialog__actions .button--secondary:hover { opacity: 0.8; background: var(--lab-muted); }
+.confirm-dialog .confirm-dialog__actions .button--primary { color: #fff; background: var(--lab-primary); }
+.confirm-dialog .confirm-dialog__actions .button--primary:hover { opacity: 0.9; color: #fff; background: var(--lab-primary); }
+
+.account-credentials-panel,
+.account-filter__popover {
+  border: 1px solid var(--border);
+  border-radius: var(--lab-radius-card);
+  background: var(--lab-card);
+  box-shadow: var(--shadow-2);
+}
+
+/* ── 10. Cargas con el Thinking Orb (Lab: pantalla de carga de app-shell) ──── */
+.wiwo-orb-aura { --background: var(--bg); }
+
+.orb-loader {
+  display: flex;
+  width: 100%;
+  min-height: 100%;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.orb-loader__aura { width: 280px; height: 280px; }
+
+.orb-loader__label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  animation: lab-fade-up var(--motion-slow) var(--ease-expressive) both;
+}
+
+.orb-loader__detail { color: var(--muted); font-size: 12px; }
+
+.orb-loader--compact { gap: 12px; padding: 24px 12px; }
+
+.platform-loading,
+.workflow-loading {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+}
+
+/* Los paneles de carga ya traen su título y detalle; el orbe toma el lugar del ícono. */
+.case-detail-panel__loading,
+.manual-inbox-loading { gap: 10px; }
+.case-detail-panel__loading .wiwo-orb-stage,
+.manual-inbox-loading .wiwo-orb-stage { margin-bottom: 6px; }
+
+/* Orbe pequeño dentro de botones y avisos en curso. */
+.busy-orb { flex: none; }
+.button .busy-orb,
+.icon-button .busy-orb { margin: 0 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .sac-home-intro,
+  .orb-loader__label { animation: none; }
+}
+
+/* Verificación de sesión: pantalla completa con el orbe, sobre el fondo aurora de la app. */
+.app-loading-screen {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Detalle de caso: el resto de la app se difumina detrás del panel y un clic fuera lo cierra. */
+.case-detail-backdrop {
+  position: fixed;
+  z-index: 34;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  animation: case-detail-backdrop-in 180ms ease-out;
+}
+
+:root[data-theme="light"] .case-detail-backdrop { background: rgba(31, 31, 31, 0.22); }
+
+@keyframes case-detail-backdrop-in { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .case-detail-backdrop { animation: none; }
+}
+
+/* Gestión DMs/comentarios: quién tiene a cargo el chat o el post abierto, junto al estado. */
+.manual-inbox-owner {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 260px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--lab-primary-line);
+  border-radius: var(--shape-full);
+  color: var(--ink);
+  background: var(--lab-primary-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.manual-inbox-owner svg { flex: none; color: var(--accent-text); }
+.manual-inbox-owner__label { color: var(--muted); }
+.manual-inbox-owner strong { overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
+.manual-inbox-owner--none { border-color: var(--border); background: var(--lab-muted); }
+.manual-inbox-owner--none svg { color: var(--muted); }
+.manual-inbox-owner--none strong { color: var(--muted); font-weight: 500; }
+
+/* Compositor de Gestión DMs/comentarios: botón de emojis dentro del campo, panel que abre hacia arriba. */
+.manual-inbox-composer__field { position: relative; display: block; min-width: 0; }
+.manual-inbox-composer__field > textarea { display: block; padding-right: 44px; }
+
+.emoji-picker { position: absolute; right: 6px; bottom: 6px; }
+
+.emoji-picker__trigger {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--shape-full);
+  color: var(--muted);
+  background: transparent;
+  transition: background-color var(--motion-fast) var(--ease-expressive), color var(--motion-fast) var(--ease-expressive);
+}
+
+.emoji-picker__trigger:hover:not(:disabled),
+.emoji-picker__trigger[aria-expanded="true"] { color: var(--accent-text); background: var(--lab-muted); }
+
+.emoji-picker__panel {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  width: min(312px, calc(100vw - 32px));
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--lab-radius-card);
+  background: var(--lab-card);
+  box-shadow: var(--shadow-2);
+  animation: lab-fade-up var(--motion-medium) var(--ease-expressive) both;
+}
+
+.emoji-picker__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--shape-full);
+  background: var(--lab-muted);
+}
+
+.emoji-picker__tabs button {
+  display: grid;
+  height: 30px;
+  flex: 1;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--shape-full);
+  background: transparent;
+  font-size: 16px;
+  opacity: 0.6;
+  transition: opacity var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.emoji-picker__tabs button:hover { opacity: 1; }
+.emoji-picker__tabs button.is-active { background: var(--bg); box-shadow: var(--shadow-1); opacity: 1; }
+
+.emoji-picker__heading { margin: 2px 4px 0; color: var(--muted); font-size: 11px; font-weight: 600; }
+
+.emoji-picker__grid {
+  display: grid;
+  max-height: 196px;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.emoji-picker__grid button {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 21px;
+  line-height: 1;
+  transition: background-color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-spring);
+}
+
+.emoji-picker__grid button:hover { background: var(--lab-muted); transform: scale(1.12); }
+
+@media (prefers-reduced-motion: reduce) {
+  .emoji-picker__panel { animation: none; }
+  .emoji-picker__grid button:hover { transform: none; }
+}
+
+/* ── 11. Superficies neutras Neo ─────────────────────────────────────────────
+   En MetriQ y Creators las superficies son neutras: el azul suave queda para selección, foco y
+   estados activos. Aquí se devuelven a neutro los fondos grandes que venían teñidos de azul. */
+.platform-home,
+.platform-studio,
+.manual-inbox-view,
+.workflow-loading,
+.workflow-canvas-wrap,
+.workflow-canvas-wrap .react-flow { background: transparent; }
+
+.workflow-table > header,
+.operational-jobs > header,
+.operational-jobs-table th,
+.execution-facts,
+.execution-data pre,
+.resource-form,
+.brand-resource-form,
+.brand-resource-library > header,
+.brand-admin-options,
+.case-status-form,
+.case-delivery-card,
+.case-conversation-message,
+.case-history-toggle,
+.manual-inbox-contact-tools,
+.manual-inbox-status,
+.manual-inbox-health,
+.brand-file-card,
+.workbook-contract,
+.security-note,
+.button--tertiary,
+.template-intro > span,
+.inspector-empty-intro,
+.node-library > .platform-search,
+.sac-resource-summary,
+.workflow-editor-mode,
+.connector-style-control > div,
+.selection-bar { background: var(--neo-muted); }
+
+.execution-facts > span,
+.platform-field input,
+.platform-field select,
+.platform-field textarea { background: var(--bg); }
+
+.workflow-table > article:hover,
+.workflow-compact-list > button:hover,
+.execution-compact-list > button:hover,
+.operational-jobs-table tbody tr:hover,
+.node-library-list button:hover:not(:disabled),
+.row-menu button:hover,
+.manual-inbox-contact:hover,
+.manual-inbox-refresh:hover,
+.manual-inbox-surface:hover,
+.manual-inbox-exact-comments button:hover,
+.case-history-toggle:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+
+.case-conversation-message--outbound,
+.manual-inbox-message--outbound { background: var(--lab-primary-soft); }
+
+/* Recomendación con IA: el borde vivo de gradiente Neo (MetriQ: .wiwo-gradient-border). */
+.manual-inbox-recommendation,
+.case-ai-recommendation {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(103deg, rgba(59, 255, 0, 0.55), rgba(66, 66, 255, 0.7)) border-box;
+}

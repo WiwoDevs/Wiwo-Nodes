@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { WarningCircle } from "@phosphor-icons/react";
 import { GOOGLE_SIGN_IN_URL, openDevSession, type AuthProvider } from "../lib/api";
 import type { SessionActor } from "../types";
+import { markIntroPending, playBrandIntro, playErrorSound } from "../lib/brand-sounds";
 import { LoginShell, WiwoSacLogo } from "./LoginShell";
 import { WiwoThinkingOrb } from "./WiwoThinkingOrb";
 
@@ -62,13 +63,17 @@ export function LoginScreen({ provider, onAuthenticated }: LoginScreenProps) {
 
   useEffect(() => {
     const message = takeLoginError();
-    if (message) setError(message);
+    if (message) {
+      setError(message);
+      playErrorSound();
+    }
   }, []);
 
   function handleGoogle() {
     if (loading) return;
     setLoading(true);
     setError(null);
+    markIntroPending();
     window.location.assign(GOOGLE_SIGN_IN_URL);
   }
 
@@ -81,8 +86,10 @@ export function LoginScreen({ provider, onAuthenticated }: LoginScreenProps) {
       const actor = await openDevSession(email, password);
       setPassword("");
       onAuthenticated(actor);
+      playBrandIntro();
     } catch (cause) {
       setError(cause instanceof Error && cause.message ? cause.message : "No fue posible iniciar sesión.");
+      playErrorSound();
       setLoading(false);
     }
   }

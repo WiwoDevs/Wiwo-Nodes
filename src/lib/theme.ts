@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 export type ThemeMode = "dark" | "light";
 
 const STORAGE_KEY = "wiwo-nodes-theme";
-const THEME_COLORS: Record<ThemeMode, string> = { dark: "#121212", light: "#fdfdfb" };
+const THEME_COLORS: Record<ThemeMode, string> = { dark: "#121212", light: "#fafaf8" };
 
 function readStoredTheme(): ThemeMode {
   try {
