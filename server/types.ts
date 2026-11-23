@@ -157,6 +157,13 @@ export interface UserAccessRecord {
   permissionsRemove?: Permission[];
   permissionsUpdatedBy?: string;
   permissionsUpdatedAt?: string;
+  /**
+   * Clientes (brandIds) que un admin principal le ocultó a esta persona: no los ve en ninguna
+   * parte (bandeja, Inicio, Clientes, Reportes). No aplica a los admins principales.
+   */
+  hiddenBrandIds?: string[];
+  hiddenBrandsUpdatedBy?: string;
+  hiddenBrandsUpdatedAt?: string;
 }
 
 export interface ActorContext {

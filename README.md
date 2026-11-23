@@ -44,7 +44,7 @@ Explicación sin tecnicismos, para el equipo: [docs/GUIA_COMENTARIOS_Y_MENCIONES
 | **Flujo SAC** | Reglas del protocolo SAC, versiones y publicación. | Supervisor, Admin |
 | **Clientes** (antes Cuentas) | Tablero de **mensajes recibidos** (por defecto el mes en curso; también por día o por un período de hasta un año) con el desglose por cliente y por red, filtros **En SAC / Todas** y **Cuenta de Metricool**, y debajo el estado de marcas y cuentas con su centro documental. Cuenta los mensajes entrantes sincronizados desde Metricool, por día UTC como Reportes, sin los registros cargados a mano (`source: "planilla"`); incluye spam (los casos SAC están en Reportes). **En SAC** marca qué redes de cada cuenta atiende hoy el equipo: solo etiqueta y filtra, no oculta ni deja de sincronizar; la edita el **admin principal** y se precargó una vez desde la lista del equipo (por nombre y red). Solo Admin puede crear, editar o conectar marcas con Metricool. Solo el **admin principal** puede **ocultar** un cliente (deja de sincronizar y desaparece de la bandeja, Reportes y MetriQ, sin borrar nada) y volver a mostrarlo desde el filtro **Ocultos**. | Supervisor (lectura), Admin |
 | **Ejecuciones** (grupo Sistema) | Trabajos de sincronización y envío, y su historial. | Admin |
-| **Usuarios** | Personas, roles y permisos. | Admin |
+| **Usuarios** | Personas, roles y permisos. Un **admin principal** puede además ocultarle clientes a una persona (**Clientes que ve**): deja de verlos en toda la web, sin borrar nada. | Admin |
 | **Asistente** (orbe flotante abajo a la derecha) | Responde cómo se usa wiwo.sac y qué permite el rol de cada persona, con preguntas sugeridas y la sección abierta como contexto. Solo orienta: no ejecuta acciones ni ve casos. Con la IA apagada responde las preguntas sugeridas con la guía. | Todos |
 | **Configuración** | Ajustes del flujo y diagnóstico de la integración. | Supervisor, Admin |
 
@@ -58,7 +58,7 @@ El menú y los botones se muestran según los **permisos** de cada persona, no s
 | **Agente** | Lo anterior, más responder, tomar y soltar casos, notas internas, cambiar estados y actualizar desde Metricool. |
 | **Supervisor** | Lo anterior, más asignar casos a otros, archivar vencidos, exportar, ver métricas y reportes, conciliar envíos y ajustar el flujo SAC. |
 | **Admin asignado** | Rol Admin dado desde la app. Administra usuarios, credenciales y envío automático, pero **no** puede dar el rol Admin, cambiar a otro admin, editar roles ni otorgar permisos sensibles. |
-| **Admin principal** | Correos en `SAC_FLOW_AUTH_ADMIN_EMAILS`. Puede todo, incluido ocultar y mostrar clientes y marcar qué cuentas se usan **En SAC**, y no se puede cambiar desde la app. |
+| **Admin principal** | Correos en `SAC_FLOW_AUTH_ADMIN_EMAILS`. Puede todo, incluido ocultar y mostrar clientes (para todos o solo para una persona) y marcar qué cuentas se usan **En SAC**, y no se puede cambiar desde la app. |
 
 - Lector, Agente y Supervisor son **editables**, y se pueden crear roles propios a partir de ellos. A una persona en particular se le pueden sumar o quitar permisos.
 - **Permisos sensibles** (solo los otorga un admin principal): *Gestionar marcas*, *Editar automatizaciones*, *Publicar el flujo SAC*, *Archivar vencidos en lote* y *Exportar a Excel*.

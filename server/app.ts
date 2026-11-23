@@ -57,6 +57,7 @@ import {
   brandUpdateSchema,
   brandVisibilitySchema,
   brandSacUsageSchema,
+  userHiddenBrandsSchema,
   messageVolumeQuerySchema,
   brandWorkbookUpdateSchema,
   manualRecordsQuerySchema,
@@ -1987,14 +1988,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         return;
       }
     }
-    if (actor.permissions) return;
-    const resolved = permissionsForActor(actor, await accessDirectory.roles());
-    // Ajustes personales de la persona sobre los permisos de su rol (nunca para Admin).
-    if (actor.email && actor.role !== "admin") {
-      const record = await accessDirectory.find(actor.email);
-      resolved.permissions = applyPermissionOverrides(resolved.permissions, record);
+    if (!actor.permissions) {
+      const resolved = permissionsForActor(actor, await accessDirectory.roles());
+      // Ajustes personales de la persona sobre los permisos de su rol (nunca para Admin).
+      if (actor.email && actor.role !== "admin") {
+        const record = await accessDirectory.find(actor.email);
+        resolved.permissions = applyPermissionOverrides(resolved.permissions, record);
+      }
+      actor = { ...actor, ...resolved };
     }
-    sessionActors.set(request, { ...actor, ...resolved });
+    // Clientes que un admin principal le ocultó a esta persona: salen de su alcance de marcas, así
+    // que todas las rutas (bandeja, Inicio, Clientes, Reportes, exportes) dejan de mostrarlos.
+    if (actor.email && !isMasterAdmin(identityConfig, actor.email)) {
+      const hidden = (await accessDirectory.find(actor.email))?.hiddenBrandIds ?? [];
+      if (hidden.length) {
+        const blocked = new Set(hidden);
+        const base = actor.brandIds === "all"
+          ? (await repository.snapshotCatalog()).brands.map((brand) => brand.id)
+          : actor.brandIds;
+        actor = { ...actor, brandIds: base.filter((brandId) => !blocked.has(brandId)) };
+      }
+    }
+    sessionActors.set(request, actor);
   });
 
   /**
@@ -2582,6 +2597,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     });
     accessDirectory.invalidate();
     request.log.info({ event: "user_permissions_changed", added: overrides.add.length, removed: overrides.remove.length, by: actor.userId }, "Permisos personales actualizados.");
+    const listing = await listAccessControl(identityConfig, repository, actor.email);
+    return { data: { ...listing, user: listing.users.find((item) => item.email === body.email) }, meta: apiMeta(config) };
+  });
+
+  /**
+   * Oculta clientes a una persona (solo admin principal). Esos clientes salen de su alcance de
+   * marcas en todas las rutas; su historial no se toca y se ven de nuevo al quitarlos de la lista.
+   * A un admin principal no se le pueden ocultar clientes.
+   */
+  app.put("/api/admin/users/hidden-brands", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    if (!isMasterAdmin(identityConfig, actor.email)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede ocultar clientes a una persona.");
+    }
+    const body = userHiddenBrandsSchema.parse(request.body);
+    if (isMasterAdmin(identityConfig, body.email)) {
+      throw new ApiError(409, "MASTER_ADMIN_SEES_ALL", "Un admin principal ve todos los clientes; no se le pueden ocultar.");
+    }
+    const before = await listAccessControl(identityConfig, repository, actor.email);
+    if (!before.users.some((user) => user.email === body.email)) {
+      throw new ApiError(404, "USER_NOT_FOUND", "Esa persona no está en la lista. Asígnale un rol primero.");
+    }
+    const known = new Set((await repository.snapshotCatalog()).brands.map((brand) => brand.id));
+    const unknown = body.brandIds.filter((brandId) => !known.has(brandId));
+    if (unknown.length) throw new ApiError(422, "BRAND_NOT_FOUND", "Algún cliente de la lista no existe.", { brandIds: unknown });
+    await repository.setUserHiddenBrands({
+      email: body.email,
+      brandIds: body.brandIds,
+      updatedBy: actor.displayName,
+      at: new Date().toISOString(),
+    });
+    accessDirectory.invalidate();
+    request.log.info({ event: "user_hidden_brands_changed", hidden: new Set(body.brandIds).size, by: actor.userId }, "Clientes ocultos de una persona actualizados.");
     const listing = await listAccessControl(identityConfig, repository, actor.email);
     return { data: { ...listing, user: listing.users.find((item) => item.email === body.email) }, meta: apiMeta(config) };
   });

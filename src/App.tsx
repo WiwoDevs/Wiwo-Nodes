@@ -2417,7 +2417,12 @@ export function App({ onSignOut, sessionActor }: {
         ) : null}
         {view === "users" && navIsAdmin ? (
           <div className="content-page">
-            <UsersRolesView onToast={showPlatformToast} />
+            <UsersRolesView
+              onToast={showPlatformToast}
+              // Solo clientes visibles: los ocultos para todos ya no los ve nadie.
+              brands={operationalAccounts.map((account) => ({ id: account.brandId ?? account.id, name: account.name, handle: account.accountHandle }))}
+              brandsLoading={isLoadingData}
+            />
           </div>
         ) : null}
         {view === "settings" ? (

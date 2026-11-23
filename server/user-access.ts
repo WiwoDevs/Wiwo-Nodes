@@ -106,6 +106,12 @@ export interface UserAccessView {
   permissionsRemove: Permission[];
   permissionsUpdatedBy?: string;
   permissionsUpdatedAt?: string;
+  /** Admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS): ve todos los clientes; no se le pueden ocultar. */
+  masterAdmin: boolean;
+  /** Clientes que un admin principal le ocultó a esta persona (vacío para los admins principales). */
+  hiddenBrandIds: string[];
+  hiddenBrandsUpdatedBy?: string;
+  hiddenBrandsUpdatedAt?: string;
 }
 
 /** Permisos que trae un rol (por id) según el catálogo; "none" o desconocido = ninguno. */
@@ -203,7 +209,13 @@ export async function listAccessControl(
     const overridable = effectiveRole !== "admin" && effectiveRole !== "none" && !locked;
     const permissionsAdd = overridable ? stored?.permissionsAdd ?? [] : [];
     const permissionsRemove = overridable ? stored?.permissionsRemove ?? [] : [];
+    const masterAdmin = Boolean(config.adminEmails?.includes(email));
+    const hiddenBrandIds = masterAdmin ? [] : stored?.hiddenBrandIds ?? [];
     return {
+      masterAdmin,
+      hiddenBrandIds,
+      ...(hiddenBrandIds.length && stored?.hiddenBrandsUpdatedBy ? { hiddenBrandsUpdatedBy: stored.hiddenBrandsUpdatedBy } : {}),
+      ...(hiddenBrandIds.length && stored?.hiddenBrandsUpdatedAt ? { hiddenBrandsUpdatedAt: stored.hiddenBrandsUpdatedAt } : {}),
       rolePermissions,
       permissions: applyPermissionOverrides(rolePermissions, { permissionsAdd, permissionsRemove }),
       permissionsAdd,

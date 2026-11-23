@@ -2,7 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import pg, { type QueryResultRow } from "pg";
 import { createDemoStore } from "./seed.js";
 import { createDemoAutomationState } from "./automation-seed.js";
-import type { SacFlowRepository, SetUserAccessRoleInput, SetUserPermissionOverridesInput } from "./repository-contract.js";
+import type { SacFlowRepository, SetUserAccessRoleInput, SetUserHiddenBrandsInput, SetUserPermissionOverridesInput } from "./repository-contract.js";
 import type {
   Brand,
   CatalogStore,
@@ -1871,6 +1871,37 @@ export class PostgresRepository implements SacFlowRepository {
     }, { write: true });
   }
 
+  async setUserHiddenBrands(input: SetUserHiddenBrandsInput): Promise<UserAccessRecord | undefined> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const brandIds = [...new Set(input.brandIds)];
+      const result = await client.query<UserAccessRow>(
+        `INSERT INTO user_access (organization_id, email, display_name, hidden_brand_ids, hidden_brands_updated_by, hidden_brands_updated_at, updated_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6::timestamptz, now())
+         ON CONFLICT (organization_id, email) DO UPDATE SET
+           display_name = COALESCE(EXCLUDED.display_name, user_access.display_name),
+           hidden_brand_ids = EXCLUDED.hidden_brand_ids,
+           hidden_brands_updated_by = EXCLUDED.hidden_brands_updated_by,
+           hidden_brands_updated_at = EXCLUDED.hidden_brands_updated_at,
+           updated_at = now()
+         RETURNING ${USER_ACCESS_COLUMNS}`,
+        [
+          organizationId,
+          input.email,
+          input.name ?? null,
+          JSON.stringify(brandIds),
+          brandIds.length ? input.updatedBy : null,
+          brandIds.length ? input.at : null,
+        ],
+      );
+      const row = result.rows[0];
+      if (row && !keepUserAccessRow(row)) {
+        await client.query("DELETE FROM user_access WHERE organization_id = $1 AND email = $2", [organizationId, input.email]);
+        return undefined;
+      }
+      return row ? userAccessFromRow(row) : undefined;
+    }, { write: true });
+  }
+
   async recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void> {
     await this.withTenantClient(async (client, organizationId) => {
       await client.query(
@@ -3198,7 +3229,7 @@ export class PostgresRepository implements SacFlowRepository {
   }
 }
 
-const USER_ACCESS_COLUMNS = "email, display_name, role, assigned_by, assigned_at, last_sign_in_at, permissions_add, permissions_remove, permissions_updated_by, permissions_updated_at";
+const USER_ACCESS_COLUMNS = "email, display_name, role, assigned_by, assigned_at, last_sign_in_at, permissions_add, permissions_remove, permissions_updated_by, permissions_updated_at, hidden_brand_ids, hidden_brands_updated_by, hidden_brands_updated_at";
 
 interface UserAccessRow extends QueryResultRow {
   email: string;
@@ -3211,6 +3242,13 @@ interface UserAccessRow extends QueryResultRow {
   permissions_remove?: unknown;
   permissions_updated_by?: string | null;
   permissions_updated_at?: Date | string | null;
+  hidden_brand_ids?: unknown;
+  hidden_brands_updated_by?: string | null;
+  hidden_brands_updated_at?: Date | string | null;
+}
+
+function brandIdList(value: unknown): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0))] : [];
 }
 
 function permissionList(value: unknown): Permission[] {
@@ -3218,7 +3256,7 @@ function permissionList(value: unknown): Permission[] {
 }
 
 function keepUserAccessRow(row: UserAccessRow): boolean {
-  return Boolean(row.role || row.last_sign_in_at || permissionList(row.permissions_add).length || permissionList(row.permissions_remove).length);
+  return Boolean(row.role || row.last_sign_in_at || permissionList(row.permissions_add).length || permissionList(row.permissions_remove).length || brandIdList(row.hidden_brand_ids).length);
 }
 
 function isoOrUndefined(value: Date | string | null): string | undefined {
@@ -3232,7 +3270,16 @@ function userAccessFromRow(row: UserAccessRow): UserAccessRecord {
   const permissionsAdd = permissionList(row.permissions_add);
   const permissionsRemove = permissionList(row.permissions_remove);
   const permissionsUpdatedAt = isoOrUndefined(row.permissions_updated_at ?? null);
+  const hiddenBrandIds = brandIdList(row.hidden_brand_ids);
+  const hiddenBrandsUpdatedAt = isoOrUndefined(row.hidden_brands_updated_at ?? null);
   return {
+    ...(hiddenBrandIds.length
+      ? {
+        hiddenBrandIds,
+        ...(row.hidden_brands_updated_by ? { hiddenBrandsUpdatedBy: row.hidden_brands_updated_by } : {}),
+        ...(hiddenBrandsUpdatedAt ? { hiddenBrandsUpdatedAt } : {}),
+      }
+      : {}),
     email: row.email,
     name: row.display_name,
     ...(row.role ? { role: row.role } : {}),

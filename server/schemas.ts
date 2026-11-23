@@ -448,6 +448,12 @@ export const userPermissionsSchema = z.object({
   permissions: z.array(z.string().max(60)).max(40).nullable(),
 }).strict();
 
+/** Clientes ocultos para una persona (solo admin principal); lista vacía = ve todos. */
+export const userHiddenBrandsSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  brandIds: z.array(z.string().trim().min(1).max(100)).max(500),
+}).strict();
+
 export const accessRoleIdParamsSchema = z.object({
   roleId: z.string().trim().min(1).max(80),
 }).strict();

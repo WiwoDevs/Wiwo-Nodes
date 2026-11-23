@@ -121,6 +121,11 @@ export interface SacFlowRepository {
    * de su rol). Listas vacías los quitan; un registro sin rol, ingreso ni ajustes se elimina.
    */
   setUserPermissionOverrides(input: SetUserPermissionOverridesInput): Promise<UserAccessRecord | undefined>;
+  /**
+   * Guarda los clientes ocultos para una persona (solo admin principal). Lista vacía los quita;
+   * un registro sin rol, ingreso, ajustes ni clientes ocultos se elimina.
+   */
+  setUserHiddenBrands(input: SetUserHiddenBrandsInput): Promise<UserAccessRecord | undefined>;
   /** Registra un inicio de sesión exitoso (nombre y fecha). */
   recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void>;
   /** Ajustes de roles de base y roles propios guardados. */
@@ -136,6 +141,14 @@ export interface SetUserPermissionOverridesInput {
   name?: string | null;
   add: Permission[];
   remove: Permission[];
+  updatedBy: string;
+  at: string;
+}
+
+export interface SetUserHiddenBrandsInput {
+  email: string;
+  name?: string | null;
+  brandIds: string[];
   updatedBy: string;
   at: string;
 }

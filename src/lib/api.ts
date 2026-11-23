@@ -1434,6 +1434,11 @@ export function setUserPermissions(email: string, permissions: string[] | null):
   return accessControlRequest("/admin/users/permissions", jsonInit("PUT", { email, permissions }));
 }
 
+/** Clientes que una persona no ve (solo admin principal); lista vacía = ve todos. */
+export function setUserHiddenBrands(email: string, brandIds: string[]): Promise<AccessControlListing & { user?: UserAccessView }> {
+  return accessControlRequest("/admin/users/hidden-brands", jsonInit("PUT", { email, brandIds }));
+}
+
 export function createAccessRole(input: { name: string; baseRole: "viewer" | "agent" | "supervisor"; permissions: string[] }): Promise<AccessControlListing & { roleId: string }> {
   return accessControlRequest("/admin/roles", jsonInit("POST", input));
 }

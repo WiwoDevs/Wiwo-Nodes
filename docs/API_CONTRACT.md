@@ -643,6 +643,14 @@ Al mostrarlo vuelve con todo su historial y la sincronización siguiente trae lo
 
 Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, hidden, externalWrites: false } }`.
 
+### `PUT /api/admin/users/hidden-brands`
+
+Oculta clientes a una persona: `{ "email": string, "brandIds": string[] }`; lista vacía = ve todos. Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. A un admin principal no se le pueden ocultar (`409 MASTER_ADMIN_SEES_ALL`); la persona debe estar en la lista (`404 USER_NOT_FOUND`) y cada cliente debe existir (`422 BRAND_NOT_FOUND`).
+
+En cada solicitud de esa persona, la API quita esos clientes de su alcance de marcas: dejan de aparecer en `GET /api/brands`, la bandeja, Inicio, el resumen, Reportes, los exportes y `/api/stats/messages`, y pedirlos directo responde `403`. No se borra nada y cambiar su rol o sus permisos conserva la lista. Se guarda en `user_access.hidden_brand_ids` (migración `0022_user_hidden_brands.sql`); `GET /api/admin/users` devuelve por persona `masterAdmin`, `hiddenBrandIds`, `hiddenBrandsUpdatedBy` y `hiddenBrandsUpdatedAt`.
+
+Respuesta: el listado de `GET /api/admin/users` más `user` con la persona actualizada.
+
 ### `PUT /api/brands/:brandId/sac-usage`
 
 Marca qué redes de la cuenta usa hoy el equipo en SAC (marca «En SAC» de Clientes): `{ "channels": Channel[] }`; una lista vacía deja la cuenta como «no se usa en SAC». Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. Cada red debe estar conectada en la cuenta (`account.channels`); si no, `422 CHANNEL_NOT_CONNECTED`.
