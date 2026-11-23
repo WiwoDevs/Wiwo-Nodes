@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { WarningCircle } from "@phosphor-icons/react";
 import { GOOGLE_SIGN_IN_URL, openDevSession, type AuthProvider } from "../lib/api";
 import type { SessionActor } from "../types";
-import { markIntroPending, playBrandIntro, playErrorSound } from "../lib/brand-sounds";
+import { markIntroPending, playBrandIntro, playErrorSound, preloadBrandIntro } from "../lib/brand-sounds";
 import { LoginShell, WiwoSacLogo } from "./LoginShell";
 import { WiwoThinkingOrb } from "./WiwoThinkingOrb";
 
@@ -62,6 +62,8 @@ export function LoginScreen({ provider, onAuthenticated }: LoginScreenProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // La firma de marca queda lista antes del clic de «Entrar» (solo si el sonido está activado).
+    if (isDev) preloadBrandIntro();
     const message = takeLoginError();
     if (message) {
       setError(message);

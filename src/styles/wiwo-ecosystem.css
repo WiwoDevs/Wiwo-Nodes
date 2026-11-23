@@ -732,6 +732,7 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 /* ── 8. Inicio: saludo editorial sin caja (MetriQ: app/(dashboard)/page.tsx) ── */
 .sac-home-intro,
 :root[data-theme="light"] .sac-home-intro {
+  grid-template-columns: minmax(0, 1fr);
   padding: 8px 4px 4px;
   border: 0;
   border-radius: 0;
@@ -779,15 +780,6 @@ input[type="radio"] { accent-color: var(--neo-blue); }
   animation: wiwo-cta-flow 6s linear infinite;
 }
 
-.sac-home-status > span {
-  border-color: var(--border);
-  border-radius: var(--shape-full);
-  color: var(--ink);
-  background: var(--surface);
-  box-shadow: none;
-}
-
-.sac-home-status .is-warning { color: var(--accent-text); }
 
 .sac-home-kpis,
 .sac-home-operations,

@@ -803,13 +803,6 @@ export function AutomationPlatform({
             {canOpen("accounts") ? <button className="button secondary" onClick={() => onNavigate("accounts")}><Buildings /> Ver estado de cuentas</button> : null}
           </div>
         </div>
-        <div className="sac-home-status" aria-label="Estado del espacio">
-          <span className={meta?.demoMode ? "is-neutral" : "is-ready"}><i />{meta?.demoMode ? "Entorno aislado" : "API real"}</span>
-          {/* El flujo llega con la primera carga; antes no hay estado que mostrar. */}
-          {isFirstLoad ? null : <span className={sacWorkflow.enabled ? "is-ready" : "is-warning"}><i />Flujo SAC {sacWorkflow.enabled ? "activo" : "pausado"}</span>}
-          <span className={meta?.metricoolMutationsDisabled ? "is-neutral" : "is-warning"}><ShieldCheck weight="fill" />{meta?.metricoolMutationsDisabled ? "Metricool protegido" : "Envíos habilitados"}</span>
-          {isOperationalLoading ? <span role="status" aria-live="polite"><BusyOrb />Actualizando operación</span> : null}
-        </div>
       </section>
 
       <section className="sac-home-kpis" aria-label="Prioridades operativas">
