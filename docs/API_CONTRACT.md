@@ -643,6 +643,24 @@ Al mostrarlo vuelve con todo su historial y la sincronización siguiente trae lo
 
 Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, hidden, externalWrites: false } }`.
 
+### `PUT /api/admin/users/hidden-brands`
+
+Oculta clientes a una persona: `{ "email": string, "brandIds": string[] }`; lista vacía = ve todos. Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. A un admin principal no se le pueden ocultar (`409 MASTER_ADMIN_SEES_ALL`); la persona debe estar en la lista (`404 USER_NOT_FOUND`) y cada cliente debe existir (`422 BRAND_NOT_FOUND`).
+
+En cada solicitud de esa persona, la API quita esos clientes de su alcance de marcas: dejan de aparecer en `GET /api/brands`, la bandeja, Inicio, el resumen, Reportes, los exportes y `/api/stats/messages`, y pedirlos directo responde `403`. No se borra nada y cambiar su rol o sus permisos conserva la lista. Se guarda en `user_access.hidden_brand_ids` (migración `0022_user_hidden_brands.sql`); `GET /api/admin/users` devuelve por persona `masterAdmin`, `hiddenBrandIds`, `hiddenBrandsUpdatedBy` y `hiddenBrandsUpdatedAt`.
+
+Respuesta: el listado de `GET /api/admin/users` más `user` con la persona actualizada.
+
+### `PUT /api/brands/:brandId/sac-usage`
+
+Marca qué redes de la cuenta usa hoy el equipo en SAC (marca «En SAC» de Clientes): `{ "channels": Channel[] }`; una lista vacía deja la cuenta como «no se usa en SAC». Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. Cada red debe estar conectada en la cuenta (`account.channels`); si no, `422 CHANNEL_NOT_CONNECTED`.
+
+Es solo una etiqueta para filtrar Clientes y su tablero: no oculta, no deja de sincronizar y no cambia la bandeja, Reportes ni METRIQ. Las cuentas sin marcar siguen visibles con todo su historial. Se guarda en `account.sacChannels` (PostgreSQL: `social_accounts.sac_channels`, migración `0021_account_sac_usage.sql`) y viaja en `PublicBrand.account.sacChannels`; ausente significa que nunca se marcó. Al editar los canales de una marca, las redes marcadas que ya no estén conectadas se quitan.
+
+Precarga: al arrancar, la API marca una sola vez (solo si ninguna cuenta tiene el campo definido) las cuentas de la lista del equipo, calzando por nombre o usuario de la cuenta normalizado y por red, nunca por IDs de Metricool (`server/sac-usage.ts`). Lo que no calza queda en el registro `sac_usage_seeded` (`unmatched`).
+
+Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, externalWrites: false } }`.
+
 ### `DELETE /api/brands/:brandId`
 
 Equivale a `PUT /api/brands/:brandId/visibility` con `{ "hidden": true }` y se conserva por compatibilidad. Mismas reglas: solo admin principal, no borra historial ni contacta a Metricool.
@@ -1045,6 +1063,14 @@ Recomendación de respuesta con IA para un mensaje entrante (permiso `inbox.repl
 ### `POST /api/interactions/triage`
 
 Marca en lote, como caso o ruido, todos los mensajes entrantes de las conversaciones elegidas en la Bandeja: `{ contactKeys: string[] (1-200), esCasoSac: boolean }`, permiso `inbox.triage` y alcance de marcas del actor. Los mensajes que alguien ya marcó a mano no se cambian. Responde `{ data: { updated, contacts } }`.
+
+### `GET /api/stats/messages`
+
+Mensajes recibidos del tablero de Clientes. Query obligatoria `from` y `to` (`AAAA-MM-DD`, días UTC inclusive, `from <= to`, máximo un año; si no, `400`). Requiere `metrics.read` o `brands.manage` (el mismo acceso que la sección Clientes) y aplica el alcance de marcas del actor.
+
+Regla: cuenta las interacciones **entrantes** (DMs, comentarios y reseñas) de clientes visibles cuya fecha `createdAt`, en día UTC como Reportes, cae en el período. Excluye los registros cargados a mano desde el Excel BD SAC (`source: "planilla"`) y todo lo saliente. Es volumen recibido: incluye spam y ruido (los casos SAC están en `GET /api/reports/sac`).
+
+Respuesta: `{ data: { from, to, generatedAt, rows: Array<{ date, brandId, accountId, channel, dms, comments, reviews, total }> }, meta: { demoMode, mode, excludedSources: ["planilla"] } }`. Una fila por día, cuenta y red con mensajes; el cliente filtra por «En SAC» (solo las redes de `account.sacChannels`) y por cuenta.
 
 ### `GET /api/stats/summary`
 

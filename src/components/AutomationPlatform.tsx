@@ -89,7 +89,7 @@ import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb, OrbLoader, BusyOrb } from "./ThinkingOrb";
 
 export type AutomationSection = "home" | "workflows" | "executions" | "templates" | "credentials";
-export type AutomationHomeDestination = "platform-home" | "automations" | "automation-executions" | "workflow" | "dashboard" | "interactions" | "accounts";
+export type AutomationHomeDestination = "platform-home" | "automation-executions" | "workflow" | "dashboard" | "interactions" | "accounts";
 
 type ToastPayload = { tone: "success" | "warning"; title: string; detail: string; sound?: boolean };
 type AutomationPlatformProps = {
@@ -99,21 +99,16 @@ type AutomationPlatformProps = {
   canSupervise: boolean;
   accounts: BrandAccount[];
   interactions: Interaction[];
-  sacWorkflow: ApiWorkflow;
   isOperationalLoading: boolean;
   onNavigate: (destination: AutomationHomeDestination) => void;
   /** Si la persona puede abrir esa sección; los accesos a las que no puede no se muestran. */
   canOpen?: (destination: AutomationHomeDestination) => boolean;
-  /** Qué Inicio ve la persona: el Agente su trabajo; Supervisor el equipo; Admin además el sistema. */
+  /** Qué Inicio ve la persona: el Agente su trabajo primero; Supervisor y Admin toda la cola. */
   homeRole?: "agent" | "supervisor" | "admin";
   currentUserId?: string;
   /** Asigna a la persona el caso indicado y lo abre (permiso inbox.assign). */
   onTakeNext?: (interaction: Interaction) => void | Promise<void>;
-  inboxSync?: InboxSyncStatus;
-  automaticRepliesEnabled?: boolean;
   onOpenInteraction: (interaction: Interaction) => void;
-  /** Abre la Bandeja SAC con los casos en plazo de esa persona (null = sin asignar). Solo Supervisor/Admin. */
-  onOpenTeamMember?: (member: { userId: string; displayName: string } | null) => void;
   onToast: (payload: ToastPayload) => void;
   /** Display name of the signed-in user, used for the Home greeting. */
   userName?: string;
@@ -544,17 +539,13 @@ export function AutomationPlatform({
   canSupervise,
   accounts,
   interactions,
-  sacWorkflow,
   isOperationalLoading,
   onNavigate,
   canOpen = () => true,
   homeRole = "admin",
   currentUserId,
   onTakeNext,
-  inboxSync,
-  automaticRepliesEnabled = false,
   onOpenInteraction,
-  onOpenTeamMember,
   onToast,
   userName,
 }: AutomationPlatformProps) {
@@ -633,12 +624,6 @@ export function AutomationPlatform({
   useEffect(() => {
     if (section !== "workflows") setSelectedWorkflowId(null);
   }, [section]);
-
-  useEffect(() => {
-    if (section !== "home" || homeRole !== "admin") return undefined;
-    void refreshOperationalJobs();
-    return () => { operationalJobsRequestRef.current += 1; };
-  }, [homeRole, refreshOperationalJobs, section]);
 
   useEffect(() => {
     if (section !== "executions") return undefined;
@@ -764,32 +749,8 @@ export function AutomationPlatform({
       : undefined;
     const topQueue = (isAgentHome
       ? [...mine, ...byDeadline(attention.filter((interaction) => !mineIds.has(interaction.id)))]
-      : byDeadline(attention)).slice(0, 5);
-    // Supervisor y Admin: carga en plazo por persona y lo que nadie tomó.
-    const teamRows = isAgentHome ? [] : [...attention.reduce((rows, interaction) => {
-      if (!interaction.assignedTo) return rows;
-      const row = rows.get(interaction.assignedTo.userId) ?? { userId: interaction.assignedTo.userId, name: interaction.assignedTo.displayName, open: 0, dueSoon: 0 };
-      row.open += 1;
-      if (dueSoonIds.has(interaction.id)) row.dueSoon += 1;
-      return rows.set(interaction.assignedTo.userId, row);
-    }, new Map<string, { userId: string; name: string; open: number; dueSoon: number }>()).values()].sort((left, right) => right.open - left.open);
-    // Con acceso a la bandeja, cada fila del panel Equipo abre sus casos en plazo; si no, solo informa.
-    const canOpenTeamMember = Boolean(onOpenTeamMember) && canOpen("interactions") && !isFirstLoad;
-    const teamRow = (key: string, className: string | undefined, label: string, onOpen: () => void, children: ReactNode) => canOpenTeamMember
-      ? <button key={key} type="button" className={className} onClick={onOpen} aria-label={label} title={label}>{children}</button>
-      : <div key={key} className={className}>{children}</div>;
-    const casesLabel = (count: number) => count === 1 ? "el caso en plazo" : `los ${formatCount(count)} casos en plazo`;
-    const unassignedDueSoon = unassigned.filter((interaction) => dueSoonIds.has(interaction.id)).length;
-    const failedJobs = operationalJobs.filter((job) => job.status === "dead").length;
-    const retryingJobs = operationalJobs.filter((job) => job.status === "retry").length;
-    const syncLabel = inboxSync?.lastRunAt
-      ? `${formatDate(inboxSync.lastRunAt)} · ${({ success: "correcta", partial: "parcial", failed: "fallida", never: "sin ejecutar" } as const)[inboxSync.lastRunStatus ?? "success"]}`
-      : "Sin registro";
+      : byDeadline(attention)).slice(0, 8);
     const dueSoonLabel = (count: number) => count === 1 ? "1 vence en menos de 24 h" : `${formatCount(count)} vencen en menos de 24 h`;
-    const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase("es-CL")).join("") || "?";
-    const active = state.workflows.filter((workflow) => workflow.active && !workflow.archived).length;
-    const successful = state.executions.filter((execution) => execution.status === "success").length;
-    const successRate = state.executions.length ? Math.round(successful / state.executions.length * 100) : null;
     return <div className="platform-page platform-home" aria-busy={isOperationalLoading}>
       <section className="sac-home-intro" aria-labelledby="sac-home-title">
         <div className="sac-home-intro__copy">
@@ -799,11 +760,11 @@ export function AutomationPlatform({
             {salutationFor()}{greetingName ? <>, <span className="wiwo-accent-name">{greetingName}</span></> : null}
           </h2>
           <p className="sac-home-lead">Lo que necesita atención, primero.</p>
-          <p>{isAgentHome ? "Toma el caso que vence antes, respóndelo y pasa al siguiente. Tus casos aparecen primero." : "Prioriza DMs y comentarios, revisa las cuentas con alertas y mantén el flujo SAC bajo control desde un solo lugar."}</p>
+          <p>{isAgentHome ? "Toma el caso que vence antes, respóndelo y pasa al siguiente. Tus casos aparecen primero." : "Prioriza los DMs y comentarios que vencen antes y revisa las cuentas con alertas."}</p>
           <div className="sac-home-actions">
             {isAgentHome && onTakeNext ? <button className="button primary" onClick={() => { if (nextToTake) void onTakeNext(nextToTake); }} disabled={!nextToTake} title={nextToTake ? `Te asigna y abre ${nextToTake.customerName}${deadlineLabel(nextToTake, now) ? ` (${deadlineLabel(nextToTake, now)})` : ""}` : "No hay casos en plazo sin asignar"}><HandGrabbing weight="fill" /> Tomar siguiente</button> : null}
             <button className={`button ${isAgentHome && onTakeNext ? "secondary" : "primary"}`} onClick={() => onNavigate("interactions")}><ChatCircleDots weight={isAgentHome && onTakeNext ? "regular" : "fill"} /> Abrir bandeja SAC</button>
-            {canOpen("accounts") ? <button className="button secondary" onClick={() => onNavigate("accounts")}><Buildings /> Ver estado de cuentas</button> : null}
+            {canOpen("accounts") ? <button className="button secondary" onClick={() => onNavigate("accounts")}><Buildings /> Ver clientes</button> : null}
           </div>
         </div>
       </section>
@@ -842,61 +803,7 @@ export function AutomationPlatform({
           </div>
         </section>
 
-        <div className="sac-home-side-stack">
-          {!isAgentHome ? <section className="sac-home-panel sac-account-panel">
-            <header><div><span className="panel-kicker">Salud de cuentas</span><h3>{isFirstLoad ? "Cargando…" : accountsWithAlerts.length ? "Requieren revisión" : "Todas operativas"}</h3></div>{canOpen("accounts") ? <button className="icon-button" aria-label="Abrir cuentas" onClick={() => onNavigate("accounts")}><ArrowRight /></button> : null}</header>
-            <div className="sac-account-list">
-              {(accountsWithAlerts.length ? accountsWithAlerts : accounts.slice(0, 3)).slice(0, 4).map((account) => <button key={account.id} onClick={() => onNavigate("accounts")} disabled={!canOpen("accounts")} className={canOpen("accounts") ? undefined : "is-static"}>
-                <span className="sac-account-avatar">{account.initials}</span><span><strong>{account.name}</strong><small>{account.healthDetail}</small></span><em className={`health-${account.health}`}><i />{accountHealthLabel(account.health)}</em>
-              </button>)}
-              {!accounts.length && !isFirstLoad ? <div className="sac-panel-empty compact"><Buildings /><span><strong>Sin cuentas todavía</strong><small>Conecta las cuentas cuando estén disponibles.</small></span></div> : null}
-            </div>
-          </section> : null}
-
-          <section className="sac-home-panel sac-flow-panel">
-            <header><div><span className="panel-kicker">Flujo SAC</span><h3>{sacWorkflow.name}</h3></div>{isFirstLoad ? <span className="sac-flow-state"><i />Cargando…</span> : <span className={`sac-flow-state ${sacWorkflow.enabled ? "is-active" : ""}`}><i />{sacWorkflow.enabled ? "Activo" : "Pausado"}</span>}</header>
-            <dl><div><dt>Frecuencia</dt><dd>{isFirstLoad ? "—" : `Cada ${sacWorkflow.pollIntervalMinutes} min`}</dd></div><div><dt>Revisión sensible</dt><dd>{isFirstLoad ? "—" : `${sacWorkflow.requireHumanFor.length} categorías`}</dd></div><div><dt>Respuesta automática</dt><dd>{isFirstLoad ? "—" : meta?.metricoolMutationsDisabled ? "Bloqueada en desarrollo" : sacWorkflow.autoReplyEnabled ? "Habilitada" : "Desactivada"}</dd></div></dl>
-            {canOpen("workflow") ? <button className="button secondary" onClick={() => onNavigate("workflow")}><FlowArrow /> Abrir flujo SAC</button> : null}
-          </section>
-        </div>
       </div>
-
-      {!isAgentHome ? <div className={`sac-home-team-row${homeRole === "admin" ? " has-system" : ""}`}>
-        <section className="sac-home-panel sac-team-panel" aria-labelledby="sac-team-title">
-          <header><div><span className="panel-kicker">Equipo</span><h3 id="sac-team-title">Carga en plazo por persona</h3><p>Casos abiertos asignados y los que nadie ha tomado.</p></div><span className="sac-team-icon" aria-hidden="true"><UsersThree weight="duotone" /></span></header>
-          <div className="sac-account-list sac-team-list">
-            {teamRow("unassigned", unassigned.length ? "is-warning" : undefined, `Ver en la bandeja ${casesLabel(unassigned.length)} sin asignar`, () => onOpenTeamMember?.(null), <>
-              <span className="sac-account-avatar">—</span>
-              <span><strong>Sin asignar</strong><small>{isFirstLoad ? "Cargando…" : unassignedDueSoon ? dueSoonLabel(unassignedDueSoon) : "Ninguno vence en las próximas 24 h"}</small></span>
-              <em>{isFirstLoad ? "—" : formatCount(unassigned.length)}</em>
-            </>)}
-            {teamRows.map((row) => teamRow(row.userId, undefined, `Ver en la bandeja ${casesLabel(row.open)} de ${row.name}`, () => onOpenTeamMember?.({ userId: row.userId, displayName: row.name }), <>
-              <span className="sac-account-avatar">{initialsOf(row.name)}</span>
-              <span><strong>{row.name}</strong><small>{row.dueSoon ? dueSoonLabel(row.dueSoon) : "Ninguno vence en las próximas 24 h"}</small></span>
-              <em>{formatCount(row.open)}</em>
-            </>))}
-            {!isFirstLoad && !teamRows.length ? <p className="empty-inline">Nadie tiene casos asignados en plazo. Con «Tomar siguiente» cada persona se asigna el que vence antes.</p> : null}
-          </div>
-        </section>
-        {homeRole === "admin" ? <section className="sac-home-panel sac-flow-panel sac-system-panel" aria-labelledby="sac-system-title">
-          <header><div><span className="panel-kicker">Sistema</span><h3 id="sac-system-title">Estado técnico</h3></div></header>
-          <dl>
-            <div><dt>Última sincronización Metricool</dt><dd className={!isFirstLoad && inboxSync?.lastRunStatus === "failed" ? "is-warning" : undefined}>{isFirstLoad ? "—" : syncLabel}</dd></div>
-            <div><dt>Sincronización automática</dt><dd>{isFirstLoad || !inboxSync ? "—" : inboxSync.enabled ? `Cada ${inboxSync.intervalMinutes} min` : "Pausada"}</dd></div>
-            <div><dt>Envío automático</dt><dd>{isFirstLoad ? "—" : automaticRepliesEnabled ? "Activado" : "Desactivado"}</dd></div>
-            <div><dt>Trabajos fallidos</dt><dd className={failedJobs ? "is-warning" : undefined}>{hasLoadedOperationalJobs ? `${formatCount(failedJobs)}${retryingJobs ? ` · ${formatCount(retryingJobs)} reintentando` : ""}` : "—"}</dd></div>
-          </dl>
-          {canOpen("automation-executions") ? <button className="button secondary" onClick={() => onNavigate("automation-executions")}><ClockCounterClockwise /> Ver ejecuciones</button> : null}
-        </section> : null}
-      </div> : null}
-
-      {canOpen("automations") ? <section className="sac-home-panel sac-automation-overview">
-        <header><div><span className="panel-kicker">Automatización avanzada</span><h3>Recursos del motor</h3><p>Gestiona procesos generales sin perder de vista la operación SAC.</p></div><button className="button secondary" onClick={() => onNavigate("automations")}>Gestionar automatizaciones <ArrowRight /></button></header>
-        <div className="sac-automation-grid">
-          <div><span className="sac-resource-summary"><strong>{state.workflows.filter((item) => !item.archived).length}</strong><small>automatizaciones<br />{active} activas</small></span><div className="workflow-compact-list">{state.workflows.filter((item) => !item.archived).slice(0, 3).map((workflow) => <button key={workflow.id} onClick={() => { setSelectedWorkflowId(workflow.id); onNavigate("automations"); }}><span className="workflow-list-icon"><FlowArrow /></span><span><strong>{workflow.name}</strong><small>v{workflow.version} · {workflow.nodes.length} nodos</small></span><StateBadge status={workflow.lastRunStatus} /></button>)}</div></div>
-          <div><span className="sac-resource-summary"><strong>{successRate === null ? "Sin datos" : `${successRate}%`}</strong><small>éxito reciente<br />{state.executions.length ? `${state.executions.length} ejecuciones` : "sin ejecuciones"}</small></span><div className="execution-compact-list">{state.executions.slice(0, 3).map((execution) => <button key={execution.id} onClick={() => { setSelectedExecutionId(execution.id); onNavigate("automation-executions"); }}><StateBadge status={execution.status} /><span><strong>{state.workflows.find((item) => item.id === execution.workflowId)?.name || execution.workflowId}</strong><small>{execution.mode} · {durationLabel(execution)}</small></span><time>{formatDate(execution.startedAt)}</time></button>)}{!state.executions.length ? <p className="empty-inline">La actividad técnica aparecerá después de la primera ejecución.</p> : null}</div></div>
-        </div>
-      </section> : null}
     </div>;
   }
 

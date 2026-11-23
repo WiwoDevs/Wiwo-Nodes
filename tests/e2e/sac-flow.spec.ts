@@ -261,12 +261,10 @@ test("prioritizes SAC work on home and opens the visual studio", async ({ page }
   await page.locator(".sac-queue-list > button").first().click();
   await expect(page.getByLabel("Detalle de conversación")).toBeVisible();
   await page.getByRole("button", { name: "Cerrar detalle" }).click();
-  await page.getByRole("button", { name: "Automatización", exact: true }).click();
-  await page.getByRole("button", { name: /SAC Multicuenta Orquestación principal/ }).click();
-  await expect(page.getByLabel("Editor visual de automatizaciones")).toBeVisible();
-  await expect(page.locator(".platform-canvas-node")).toHaveCount(8);
-  await page.getByText("Cada 5 minutos", { exact: true }).click();
-  await expect(page.getByRole("spinbutton", { name: "Intervalo en minutos *" })).toHaveValue("5");
+  // Automatización, Plantillas y Credenciales salieron del menú por pedido del usuario.
+  await expect(page.getByRole("button", { name: "Automatización", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Credenciales", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Plantillas", exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -685,7 +683,7 @@ test("manages one account in a simplified two-pane manual workspace with exact h
   await expect(postCards.nth(0)).toContainText("Chuck 70: colores disponibles");
   await expect(postCards.nth(1)).toContainText("Colección anterior");
   await postCards.nth(0).click();
-  await expect(workspace.locator(".manual-inbox-conversation-header", { hasText: "Comentarios de la publicación" })).toBeVisible();
+  await expect(workspace.locator(".manual-inbox-conversation-header", { hasText: "2 sin responder" })).toBeVisible();
   const pendingComments = workspace.locator(".manual-inbox-exact-comments li > button");
   await expect(pendingComments).toHaveCount(2);
   await expect(pendingComments.nth(0)).toContainText("Ana Cliente");
@@ -695,9 +693,8 @@ test("manages one account in a simplified two-pane manual workspace with exact h
   await pendingComments.nth(1).click();
   await expect(pendingComments.nth(1)).toHaveAttribute("aria-current", "true");
   await expect(workspace.locator(".manual-inbox-reply-target")).toContainText("Respondiendo a Bruno Cliente");
-  const postCard = workspace.getByLabel("Publicación comentada");
-  await expect(postCard).toContainText("Chuck 70: colores disponibles");
-  await expect(postCard).toContainText("Publicado");
+  // El texto del post vive solo en su tarjeta de la lista; la cabecera solo enlaza la publicación.
+  await expect(workspace.getByLabel("Publicación comentada")).toHaveCount(0);
   const postLink = postCard.getByRole("link", { name: "Abrir publicación" });
   await expect(postLink).toHaveAttribute("href", postContext.permalink);
   await expect(postLink).toHaveAttribute("target", "_blank");
@@ -760,10 +757,8 @@ test("keeps visible controls accessibly named across the main views", async ({ p
   await expectNamedControls(page);
   for (const [view, heading] of [
     ["Inicio", "Centro de operaciones SAC"],
-    ["Automatización", "Automatizaciones"],
     ["Ejecuciones", "Ejecuciones"],
-    ["Credenciales", "Credenciales y variables"],
-    ["Cuentas", "Cuentas conectadas"],
+    ["Clientes", "Clientes"],
     ["Configuración", "Configuración"],
   ]) {
     await page.getByRole("button", { name: view, exact: true }).click();

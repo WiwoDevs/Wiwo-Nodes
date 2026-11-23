@@ -70,6 +70,12 @@ export interface UserAccessView {
   permissionsRemove: string[];
   permissionsUpdatedBy?: string;
   permissionsUpdatedAt?: string;
+  /** Admin principal: ve todos los clientes; no se le pueden ocultar. */
+  masterAdmin?: boolean;
+  /** Clientes que un admin principal le ocultó a esta persona. */
+  hiddenBrandIds?: string[];
+  hiddenBrandsUpdatedBy?: string;
+  hiddenBrandsUpdatedAt?: string;
 }
 
 export interface UserAccessPolicy {
@@ -136,6 +142,8 @@ export interface BrandAccount {
   workbook?: BrandWorkbook;
   qaWorkbook?: BrandQaWorkbook;
   resources: BrandResource[];
+  /** Redes de la cuenta que se usan hoy en SAC (marca «En SAC» de Clientes); ausente si nunca se marcó. */
+  sacChannels?: SocialPlatform[];
   channels: ChannelConnection[];
 }
 

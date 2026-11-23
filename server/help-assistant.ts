@@ -40,11 +40,8 @@ export const VIEW_NAMES: Record<string, string> = {
   dashboard: "Resumen SAC",
   reports: "Reportes",
   workflow: "Flujo SAC",
-  accounts: "Cuentas",
-  automations: "Automatización",
+  accounts: "Clientes",
   "automation-executions": "Ejecuciones",
-  templates: "Plantillas",
-  credentials: "Credenciales",
   users: "Usuarios y roles",
   settings: "Configuración",
 };
@@ -53,17 +50,19 @@ export const SAC_GUIDE = `GUÍA DE USO DE WIWO.SAC
 wiwo.sac es la herramienta de atención al cliente (SAC) de WIWO: reúne en un solo lugar los mensajes directos (DMs) y comentarios de unas 20 marcas en Instagram, Facebook, TikTok y LinkedIn, que llegan a través de Metricool. Se entra con "Iniciar sesión con Google". El menú y los botones aparecen según los permisos de cada persona; lo que un rol no puede usar no se muestra.
 
 SECCIONES DEL MENÚ
-- Inicio (Centro de operaciones SAC): lo que necesita atención primero. Cuenta solo casos dentro del plazo de respuesta y muestra aparte los vencidos. El Agente ve sus casos en plazo, los que vencen en 24 horas y el botón Tomar siguiente. El Supervisor suma el panel Equipo: la carga en plazo por persona; un clic en una persona o en "Sin asignar" abre la Bandeja con esos casos. El Admin suma el panel Sistema: última sincronización con Metricool, estado del envío automático y trabajos fallidos.
+El menú lateral tiene Inicio arriba y luego tres grupos: Bandejas (Bandeja SAC, Gestión DMs, Gestión comentarios), Operación SAC (Resumen SAC, Reportes, Flujo SAC) y Sistema (Clientes, Ejecuciones, Usuarios, Configuración). Un grupo sin secciones permitidas para el rol no aparece.
+- Inicio (Centro de operaciones SAC): lo que necesita atención primero. Cuenta solo casos dentro del plazo de respuesta y muestra aparte los vencidos: tarjetas Por atender en plazo, Revisión humana, Sin asignar y Cuentas con alertas, y la cola priorizada de conversaciones. El Agente ve sus casos en plazo, los que vencen en 24 horas y el botón Tomar siguiente. La carga por persona se ve en la Bandeja con el filtro Asignación → Responsable; el estado de las sincronizaciones y trabajos, en Ejecuciones.
 - Bandeja SAC: una fila por persona y cuenta, ordenada por lo que vence antes. Filtros Cuenta, Asignación, Canal, Tipo, Plazo, Spam y Estado, que el navegador recuerda; buscador; filtro Mis casos; Tomar siguiente (se asigna y abre el caso en plazo sin asignar que vence antes). Al abrir un caso, el detalle aparece a la derecha con el mensaje completo, el historial de la conversación, la Recomendación de respuesta con IA y el campo de respuesta. En el detalle: Guardar borrador, Enviar, Siguiente caso, Escalar, Resolver, Reabrir caso, notas internas y "Para el reporte" (Es caso / No es caso / Requiere derivación). Atajos de teclado en el detalle: J siguiente caso, K anterior, R ir a la respuesta, E escalar. Con varias conversaciones seleccionadas: Crear borradores y No es caso (ruido). Exportar vista descarga un Excel (permiso Exportar a Excel). Actualizar ahora pide una lectura a Metricool (permiso Actualizar desde Metricool).
-- Gestión DMs y Gestión comentarios: trabajo por cuenta, como un chat. Se elige la cuenta arriba; la cola y la conversación están lado a lado y se actualizan solas cada 15 segundos mientras la vista está abierta ("En vivo"); Actualizar cuenta fuerza la lectura. Los comentarios se agrupan por publicación (de la más nueva a la más antigua) y, dentro de una publicación, la fila va del comentario más antiguo al más reciente. Se ve quién tiene a cargo el chat o el post ("A cargo:"). El campo de respuesta tiene botón de emojis y Ctrl/Cmd+Enter envía. En un DM ya respondido se puede seguir escribiendo en la misma conversación; la primera vez por conversación pide confirmación.
+- Gestión DMs y Gestión comentarios: trabajo por cuenta, como un chat. Se elige la cuenta arriba; la cola y la conversación están lado a lado y se actualizan solas cada 15 segundos mientras la vista está abierta ("En vivo"); Actualizar cuenta fuerza la lectura. Los comentarios se agrupan por publicación (de la más nueva a la más antigua; el texto del post está en su tarjeta de la izquierda) y, dentro de una publicación, la fila va del comentario más antiguo al más reciente. Arriba se ve cuántos quedan sin responder, quién tiene a cargo el post ("A cargo:"), Descartar spam y Abrir publicación; el estado del comentario elegido y Asignarme están junto al campo de respuesta, en "Respondiendo a…". En un chat, "A cargo:" está en la cabecera. El campo de respuesta tiene botón de emojis y Ctrl/Cmd+Enter envía. En un DM ya respondido se puede seguir escribiendo en la misma conversación; la primera vez por conversación pide confirmación.
 - Resumen SAC: totales y rendimiento por marca (permiso Ver métricas y cola).
 - Reportes: cifras del informe SAC mensual por marca y mes (días UTC): casos, respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales, con avisos de datos dudosos antes de presentar, y el Excel del mes. Cargar TikTok/LinkedIn sube el Excel BD SAC de una marca con lo que Metricool no trae (por ejemplo los DMs de esas redes): primero muestra qué entra y qué se omite, y solo al confirmar guarda; volver a subirlo no duplica. Esos registros cuentan en el reporte pero no aparecen en la Bandeja. La web no genera presentaciones.
 - Flujo SAC: reglas del protocolo SAC, versiones y publicación (permisos Ajustar el flujo SAC y Publicar el flujo SAC).
-- Cuentas: marcas y cuentas conectadas y su centro documental (planilla de registros, Excel QA aprobado con las respuestas aprobadas de la marca y enlaces). Crear, editar y vincular marcas con Metricool requiere Gestionar marcas. Ocultar o mostrar un cliente es solo del admin principal: un cliente oculto deja de sincronizar y desaparece de la bandeja y los reportes sin borrar su historial.
-- Automatización, Ejecuciones y Plantillas: editor visual de automatizaciones, historial y plantillas (permiso Editar automatizaciones).
-- Credenciales y Usuarios y roles: solo Admin.
+- Clientes (antes Cuentas; permiso Gestionar marcas o Ver métricas): tablero de mensajes recibidos (por defecto el mes en curso; también por día o por un período de hasta un año), con totales, promedio diario, el día con más mensajes y el desglose por red y por cliente. Cuenta los mensajes entrantes que trajo Metricool, por día UTC, sin los cargados a mano desde el Excel; incluye spam (los casos SAC están en Reportes). Filtros: En SAC o Todas, Cuenta de Metricool, búsqueda y Estado. "En SAC" marca qué redes de cada cuenta atiende hoy el equipo: es solo una etiqueta para filtrar (las demás siguen visibles, sincronizando y con su historial) y la edita solo el admin principal (lápiz en la columna En SAC). Debajo, la lista de cuentas con su centro documental (planilla de registros, Excel QA aprobado y enlaces). Crear, editar y vincular marcas con Metricool requiere Gestionar marcas. Ocultar o mostrar un cliente es solo del admin principal: un cliente oculto deja de sincronizar y desaparece de la bandeja y los reportes sin borrar su historial.
+- Ejecuciones: trabajos de sincronización y envío y su historial (permiso Editar automatizaciones).
+- Usuarios y roles: solo Admin. En el panel de cada persona, un admin principal puede ocultarle clientes en «Clientes que ve»: esa persona deja de verlos en la bandeja, Inicio, Clientes y Reportes, sin borrar nada; los admins principales siempre ven todos.
 - Configuración: ajustes del flujo y diagnóstico de la integración (permiso Ajustar el flujo SAC).
 - Arriba a la derecha: silenciar sonidos, modo claro u oscuro, búsqueda, notificaciones (cuentan los casos por atender en plazo) y el menú de perfil con Cerrar sesión.
+- Este asistente es el orbe flotante abajo a la derecha. En Gestión DMs/comentarios sube por encima del campo de respuesta para no tapar Enviar, y se oculta mientras el detalle de un caso está abierto.
 
 PLAZOS DE RESPUESTA
 Meta permite responder DMs hasta 7 días y comentarios hasta 24 horas después del último mensaje del cliente. Fuera de ese plazo se puede intentar responder igual, con una advertencia, y Meta decide si acepta. La Bandeja oculta los vencidos por defecto (filtro Plazo). Archivar fuera de plazo los cierra como histórico en lote (permiso Archivar vencidos en lote), nunca los sensibles y sin tocar Metricool.
@@ -88,7 +87,7 @@ ROLES POR DEFECTO (un Admin puede ajustarlos)
 - Agente: responder, notas y estados, tomar casos, actualizar desde Metricool y ejecutar automatizaciones. Ve Inicio y las tres vistas de mensajes.
 - Supervisor: lo del Agente más asignar a otras personas, archivar vencidos, exportar a Excel, ver métricas (Resumen SAC y Reportes), conciliar envíos, ajustar el flujo y cargar registros de TikTok/LinkedIn.
 - Admin: todo, incluidos usuarios y roles, credenciales, activar el envío automático, auditoría y reintento de trabajos.
-- Admin principal: los correos fijos del servidor. Además puede dar el rol Admin, editar roles y ocultar o mostrar clientes. Nadie puede cambiar su propio rol.
+- Admin principal: los correos fijos del servidor. Además puede dar el rol Admin, editar roles, ocultar o mostrar clientes (para todos o solo para una persona) y marcar qué cuentas se usan en SAC. Nadie puede cambiar su propio rol.
 Los roles y permisos se gestionan en Usuarios y roles; una persona puede tener ajustes personales sobre su rol.
 
 LÍMITES DE ESTA GUÍA
@@ -145,9 +144,11 @@ export function offlineHelpAnswer(question: string, actor: HelpActor): string | 
         can("export.xlsx") ? "- Exportar a Excel." : "",
         can("records.import") ? "- Cargar el Excel de TikTok/LinkedIn en **Reportes**." : "",
         can("workflow.edit") ? "- Ajustar el **Flujo SAC** y la **Configuración**." : "",
-        can("brands.manage") ? "- Crear, editar y vincular marcas en **Cuentas**." : "",
-        can("automations.edit") ? "- Editar **Automatización**, **Ejecuciones** y **Plantillas**." : "",
-        actor.role === "admin" ? "- Administrar **Usuarios y roles** y **Credenciales**." : "",
+        can("brands.manage") || can("metrics.read") ? "- Ver **Clientes**: mensajes recibidos por cliente y red." : "",
+        can("brands.manage") ? "- Crear, editar y vincular marcas en **Clientes**." : "",
+        actor.masterAdmin ? "- Marcar qué cuentas se usan **En SAC** y ocultar o mostrar clientes." : "",
+        can("automations.edit") ? "- Revisar **Ejecuciones**." : "",
+        actor.role === "admin" ? "- Administrar **Usuarios y roles**." : "",
         "Si necesitas algo más, pídeselo a un Admin.",
       ];
       return lines.filter(Boolean).join("\n");

@@ -9,8 +9,11 @@
  */
 import type { CSSProperties } from "react";
 
-/** Diámetro visible de la esfera, en px. xs/sm/md conservan el tamaño de los antiguos orbes en línea. */
-const SIZE_PX = { xs: 12, sm: 16, md: 24, hero: 34, lg: 64, xl: 136 } as const;
+/**
+ * Diámetro visible de la esfera, en px. xs/sm/md conservan el tamaño de los antiguos orbes en línea.
+ * `fab` es el orbe flotante del asistente: grande, con su aura, igual al de `Cargando…`.
+ */
+const SIZE_PX = { xs: 12, sm: 16, md: 24, hero: 34, fab: 40, lg: 64, xl: 136 } as const;
 /** Proporción esfera / escenario del orbe de Lab (la esfera mide ~390 de un escenario que se escala a 600). */
 const BODY_RATIO = 0.65;
 const ORB_CANVAS = 600;
@@ -54,7 +57,7 @@ export function ThinkingOrb({
 }) {
   const a11yLabel = label ?? STATE_LABEL[state];
   const diameter = SIZE_PX[size];
-  const tier = size === "lg" || size === "xl" ? "large" : "small";
+  const tier = size === "lg" || size === "xl" || size === "fab" ? "large" : "small";
   // Los orbes chicos son una esfera oscura recortada (la esfera de Lab ocupa ~78% de ella, con sus
   // brillos dentro): fuera del aura los brillos se lavaban en un halo borroso, sobre todo en modo claro.
   const body = tier === "small" ? diameter * SMALL_BODY : diameter;

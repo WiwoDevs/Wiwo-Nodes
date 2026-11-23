@@ -10,8 +10,12 @@ type AccountFilterProps = {
   accounts: BrandAccount[];
   value: string;
   onChange: (value: string) => void;
-  /** Casos por atender en plazo por cuenta. */
+  /** Casos por atender en plazo por cuenta (o lo que diga `countLabel`). */
   inWindowCounts: Record<string, number>;
+  /** Qué cuenta el número de cada opción; por defecto, los casos en plazo de la Bandeja. */
+  countLabel?: string;
+  /** Texto de la opción que no filtra. */
+  allLabel?: string;
 };
 
 type Option = { id: string; name: string; detail: string; count?: number };
@@ -30,7 +34,7 @@ const PLATFORM_LABEL: Record<string, string> = {
   google_business: "Google",
 };
 
-export function AccountFilter({ accounts, value, onChange, inWindowCounts }: AccountFilterProps) {
+export function AccountFilter({ accounts, value, onChange, inWindowCounts, countLabel = "Casos por atender en plazo", allLabel = "Todas las cuentas" }: AccountFilterProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -41,7 +45,7 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts }: Acc
   const options = useMemo<Option[]>(() => {
     const sorted = [...accounts].sort((left, right) => left.name.localeCompare(right.name, "es"));
     return [
-      { id: "all", name: "Todas las cuentas", detail: `${accounts.length} cuentas` },
+      { id: "all", name: allLabel, detail: `${accounts.length} cuentas` },
       ...sorted.map((account) => {
         const handle = account.accountHandle || account.channels[0]?.username;
         const networks = [...new Set(account.channels.map((channel) => PLATFORM_LABEL[channel.platform] ?? channel.platform))].join(" · ");
@@ -53,7 +57,7 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts }: Acc
         };
       }),
     ];
-  }, [accounts, inWindowCounts]);
+  }, [accounts, allLabel, inWindowCounts]);
 
   const visible = useMemo(() => {
     const term = normalize(query.trim());
@@ -107,7 +111,7 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts }: Acc
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        title={selected.id === "all" ? "Todas las cuentas" : `${selected.name} · ${selected.detail}`}
+        title={selected.id === "all" ? allLabel : `${selected.name} · ${selected.detail}`}
       >
         <span>{selected.name}</span>
         <CaretDown size={14} weight="bold" aria-hidden="true" />
@@ -144,7 +148,7 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts }: Acc
                   <strong>{option.name}</strong>
                   {option.detail ? <small>{option.detail}</small> : null}
                 </span>
-                {option.count ? <em className="account-filter__count" title="Casos por atender en plazo">{option.count}</em> : null}
+                {option.count ? <em className="account-filter__count" title={countLabel}>{option.count}</em> : null}
               </li>
             ))}
             {visible.length === 1 && query ? <li className="account-filter__empty">Ninguna cuenta coincide.</li> : null}

@@ -23,7 +23,7 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
-import { createAccessRole, deleteAccessRole, listUserAccess, setUserAccessRole, setUserPermissions, updateAccessRole } from "../lib/api";
+import { createAccessRole, deleteAccessRole, listUserAccess, setUserAccessRole, setUserHiddenBrands, setUserPermissions, updateAccessRole } from "../lib/api";
 import type { AccessControlListing, AccessRole, RoleView, UserAccessView } from "../types";
 import { confirmAction } from "../lib/confirm";
 import { BusyOrb } from "./ThinkingOrb";
@@ -62,11 +62,17 @@ function sameSet(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value) => right.includes(value));
 }
 
+/** Cliente que se puede ocultar a una persona (todas las marcas del catálogo, visibles u ocultas). */
+export type HideableBrand = { id: string; name: string; handle?: string };
+
 type UsersRolesViewProps = {
   onToast: (toast: Toast) => void;
+  /** Clientes del catálogo, para ocultárselos a una persona (solo admin principal). */
+  brands?: HideableBrand[];
+  brandsLoading?: boolean;
 };
 
-export function UsersRolesView({ onToast }: UsersRolesViewProps) {
+export function UsersRolesView({ onToast, brands = [], brandsLoading = false }: UsersRolesViewProps) {
   const [data, setData] = useState<AccessControlListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -174,6 +180,15 @@ export function UsersRolesView({ onToast }: UsersRolesViewProps) {
           roleName={roleName}
           onApplyRole={applyRole}
           onOpenRoles={() => setTab("roles")}
+          brands={brands}
+          brandsLoading={brandsLoading}
+          onSaveHiddenBrands={(user, brandIds) => run(`user:${user.email}`, () => setUserHiddenBrands(user.email, brandIds), () => ({
+            tone: "success",
+            title: brandIds.length ? "Clientes ocultos actualizados" : "Ve todos los clientes",
+            detail: brandIds.length
+              ? `${user.name || user.email} deja de ver ${brandIds.length} cliente${brandIds.length === 1 ? "" : "s"} en su siguiente acción.`
+              : `${user.name || user.email} vuelve a ver todos los clientes en su siguiente acción.`,
+          }))}
           onSavePermissions={(user, permissions) => run(`user:${user.email}`, () => setUserPermissions(user.email, permissions), () => ({
             tone: "success",
             title: permissions === null ? "Ajustes quitados" : "Permisos actualizados",
@@ -220,9 +235,12 @@ type PeopleTabProps = {
   onApplyRole: (target: { email: string; name?: string | null }, role: AccessRole | null) => Promise<boolean>;
   onOpenRoles: () => void;
   onSavePermissions: (user: UserAccessView, permissions: string[] | null) => Promise<unknown>;
+  brands: HideableBrand[];
+  brandsLoading: boolean;
+  onSaveHiddenBrands: (user: UserAccessView, brandIds: string[]) => Promise<unknown>;
 };
 
-function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, onSavePermissions }: PeopleTabProps) {
+function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, onSavePermissions, brands, brandsLoading, onSaveHiddenBrands }: PeopleTabProps) {
   const [openEmail, setOpenEmail] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -321,6 +339,9 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
                     )}
                     {user.permissionsAdd.length || user.permissionsRemove.length ? (
                       <span className="users-roles-chip users-roles-chip--personal">Permisos ajustados</span>
+                    ) : null}
+                    {user.hiddenBrandIds?.length ? (
+                      <span className="users-roles-chip users-roles-chip--personal">{user.hiddenBrandIds.length} cliente{user.hiddenBrandIds.length === 1 ? "" : "s"} oculto{user.hiddenBrandIds.length === 1 ? "" : "s"}</span>
                     ) : null}
                     <span className="users-roles-last">{lastSignIn ? `Último ingreso ${lastSignIn}` : "Aún no ingresa"}</span>
                   </span>
@@ -434,6 +455,9 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
             onClose={() => setOpenEmail(null)}
             onApplyRole={onApplyRole}
             onSavePermissions={onSavePermissions}
+            brands={brands}
+            brandsLoading={brandsLoading}
+            onSaveHiddenBrands={onSaveHiddenBrands}
           />
         ) : null;
       })() : null}
@@ -450,15 +474,24 @@ type PersonDrawerProps = {
   onClose: () => void;
   onApplyRole: (target: { email: string; name?: string | null }, role: AccessRole | null) => Promise<boolean>;
   onSavePermissions: (user: UserAccessView, permissions: string[] | null) => Promise<unknown>;
+  brands: HideableBrand[];
+  brandsLoading: boolean;
+  onSaveHiddenBrands: (user: UserAccessView, brandIds: string[]) => Promise<unknown>;
 };
 
-/** Panel lateral de una persona: su rol y lo que puede hacer en específico. */
-function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onApplyRole, onSavePermissions }: PersonDrawerProps) {
+/** Panel lateral de una persona: su rol, lo que puede hacer y los clientes que ve. */
+function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onApplyRole, onSavePermissions, brands, brandsLoading, onSaveHiddenBrands }: PersonDrawerProps) {
   const [draft, setDraft] = useState<string[]>(user.permissions);
+  const savedHidden = useMemo(() => user.hiddenBrandIds ?? [], [user.hiddenBrandIds]);
+  const [hiddenDraft, setHiddenDraft] = useState<string[]>(savedHidden);
+  const [brandQuery, setBrandQuery] = useState("");
 
   useEffect(() => {
     setDraft(user.permissions);
   }, [user.permissions]);
+  useEffect(() => {
+    setHiddenDraft(savedHidden);
+  }, [savedHidden]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -500,6 +533,20 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
 
   function toggle(key: string) {
     setDraft((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
+  }
+
+  // Clientes que ve: solo un admin principal los edita, y nunca para otro admin principal.
+  const canHideBrands = master && !user.masterAdmin && !user.isSelf;
+  const hiddenDirty = !sameSet(hiddenDraft, savedHidden);
+  const sortedBrands = useMemo(() => [...brands].sort((left, right) => left.name.localeCompare(right.name, "es")), [brands]);
+  const filteredBrands = useMemo(() => {
+    const term = brandQuery.trim().toLocaleLowerCase("es-CL");
+    return term
+      ? sortedBrands.filter((brand) => `${brand.name} ${brand.handle ?? ""}`.toLocaleLowerCase("es-CL").includes(term))
+      : sortedBrands;
+  }, [brandQuery, sortedBrands]);
+  function toggleBrand(brandId: string) {
+    setHiddenDraft((current) => current.includes(brandId) ? current.filter((value) => value !== brandId) : [...current, brandId]);
   }
 
   return (
@@ -584,6 +631,54 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
               <ul>{data.adminOnly.map((item) => <li key={item}>{item}</li>)}</ul>
             </fieldset>
           </section>
+
+          {canHideBrands && !revoked && sortedBrands.length ? (
+            <section className="users-roles-drawer__section users-roles-brands" aria-labelledby="users-roles-brands-title">
+              <h3 id="users-roles-brands-title">Clientes que ve</h3>
+              <p className="users-roles-drawer__hint">
+                Desmarca los clientes que esta persona no debe ver: desaparecen de su bandeja, Inicio, Clientes y Reportes. No se borra nada y solo un admin principal lo cambia.
+                {user.hiddenBrandsUpdatedBy ? ` Último cambio por ${user.hiddenBrandsUpdatedBy}${when(user.hiddenBrandsUpdatedAt) ? ` (${when(user.hiddenBrandsUpdatedAt)})` : ""}.` : ""}
+              </p>
+              <div className="users-roles-brands__tools">
+                <label className="users-roles-brands__search">
+                  <span className="sr-only">Buscar cliente</span>
+                  <input type="search" value={brandQuery} onChange={(event) => setBrandQuery(event.target.value)} placeholder="Buscar cliente" disabled={busy} />
+                </label>
+                <span className="users-roles-brands__count">Ve {sortedBrands.length - hiddenDraft.filter((id) => sortedBrands.some((brand) => brand.id === id)).length} de {sortedBrands.length}</span>
+                <button type="button" className="users-roles-reset" disabled={busy || !hiddenDraft.length} onClick={() => setHiddenDraft([])}>Todos</button>
+              </div>
+              <div className="users-roles-brands__list" role="group" aria-label="Clientes visibles para esta persona">
+                {filteredBrands.map((brand) => {
+                  const visible = !hiddenDraft.includes(brand.id);
+                  return (
+                    <label key={brand.id} className={`users-roles-brand${visible ? " is-on" : ""}`}>
+                      <input type="checkbox" checked={visible} disabled={busy} onChange={() => toggleBrand(brand.id)} />
+                      <span><strong>{brand.name}</strong>{brand.handle ? <small>{brand.handle}</small> : null}</span>
+                    </label>
+                  );
+                })}
+                {!filteredBrands.length ? <p className="users-roles-drawer__hint">Ningún cliente coincide.</p> : null}
+              </div>
+              {hiddenDirty ? (
+                <div className="users-roles-brands__actions">
+                  <button className="button button--secondary" type="button" disabled={busy} onClick={() => setHiddenDraft(savedHidden)}>Descartar</button>
+                  <button className="button button--primary" type="button" disabled={busy} onClick={() => void onSaveHiddenBrands(user, hiddenDraft)}>
+                    {busy ? "Guardando…" : "Guardar clientes"}
+                  </button>
+                </div>
+              ) : null}
+            </section>
+          ) : canHideBrands && !revoked && brandsLoading ? (
+            <section className="users-roles-drawer__section">
+              <h3>Clientes que ve</h3>
+              <p className="users-roles-drawer__hint"><BusyOrb /> Cargando clientes…</p>
+            </section>
+          ) : user.masterAdmin && master ? (
+            <section className="users-roles-drawer__section">
+              <h3>Clientes que ve</h3>
+              <p className="users-roles-drawer__hint">Es admin principal: ve todos los clientes.</p>
+            </section>
+          ) : null}
         </div>
 
         {!permissionsLocked ? (
