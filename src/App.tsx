@@ -94,6 +94,7 @@ import { useSidebarMode } from "./lib/sidebar";
 import { playToastSound } from "./lib/brand-sounds";
 import { SoundToggle } from "./components/SoundToggle";
 import { HelpAssistant } from "./components/HelpAssistant";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor } from "./types";
 import { confirmAction } from "./lib/confirm";
 import { useMinuteTick } from "./lib/use-minute-tick";
@@ -2123,6 +2124,8 @@ export function App({ onSignOut, sessionActor }: {
             <ProfileMenu actor={visibleData.actor} onSignOut={onSignOut} />
           </div>
         </header>
+        {/* Un error en una vista ya no deja la página en blanco: la vista muestra cómo recuperarse. */}
+        <AppErrorBoundary key={view} view={view} scope="view">
 
         {connectionIssue ? (
           <section className="api-connection-banner" role="status" aria-live="polite">
@@ -2441,6 +2444,7 @@ export function App({ onSignOut, sessionActor }: {
             />
           </div>
         ) : null}
+        </AppErrorBoundary>
       </main>
       {isExportOpen ? (
         <ExportDialog accounts={visibleData.accounts} onClose={() => setExportOpen(false)} onExport={runExport} />

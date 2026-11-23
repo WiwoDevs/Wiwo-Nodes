@@ -601,6 +601,10 @@ export function InteractionDetailPanel({
                 ? "Respuesta manual disponible · sujeta a validación del proveedor"
                 : providerReplyWindowExpired
                 ? "Respuesta manual disponible · fuera del plazo recomendado de Metricool/Meta"
+                // TikTok, LinkedIn y YouTube no tienen plazo informado: sin esta rama, la fecha
+                // inválida rompía el detalle (RangeError en toISOString) y la página quedaba en blanco.
+                : !Number.isFinite(providerReplyDeadline)
+                ? "Respuesta manual disponible · Metricool no informa un plazo para esta red"
                 : `Respuesta manual disponible · plazo recomendado hasta ${formatDate(new Date(providerReplyDeadline).toISOString())}`}
             </small>
             {canReopen ? (

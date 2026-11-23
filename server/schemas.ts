@@ -57,6 +57,16 @@ export const sacMonthlyReportQuerySchema = z.object({
   volumen: z.enum(["gestionado", "bruto"]).default("gestionado"),
 }).strict();
 
+/** Error de la interfaz informado por el navegador (pantalla de recuperación). Sin datos de clientes. */
+export const clientErrorSchema = z.object({
+  message: z.string().max(500),
+  name: z.string().max(80).optional(),
+  stack: z.string().max(2_000).optional(),
+  componentStack: z.string().max(2_000).optional(),
+  view: z.string().max(60).optional(),
+  path: z.string().max(200).optional(),
+}).strict();
+
 export const aiDraftBodySchema = z.object({
   /** Fuerza una sugerencia nueva aunque haya una reciente para el mismo contexto. */
   regenerate: z.boolean().optional(),

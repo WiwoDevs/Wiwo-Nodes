@@ -143,7 +143,10 @@ const groupIcons = {
 
 function formatDate(value?: string): string {
   if (!value) return "Sin ejecuciones";
-  return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  const date = new Date(value);
+  // Una fecha inválida hace que Intl lance RangeError y rompa la vista: se muestra tal cual.
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function statusLabel(status?: AutomationExecution["status"]): string {

@@ -92,6 +92,11 @@ El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo S
 - **Recomendación de respuesta con IA:** con la IA encendida, el detalle de cada caso abierto de una marca autorizada pide una sugerencia basada en el QA aprobado (`POST /api/interactions/:id/ai/draft`, unos 2-3 s). Se guarda en memoria del servidor 30 minutos por mensaje y QA, y se consulta antes de leer el historial, así que reabrir el caso no vuelve a cobrar ni agrega lecturas; un reinicio de la API la descarta. Con la IA apagada, la web solo hace una consulta de disponibilidad que no toca el almacén. El registro `ai_reply_draft` muestra tokens y latencia por sugerencia. Si el proveedor falla, el recuadro dice el motivo y el agente puede reintentar o escribir a mano; si la IA está apagada, muestra la sugerencia por reglas.
 - **Reclasificar un mes a mano:** `npm run build:api` y `node scripts/classify-interactions.mjs --mes AAAA-MM [--maximo 2000]`. Salta lo ya clasificado y lo marcado a mano.
 
+## Pantalla en blanco o "Algo falló al mostrar esta pantalla"
+
+- Si una vista falla al dibujarse, wiwo.sac muestra una pantalla de recuperación (Recargar / Reintentar) en vez de dejar la página en blanco, y el navegador informa el error: buscar `event: "client_error"` en los registros de la API (mensaje, pila, sección y ruta; sin datos de clientes).
+- Si el error es por un archivo de la versión anterior (alguien tenía la página abierta durante un despliegue y abrió Flujo SAC o Automatización), la web recarga sola una vez; si se repite, muestra "Hay una versión nueva de wiwo.sac" con el botón Recargar.
+
 ## Asistente de wiwo.sac (orbe de ayuda)
 
 - **Qué es:** el orbe de la barra superior abre un asistente que responde cómo se usa wiwo.sac según el rol de cada persona. Solo orienta: no hace cambios ni ve casos.

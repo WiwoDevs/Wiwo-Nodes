@@ -89,6 +89,7 @@ import {
   sacMonthlyReportQuerySchema,
   aiAgreementQuerySchema,
   aiDraftBodySchema,
+  clientErrorSchema,
   discardNoiseSchema,
   inboxChangesQuerySchema,
   integrationMonthQuerySchema,
@@ -3717,6 +3718,29 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    * enmascarada; no depende de las marcas autorizadas porque no lleva datos de clientes. Sin
    * IA, las preguntas sugeridas tienen respuestas escritas a mano.
    */
+  /**
+   * Errores de la interfaz que la pantalla de recuperación informa (antes la página quedaba en
+   * blanco sin rastro). Solo deja un registro `client_error` con mensaje, pila acotada y sección;
+   * no guarda nada ni lleva datos de clientes. Comparte el límite de las preguntas de ayuda.
+   */
+  app.post("/api/client-errors", async (request, reply) => {
+    const actor = requireRole(config, request, "viewer");
+    const body = clientErrorSchema.parse(request.body ?? {});
+    if (helpRateLimiter.take(`client-error:${actor.userId}`)) {
+      request.log.warn({
+        event: "client_error",
+        by: actor.userId,
+        view: body.view,
+        path: body.path,
+        name: body.name,
+        message: body.message,
+        stack: body.stack,
+        componentStack: body.componentStack,
+      }, "Error de la interfaz informado por el navegador.");
+    }
+    return reply.code(204).send();
+  });
+
   const helpRateLimiter = new HelpRateLimiter();
   app.post("/api/help/ask", async (request) => {
     const actor = requireRole(config, request, "viewer");

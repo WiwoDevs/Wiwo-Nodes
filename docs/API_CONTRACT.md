@@ -1008,6 +1008,10 @@ Concordancia de la IA en sombra con las marcas manuales y con las reglas sin IA 
 
 La clasificación la escribe el worker (`SAC_FLOW_AI_INTERVAL_SECONDS`, hasta `SAC_FLOW_AI_MAX_PER_RUN` mensajes de los últimos `SAC_FLOW_AI_LOOKBACK_DAYS` días) o `scripts/classify-interactions.mjs --mes AAAA-MM`. Guarda solo `aiTriage` (columna `interactions.ai_triage`, migración `0020_ai_triage.sql`) y una entrada `classified` de actor `system` con `metadata.shadow: true`; no cambia `sacTriage`, categoría, tono, confianza, estado ni `version`, y nunca toca un mensaje marcado a mano. Si `aiTriage.sensible` es `true`, `sac-v1` recomienda `human_review` con `AI_SENSITIVE_SIGNAL` (riesgo al menos `high`) y el envío exige aprobación humana; un `sensible: false` nunca quita una revisión humana decidida por reglas o por el tono.
 
+### `POST /api/client-errors`
+
+Informe de un error de la interfaz desde la pantalla de recuperación (`src/components/AppErrorBoundary.tsx`), que reemplaza la página en blanco cuando una vista falla al dibujarse. Rol `viewer` o superior. Cuerpo `{ message (≤500), name?, stack? (≤2.000), componentStack? (≤2.000), view?, path? }`; responde `204` y solo deja un registro `client_error` (hasta 30 por persona cada 10 minutos). No guarda nada ni lleva datos de clientes. Si falla la carga de un archivo de una versión anterior (alguien tenía la página abierta durante un despliegue), la web recarga una vez por minuto como máximo en vez de informar.
+
 ### `POST /api/help/ask`
 
 Asistente de ayuda de wiwo.sac (el orbe de la barra superior), para cualquier sesión (rol `viewer` o superior). Cuerpo `{ messages: Array<{ role: "user" | "assistant", content }>, view? }`: hasta 12 turnos de hasta 2.000 caracteres (12.000 en total), el último de la persona; `view` es el id de la sección abierta. Responde `{ data: { answer, source: "ia" | "guia" }, meta: { externalWrites: false } }`.
