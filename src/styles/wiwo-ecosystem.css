@@ -1211,3 +1211,120 @@ input[type="radio"] { accent-color: var(--neo-blue); }
   .topbar-wordmark:has(~ .topbar-actions .workflow-state) { display: none; }
   .page-heading:has(~ .topbar-actions .workflow-state) { max-width: none; }
 }
+
+/* Asistente de wiwo.sac (orbe de ayuda, adaptado de WiwoMetriQ). El orbe vive en la barra
+   superior; el panel cae debajo, a la derecha. Tokens Neo; nada de colores fijos. */
+.help-orb-button {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out, ease), background-color 160ms ease;
+}
+.help-orb-button:hover { background: var(--neo-hover); transform: scale(1.06); }
+.help-orb-button:focus-visible { outline: 3px solid var(--neo-blue); outline-offset: 2px; }
+.help-orb-button[aria-expanded="true"] { background: var(--neo-hover); }
+
+.help-assistant {
+  position: fixed;
+  z-index: 60;
+  top: 72px;
+  right: 16px;
+  display: flex;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 96px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--neo-border);
+  border-radius: 16px;
+  color: var(--neo-fg);
+  background: var(--neo-card);
+  box-shadow: var(--shadow-md);
+}
+.help-assistant__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--neo-border);
+}
+.help-assistant__header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 800; }
+.help-assistant__header p { margin: 4px 0 0; color: var(--neo-muted-fg); font-size: 12px; line-height: 1.4; }
+.help-assistant__log {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.help-assistant__intro > p { margin: 0; font-size: 13.5px; line-height: 1.5; }
+.help-assistant__note { margin-top: 8px !important; color: var(--neo-muted-fg); font-size: 12px !important; }
+.help-assistant__suggestions { display: grid; gap: 8px; margin-top: 12px; }
+.help-assistant__suggestions button {
+  padding: 11px 12px;
+  border: 1px solid var(--neo-border);
+  border-radius: 12px;
+  color: var(--neo-fg);
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+.help-assistant__suggestions button:hover:not(:disabled) { background: var(--neo-hover); }
+.help-assistant__suggestions button:disabled { opacity: 0.5; cursor: default; }
+.help-assistant__message { padding: 10px 12px; border-radius: 12px; }
+.help-assistant__message--user { margin-left: 28px; background: var(--accent-soft); }
+.help-assistant__message--assistant { margin-right: 12px; background: var(--neo-hover-soft); }
+.help-assistant__message small { display: block; margin-bottom: 3px; color: var(--neo-muted-fg); font-size: 11px; font-weight: 700; }
+.help-assistant__message p { margin: 0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.help-assistant__status { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--neo-muted-fg); font-size: 12.5px; }
+.help-assistant__error { margin: 0; color: var(--rose); font-size: 12.5px; }
+.help-assistant__form {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--neo-border);
+}
+.help-assistant__form textarea {
+  min-height: 42px;
+  max-height: 128px;
+  flex: 1 1 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--neo-input);
+  border-radius: 10px;
+  color: var(--neo-fg);
+  background: var(--neo-canvas);
+  font: inherit;
+  font-size: 13px;
+  resize: none;
+}
+.help-assistant__form textarea:focus { border-color: var(--neo-blue); outline: none; box-shadow: 0 0 0 3px var(--neo-focus-glow); }
+.help-assistant__form button {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  color: var(--neo-onfill);
+  background: var(--neo-blue);
+  cursor: pointer;
+}
+.help-assistant__form button:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 760px) {
+  .help-assistant { top: 60px; right: 12px; max-height: calc(100dvh - 150px); }
+}

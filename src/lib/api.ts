@@ -1645,6 +1645,49 @@ export interface AiAvailability {
   /** Marcas del alcance de la persona autorizadas a usar la IA, y sus cuentas. */
   brandIds: string[];
   accountIds: string[];
+  /** Asistente de ayuda: con IA, o solo con las respuestas escritas de la guía. */
+  helpAssistant?: "ia" | "guia";
+}
+
+export interface HelpMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export class HelpAssistantRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "HelpAssistantRequestError";
+  }
+}
+
+/** Pregunta al asistente de ayuda (solo orienta; no ejecuta acciones ni ve casos). */
+export async function askHelpAssistant(
+  messages: HelpMessage[],
+  view: string,
+  signal?: AbortSignal,
+): Promise<{ answer: string; source: "ia" | "guia" }> {
+  const response = await fetch(`${API_BASE}/help/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, view }),
+    signal,
+  });
+  const payload = await response.json().catch(() => null) as
+    | { data?: { answer?: unknown; source?: "ia" | "guia" }; error?: { message?: string } }
+    | null;
+  if (!response.ok) {
+    throw new HelpAssistantRequestError(
+      response.status === 401
+        ? "Tu sesión no pudo validarse. Recarga la página."
+        : payload?.error?.message || "No se pudo consultar al asistente.",
+      response.status,
+    );
+  }
+  if (typeof payload?.data?.answer !== "string") {
+    throw new HelpAssistantRequestError("No llegó una respuesta válida. Intenta de nuevo.", response.status);
+  }
+  return { answer: payload.data.answer, source: payload.data.source === "guia" ? "guia" : "ia" };
 }
 
 export interface AiReplyDraft {

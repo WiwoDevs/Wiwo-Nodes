@@ -93,6 +93,7 @@ import { useTheme } from "./lib/theme";
 import { useSidebarMode } from "./lib/sidebar";
 import { playToastSound } from "./lib/brand-sounds";
 import { SoundToggle } from "./components/SoundToggle";
+import { HelpAssistant } from "./components/HelpAssistant";
 import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor } from "./types";
 import { confirmAction } from "./lib/confirm";
 import { useMinuteTick } from "./lib/use-minute-tick";
@@ -2092,6 +2093,7 @@ export function App({ onSignOut, sessionActor }: {
             </div>
           </div>
           <div className="topbar-actions">
+            <HelpAssistant view={view} viewTitle={page.title} />
             <SoundToggle />
             <button className="icon-button theme-toggle" aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"} title={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggleTheme}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button>
             <button className="icon-button" aria-label="Buscar conversaciones" onClick={() => navigateToView("interactions")}><MagnifyingGlass size={19} /></button>

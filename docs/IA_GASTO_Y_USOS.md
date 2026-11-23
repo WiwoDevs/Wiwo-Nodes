@@ -36,6 +36,12 @@ Al abrir un caso abierto en la **Bandeja** o en **Gestión DMs/comentarios**, el
 - **No cobra dos veces:** reabrir el mismo caso devuelve la sugerencia guardada (30 minutos) sin llamar a la API.
 - **Sin IA:** si la IA está apagada o la marca no está autorizada, el recuadro dice **Respuesta sugerida por reglas** y muestra la plantilla del protocolo SAC.
 
+### Asistente de wiwo.sac
+
+El orbe de la barra superior abre un asistente, como el de WiwoMetriQ, que responde cómo se usa wiwo.sac: dónde está cada función, qué permite el rol de quien pregunta y qué significa cada estado. Tiene preguntas sugeridas y sabe en qué sección está la persona. **Solo orienta**: no hace cambios, no envía mensajes y no ve casos ni clientes; a la IA solo le llegan la guía de uso, el rol, los permisos y la pregunta (con datos personales enmascarados si alguien los pega). Con la IA apagada, responde las preguntas sugeridas con respuestas escritas.
+
+**Costo:** cada pregunta usa unos 2.800 tokens de entrada (sobre todo la guía) y unos 200 de salida, en 2 a 3 segundos: unos **USD 0,001 por pregunta** en hora punta, o **USD 1,10 por cada 1.000 preguntas**. Hay un límite de 30 preguntas por persona cada 10 minutos.
+
 ### Spam y ruido
 
 Además de caso o ruido, la IA dice **qué tipo de ruido** es cada mensaje: reacción social, etiquetas o concurso, spam promocional o estafa que suplanta a Meta. Esa señal se suma a reglas que no usan IA (el mismo comentario repetido por una cuenta, el mismo texto desde varias cuentas, comentarios que solo etiquetan). En la Bandeja y en Gestión comentarios aparece el aviso **Posible spam** con el motivo, el spam va al final de la fila y un supervisor puede **descartarlo en lote** después de confirmar. Lo que solo sugiere la IA se muestra pero nunca se oculta por defecto. Detectar el tipo de ruido no agrega llamadas: viene en la misma clasificación.

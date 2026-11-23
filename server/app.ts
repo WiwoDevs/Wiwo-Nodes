@@ -99,6 +99,13 @@ import {
 import { buildSacReport, duplicateAccountGroups, esCasoSac, esMensajeGestionado, esTriajeManual, monthPeriod } from "./sac-report.js";
 import { buildAiAgreement } from "./ai-shadow-triage.js";
 import { detectNoise, isDiscardableNoise } from "./noise-detection.js";
+import {
+  askHelpAssistant,
+  HelpAssistantError,
+  HelpRateLimiter,
+  helpRequestSchema,
+  offlineHelpAnswer,
+} from "./help-assistant.js";
 import { isMetricoolContentUnavailable } from "./metricool-content.js";
 import { createAiProvider, type AiProvider } from "./ai-provider.js";
 import {
@@ -150,6 +157,7 @@ import {
   actorCan,
   applyPermissionOverrides,
   PERMISSION_CATALOG,
+  PERMISSION_KEYS,
   normalizePermissions,
   permissionOverridesFor,
   permissionLabel,
@@ -3702,12 +3710,65 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return snapshot.brands;
   };
 
+  /**
+   * Asistente de ayuda (el orbe): responde cómo se usa wiwo.sac según el rol y los permisos
+   * verificados de la sesión. SOLO ORIENTA: no ejecuta acciones ni ve casos. Al proveedor de IA
+   * solo salen la guía de uso, el rol, los permisos, la sección abierta y la conversación
+   * enmascarada; no depende de las marcas autorizadas porque no lleva datos de clientes. Sin
+   * IA, las preguntas sugeridas tienen respuestas escritas a mano.
+   */
+  const helpRateLimiter = new HelpRateLimiter();
+  app.post("/api/help/ask", async (request) => {
+    const actor = requireRole(config, request, "viewer");
+    const body = helpRequestSchema.parse(request.body ?? {});
+    if (!helpRateLimiter.take(actor.userId)) {
+      throw new ApiError(429, "HELP_RATE_LIMITED", "Alcanzaste el límite de consultas. Intenta nuevamente en unos minutos.");
+    }
+    const helpActor = {
+      role: actor.role,
+      roleName: actor.roleName ?? actor.role,
+      permissions: PERMISSION_KEYS.filter((permission) => actorCan(actor, permission)),
+      masterAdmin: actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+    };
+    const question = body.messages.at(-1)!.content;
+    const offline = offlineHelpAnswer(question, helpActor);
+    const meta = { ...apiMeta(config), externalWrites: false };
+    if (!aiProviderState.ready) {
+      if (offline) return { data: { answer: offline, source: "guia" as const }, meta };
+      throw new ApiError(
+        503,
+        "AI_NOT_AVAILABLE",
+        "El asistente con IA está apagado en este servidor. Prueba con las preguntas sugeridas o consulta a un Admin.",
+      );
+    }
+    const startedAt = Date.now();
+    try {
+      const { answer, usage } = await askHelpAssistant(body.messages, helpActor, body.view, aiProviderState.provider);
+      // Solo cifras: ni la pregunta ni la respuesta van al registro.
+      request.log.info({
+        event: "help_assistant",
+        by: actor.userId,
+        view: body.view,
+        turns: body.messages.length,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        ms: Date.now() - startedAt,
+      }, "Consulta al asistente de ayuda.");
+      return { data: { answer, source: "ia" as const }, meta };
+    } catch (error) {
+      if (!(error instanceof HelpAssistantError)) throw error;
+      request.log.warn({ event: "help_assistant_failed", by: actor.userId }, "El asistente de ayuda no respondió.");
+      if (offline) return { data: { answer: offline, source: "guia" as const }, meta };
+      throw new ApiError(503, "AI_HELP_FAILED", "El asistente no pudo responder en este momento. Puedes volver a intentar.");
+    }
+  });
+
   app.get("/api/ai/availability", async (request) => {
     const actor = requireRole(config, request, "viewer");
     // Apagada (lo habitual en desarrollo) responde sin leer el almacén.
     if (!aiProviderState.ready) {
       return {
-        data: { replyDrafts: false, reason: aiProviderState.reason, brandIds: [], accountIds: [] },
+        data: { replyDrafts: false, reason: aiProviderState.reason, brandIds: [], accountIds: [], helpAssistant: "guia" as const },
         meta: { ...apiMeta(config), externalWrites: false },
       };
     }
@@ -3724,6 +3785,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         model: aiProviderState.provider.model,
         brandIds,
         accountIds: authorized.map((brand) => brand.account.id),
+        helpAssistant: "ia" as const,
       },
       meta: { ...apiMeta(config), externalWrites: false },
     };

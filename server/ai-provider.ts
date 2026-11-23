@@ -36,10 +36,24 @@ export interface AiJsonResult {
   usage: AiUsage;
 }
 
+export interface AiTextRequest {
+  system: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  maxTokens: number;
+}
+
+export interface AiTextResult {
+  text: string;
+  model: string;
+  usage: AiUsage;
+}
+
 export interface AiProvider {
   readonly name: AiProviderName;
   readonly model: string;
   completeJson(request: AiJsonRequest): Promise<AiJsonResult>;
+  /** Respuesta en texto libre, para conversar (el asistente de ayuda). */
+  completeText?(request: AiTextRequest): Promise<AiTextResult>;
 }
 
 export type AiProviderErrorCode = "rate_limited" | "auth" | "http" | "network" | "timeout" | "invalid_output" | "refusal";
@@ -94,70 +108,88 @@ function parseJsonContent(content: string | null | undefined): unknown {
 export function createBytePlusProvider(options: BytePlusOptions): AiProvider {
   const fetchImpl: FetchLike = options.fetchImpl ?? ((input, init) => fetch(input, init));
   const endpoint = `${options.baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  /** Una llamada a chat/completions; devuelve el texto de la primera opción y el consumo. */
+  async function call(body: Record<string, unknown>): Promise<{ content: string | null | undefined; model: string; usage: AiUsage }> {
+    let response: Response;
+    try {
+      response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${options.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: options.model,
+          ...body,
+          // Clasificar y orientar son trabajo rutinario: el razonamiento encarece y alarga sin mejorar la respuesta.
+          thinking: { type: "disabled" },
+        }),
+        signal: AbortSignal.timeout(options.timeoutMs),
+      });
+    } catch (error) {
+      if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+        throw new AiProviderError("BytePlus no respondió a tiempo.", "timeout");
+      }
+      throw new AiProviderError("No fue posible contactar a BytePlus.", "network");
+    }
+
+    const payload = await response.json().catch(() => undefined) as ChatCompletionPayload | undefined;
+    if (response.status === 401 || response.status === 403) {
+      throw new AiProviderError("BytePlus rechazó la credencial (BYTEPLUS_API_KEY).", "auth", response.status);
+    }
+    if (response.status === 429) {
+      throw new AiProviderError("BytePlus está limitando por tasa; se reintenta más tarde.", "rate_limited", 429);
+    }
+    if (!response.ok) {
+      // El código del proveedor ayuda a diagnosticar; el mensaje puede citar la entrada, así que no se copia.
+      const code = payload?.error?.code ? ` (${String(payload.error.code).slice(0, 80)})` : "";
+      throw new AiProviderError(`BytePlus respondió con estado ${response.status}${code}.`, "http", response.status);
+    }
+
+    const choice = payload?.choices?.[0];
+    if (choice?.finish_reason === "length") {
+      throw new AiProviderError("La respuesta de BytePlus quedó truncada por max_tokens.", "invalid_output");
+    }
+    if (choice?.finish_reason === "content_filter") {
+      throw new AiProviderError("El filtro de contenido de BytePlus bloqueó la respuesta.", "refusal");
+    }
+    return {
+      content: choice?.message?.content,
+      model: payload?.model || options.model,
+      usage: {
+        inputTokens: payload?.usage?.prompt_tokens ?? 0,
+        outputTokens: payload?.usage?.completion_tokens ?? 0,
+        cachedInputTokens: payload?.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+      },
+    };
+  }
+
   return {
     name: "byteplus",
     model: options.model,
     async completeJson(request) {
-      let response: Response;
-      try {
-        response = await fetchImpl(endpoint, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${options.apiKey}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            model: options.model,
-            max_tokens: request.maxTokens,
-            messages: [
-              { role: "system", content: request.system },
-              { role: "user", content: request.user },
-            ],
-            response_format: {
-              type: "json_schema",
-              json_schema: { name: request.schemaName, schema: request.jsonSchema, strict: true },
-            },
-            // Clasificar es trabajo rutinario: el razonamiento encarece y alarga sin mejorar la etiqueta.
-            thinking: { type: "disabled" },
-          }),
-          signal: AbortSignal.timeout(options.timeoutMs),
-        });
-      } catch (error) {
-        if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-          throw new AiProviderError("BytePlus no respondió a tiempo.", "timeout");
-        }
-        throw new AiProviderError("No fue posible contactar a BytePlus.", "network");
-      }
-
-      const payload = await response.json().catch(() => undefined) as ChatCompletionPayload | undefined;
-      if (response.status === 401 || response.status === 403) {
-        throw new AiProviderError("BytePlus rechazó la credencial (BYTEPLUS_API_KEY).", "auth", response.status);
-      }
-      if (response.status === 429) {
-        throw new AiProviderError("BytePlus está limitando por tasa; se reintenta más tarde.", "rate_limited", 429);
-      }
-      if (!response.ok) {
-        // El código del proveedor ayuda a diagnosticar; el mensaje puede citar la entrada, así que no se copia.
-        const code = payload?.error?.code ? ` (${String(payload.error.code).slice(0, 80)})` : "";
-        throw new AiProviderError(`BytePlus respondió con estado ${response.status}${code}.`, "http", response.status);
-      }
-
-      const choice = payload?.choices?.[0];
-      if (choice?.finish_reason === "length") {
-        throw new AiProviderError("La respuesta de BytePlus quedó truncada por max_tokens.", "invalid_output");
-      }
-      if (choice?.finish_reason === "content_filter") {
-        throw new AiProviderError("El filtro de contenido de BytePlus bloqueó la respuesta.", "refusal");
-      }
-      return {
-        json: parseJsonContent(choice?.message?.content),
-        model: payload?.model || options.model,
-        usage: {
-          inputTokens: payload?.usage?.prompt_tokens ?? 0,
-          outputTokens: payload?.usage?.completion_tokens ?? 0,
-          cachedInputTokens: payload?.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+      const result = await call({
+        max_tokens: request.maxTokens,
+        messages: [
+          { role: "system", content: request.system },
+          { role: "user", content: request.user },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: request.schemaName, schema: request.jsonSchema, strict: true },
         },
-      };
+      });
+      return { json: parseJsonContent(result.content), model: result.model, usage: result.usage };
+    },
+    async completeText(request) {
+      const result = await call({
+        max_tokens: request.maxTokens,
+        messages: [{ role: "system", content: request.system }, ...request.messages],
+      });
+      const text = result.content?.trim();
+      if (!text) throw new AiProviderError("El proveedor devolvió una respuesta vacía.", "invalid_output");
+      return { text, model: result.model, usage: result.usage };
     },
   };
 }
@@ -171,42 +203,57 @@ interface AnthropicOptions {
 
 export function createAnthropicProvider(options: AnthropicOptions): AiProvider {
   const messages = options.client ?? new Anthropic({ apiKey: options.apiKey, timeout: options.timeoutMs }).messages;
+
+  async function call(params: Omit<Anthropic.MessageCreateParamsNonStreaming, "model">): Promise<{ text: string; model: string; usage: AiUsage }> {
+    let response: Anthropic.Message;
+    try {
+      response = await messages.create({ model: options.model, ...params }) as Anthropic.Message;
+    } catch (error) {
+      if (error instanceof Anthropic.RateLimitError) throw new AiProviderError("Claude está limitando por tasa.", "rate_limited", 429);
+      if (error instanceof Anthropic.AuthenticationError) throw new AiProviderError("La ANTHROPIC_API_KEY no es válida.", "auth", 401);
+      if (error instanceof Anthropic.APIConnectionTimeoutError) throw new AiProviderError("Claude no respondió a tiempo.", "timeout");
+      if (error instanceof Anthropic.APIError) throw new AiProviderError(`Claude respondió con estado ${error.status}.`, "http", error.status);
+      throw new AiProviderError("No fue posible contactar a Claude.", "network");
+    }
+    if (response.stop_reason === "refusal") throw new AiProviderError("Claude declinó la solicitud.", "refusal");
+    if (response.stop_reason === "max_tokens") throw new AiProviderError("La respuesta de Claude quedó truncada por max_tokens.", "invalid_output");
+    return {
+      text: response.content.map((block) => (block.type === "text" ? block.text : "")).join(""),
+      model: response.model,
+      usage: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cachedInputTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    };
+  }
+
   return {
     name: "anthropic",
     model: options.model,
     async completeJson(request) {
-      let response: Anthropic.Message;
-      try {
-        response = await messages.create({
-          model: options.model,
-          max_tokens: request.maxTokens,
-          // Las instrucciones no cambian entre lotes: cachearlas evita reenviarlas cada vez.
-          system: [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }],
-          output_config: {
-            effort: "low",
-            format: { type: "json_schema", schema: request.jsonSchema },
-          },
-          messages: [{ role: "user", content: request.user }],
-        }) as Anthropic.Message;
-      } catch (error) {
-        if (error instanceof Anthropic.RateLimitError) throw new AiProviderError("Claude está limitando por tasa.", "rate_limited", 429);
-        if (error instanceof Anthropic.AuthenticationError) throw new AiProviderError("La ANTHROPIC_API_KEY no es válida.", "auth", 401);
-        if (error instanceof Anthropic.APIConnectionTimeoutError) throw new AiProviderError("Claude no respondió a tiempo.", "timeout");
-        if (error instanceof Anthropic.APIError) throw new AiProviderError(`Claude respondió con estado ${error.status}.`, "http", error.status);
-        throw new AiProviderError("No fue posible contactar a Claude.", "network");
-      }
-      if (response.stop_reason === "refusal") throw new AiProviderError("Claude declinó la solicitud.", "refusal");
-      if (response.stop_reason === "max_tokens") throw new AiProviderError("La respuesta de Claude quedó truncada por max_tokens.", "invalid_output");
-      const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-      return {
-        json: parseJsonContent(text),
-        model: response.model,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-          cachedInputTokens: response.usage.cache_read_input_tokens ?? 0,
+      const result = await call({
+        max_tokens: request.maxTokens,
+        // Las instrucciones no cambian entre lotes: cachearlas evita reenviarlas cada vez.
+        system: [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }],
+        output_config: {
+          effort: "low",
+          format: { type: "json_schema", schema: request.jsonSchema },
         },
-      };
+        messages: [{ role: "user", content: request.user }],
+      });
+      return { json: parseJsonContent(result.text), model: result.model, usage: result.usage };
+    },
+    async completeText(request) {
+      const result = await call({
+        max_tokens: request.maxTokens,
+        system: [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }],
+        output_config: { effort: "low" },
+        messages: request.messages,
+      });
+      const text = result.text.trim();
+      if (!text) throw new AiProviderError("El proveedor devolvió una respuesta vacía.", "invalid_output");
+      return { text, model: result.model, usage: result.usage };
     },
   };
 }

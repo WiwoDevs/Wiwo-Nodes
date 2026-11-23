@@ -45,6 +45,7 @@ Explicación sin tecnicismos, para el equipo: [docs/GUIA_COMENTARIOS_Y_MENCIONES
 | **Cuentas** | Estado de marcas y cuentas, y su centro documental. Solo Admin puede crear, editar o conectar marcas con Metricool. Solo el **admin principal** puede **ocultar** un cliente (deja de sincronizar y desaparece de la bandeja, Reportes y MetriQ, sin borrar nada) y volver a mostrarlo desde el filtro **Ocultos**. | Supervisor (lectura), Admin |
 | **Automatización**, **Ejecuciones**, **Plantillas** | Editor visual de automatizaciones, historial y plantillas. | Admin |
 | **Credenciales**, **Usuarios** | Credenciales cifradas; personas, roles y permisos. | Admin |
+| **Asistente** (orbe de la barra superior) | Responde cómo se usa wiwo.sac y qué permite el rol de cada persona, con preguntas sugeridas y la sección abierta como contexto. Solo orienta: no ejecuta acciones ni ve casos. Con la IA apagada responde las preguntas sugeridas con la guía. | Todos |
 | **Configuración** | Ajustes del flujo y diagnóstico de la integración. | Supervisor, Admin |
 
 El menú y los botones se muestran según los **permisos** de cada persona, no según el nombre de su rol. Si un Admin le da a alguien un permiso extra, la sección correspondiente le aparece. El servidor vuelve a validar cada acción.
@@ -88,12 +89,62 @@ Antes de presentar, la sección avisa de datos dudosos: mensajes sin clasificar,
 
 **Caso o ruido:** sin IA, las reglas separan el ruido social (reacciones, menciones, emojis sueltos, textos muy cortos). El equipo corrige a mano desde el detalle de cada caso o en lote desde la Bandeja, y lo marcado a mano manda. La sección muestra cuánto del mes se decidió a mano, con IA o por reglas.
 
-**IA en modo sombra (opcional, apagada por defecto):** con `SAC_FLOW_AI_ENABLED=true`, una clave del proveedor y las marcas autorizadas en `SAC_FLOW_AI_BRAND_IDS`, el worker clasifica los mensajes entrantes nuevos con DeepSeek vía BytePlus ModelArk (o Claude, con `SAC_FLOW_AI_PROVIDER=anthropic`). Los textos salen enmascarados (sin correos, teléfonos, RUT, usuarios ni enlaces) y el resultado queda aparte (`aiTriage`): todavía no cambia Reportes ni la bandeja. Lo único que actúa es la señal *sensible*, que solo puede mandar un caso a revisión humana. Con la IA encendida, la **Recomendación de respuesta con IA** del detalle del caso (Bandeja y Gestión DMs/comentarios) se genera con el mismo proveedor a partir del QA aprobado de la marca: advierte cifras o enlaces que no estén en el QA, pasa al compositor solo con *Usar recomendación* y nunca se envía sola. Si la IA está apagada o la marca no está autorizada, el recuadro muestra la sugerencia por reglas, rotulada como tal. La IA nunca responde ni envía mensajes por su cuenta. La concordancia con las marcas manuales se consulta en `GET /api/ai/agreement?month=AAAA-MM`; detalles en [docs/PROPUESTA_IA.md](docs/PROPUESTA_IA.md).
+**IA (opcional, apagada por defecto):** la clasificación con IA queda en modo sombra y todavía no cambia estas cifras; ver [Inteligencia artificial](#inteligencia-artificial).
 
 Notas para que los números sean confiables:
 - La cobertura cuenta solo casos **respondidos**: archivar casos vencidos no la infla.
 - Al vincular marcas, una marca de Metricool cuyo Instagram ya está vinculado se omite, para no contar mensajes dos veces.
 - Las marcas desactivadas no entran en métricas ni reportes.
+
+## Inteligencia artificial
+
+wiwo.sac usa IA con DeepSeek V4.1 Flash a través de BytePlus ModelArk; Claude es una alternativa que se elige por configuración (`SAC_FLOW_AI_PROVIDER=anthropic`). Está **apagada por defecto**: se enciende en el servidor con `SAC_FLOW_AI_ENABLED=true` y `BYTEPLUS_API_KEY`. La clasificación y las recomendaciones además solo funcionan para las marcas autorizadas en `SAC_FLOW_AI_BRAND_IDS`. Detalle de costos y usos en [docs/IA_GASTO_Y_USOS.md](docs/IA_GASTO_Y_USOS.md); plan y decisiones en [docs/PROPUESTA_IA.md](docs/PROPUESTA_IA.md).
+
+### Qué hace hoy
+
+1. **Clasifica cada mensaje que llega, en modo sombra.** Dice si es caso o ruido, la categoría, el tono, si hay que derivarlo, si es sensible y qué tipo de ruido es. Lo hace el worker cada 5 minutos y el resultado queda aparte (`aiTriage`), sin cambiar Reportes ni la Bandeja. La concordancia con lo que marca el equipo se consulta en `GET /api/ai/agreement?month=AAAA-MM`.
+2. **Manda a revisión humana los casos delicados** (legal, salud, fraude, reclamos graves). Solo puede sumar revisión, nunca quitarla.
+3. **Recomienda respuestas** en la Bandeja y en Gestión DMs/comentarios, basadas en el QA aprobado de la marca. Cita sus fuentes y advierte las cifras o enlaces que no están en el QA. Pasa al campo de respuesta solo con *Usar recomendación* y nunca se envía sola. Sin IA, el recuadro muestra la sugerencia por reglas, rotulada como tal.
+4. **Detecta spam** (promocional, estafas, cadenas de concurso), sumado a las reglas que funcionan sin IA: comentario repetido, mismo texto desde varias cuentas, solo etiquetas. Lo que solo sugiere la IA se muestra con su aviso, pero no se oculta.
+5. **Responde dudas de uso** con el **Asistente de wiwo.sac**, el orbe de la barra superior, según el rol de cada persona. Solo orienta: no hace cambios ni ve casos.
+
+### Qué podría hacer después
+
+Ordenado de lo más listo a lo que requiere más trabajo:
+
+- **Contar en Reportes**, cuando la concordancia con las marcas manuales lo justifique. Falta mostrar esa concordancia en pantalla (hoy solo está en la API) y decidir el umbral.
+- **Redactar la lectura del mes** en Reportes: un borrador del análisis y dos próximos pasos por marca. El código ya existe (`server/sac-editorial.ts`); falta conectarlo a la pantalla.
+- **Resumir conversaciones largas**, útil para traspasos entre turnos.
+- **Detectar vacíos del QA:** preguntas frecuentes sin respuesta aprobada, para proponérselas a la marca.
+- **Traducir** los mensajes que llegan en otro idioma.
+
+### Limitaciones
+
+**De funcionamiento**
+
+- **Nunca envía ni decide por su cuenta.** Toda respuesta la envía una persona, y el envío automático es un interruptor aparte que sigue apagado.
+- **La clasificación todavía no cuenta en el reporte.** Hasta medir su concordancia, el reporte sigue usando las reglas y lo marcado a mano.
+- **Solo lee texto.** No ve imágenes, audios, stickers ni historias.
+- **Ve un recorte de cada caso.** Clasifica hasta 600 caracteres por mensaje y mira los últimos 7 días, hasta 100 mensajes cada 5 minutos. Las recomendaciones usan los últimos 10 mensajes del hilo.
+
+**De calidad**
+
+- **La recomendación es tan buena como el QA de la marca.** No conoce stock, precios ni el estado de un pedido. Sin un QA que cubra la consulta, responde que el equipo lo revisará o pide el dato que falta, en vez de inventar.
+- **Se puede equivocar.** DeepSeek Flash es rápido y barato, no el modelo más capaz. Por eso nada se aplica solo. Cambiar de modelo, o pasar a Claude, es solo configuración.
+- **Las reglas de spam pueden marcar algo legítimo**, como un concurso real. Por eso descartar es manual, se confirma y se puede reabrir.
+- **El asistente solo sabe lo que dice su guía de uso** (`SAC_GUIDE` en `server/help-assistant.ts`). No ve datos ni el estado real de las cuentas, y hay que actualizar la guía cuando cambie una función. Sin IA responde solo sus cuatro preguntas sugeridas.
+
+**De privacidad y costo**
+
+- **Los textos de clientes salen a BytePlus**, que puede procesarlos en Malasia, Indonesia o la UE. Antes de autorizar cada marca hace falta su visto bueno al tratamiento de datos fuera de Chile.
+- **El enmascarado no anonimiza del todo.** Quita correos, teléfonos, RUT, tarjetas, usuarios y enlaces, pero un texto libre todavía puede identificar a alguien. El asistente de ayuda no envía datos de clientes.
+- **El costo es bajo pero no tiene tope automático.** Son unos USD 3 al mes con unos 5.000 mensajes y 5.000 recomendaciones. La tarifa de BytePlus hay que confirmarla en su consola, y mientras no haya tope automático de gasto conviene una alerta de facturación en BytePlus.
+
+**Detalles técnicos**
+
+- **Se pierde al reiniciar la API:** la caché de recomendaciones y el contador del límite del asistente (30 preguntas por persona cada 10 minutos).
+- **Se pierde al recargar la página:** la conversación con el asistente.
+- **Está ajustada para español de Chile.** En otros idiomas clasifica con menos confianza.
 
 ## Desarrollo local
 

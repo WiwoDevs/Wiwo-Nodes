@@ -92,6 +92,14 @@ El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo S
 - **Recomendación de respuesta con IA:** con la IA encendida, el detalle de cada caso abierto de una marca autorizada pide una sugerencia basada en el QA aprobado (`POST /api/interactions/:id/ai/draft`, unos 2-3 s). Se guarda en memoria del servidor 30 minutos por mensaje y QA, y se consulta antes de leer el historial, así que reabrir el caso no vuelve a cobrar ni agrega lecturas; un reinicio de la API la descarta. Con la IA apagada, la web solo hace una consulta de disponibilidad que no toca el almacén. El registro `ai_reply_draft` muestra tokens y latencia por sugerencia. Si el proveedor falla, el recuadro dice el motivo y el agente puede reintentar o escribir a mano; si la IA está apagada, muestra la sugerencia por reglas.
 - **Reclasificar un mes a mano:** `npm run build:api` y `node scripts/classify-interactions.mjs --mes AAAA-MM [--maximo 2000]`. Salta lo ya clasificado y lo marcado a mano.
 
+## Asistente de wiwo.sac (orbe de ayuda)
+
+- **Qué es:** el orbe de la barra superior abre un asistente que responde cómo se usa wiwo.sac según el rol de cada persona. Solo orienta: no hace cambios ni ve casos.
+- **Con IA:** usa el mismo proveedor que la clasificación (`SAC_FLOW_AI_ENABLED`, `BYTEPLUS_API_KEY`). No envía datos de clientes, así que no depende de las marcas autorizadas. Cada consulta deja el registro `help_assistant` (tokens y latencia, nunca el texto).
+- **Sin IA:** responde solo las cuatro preguntas sugeridas con respuestas escritas; para el resto dice que la IA está apagada.
+- **Límite:** 30 preguntas por persona cada 10 minutos (se reinicia con la API).
+- **Si responde algo desactualizado:** la fuente es `SAC_GUIDE` en `server/help-assistant.ts`; actualízala cuando cambien secciones, permisos o flujos.
+
 ## Spam y ruido en la bandeja
 
 - **Qué se detecta:** el mismo comentario repetido 3 o más veces por una cuenta, el mismo comentario desde 3 o más cuentas en 72 horas, comentarios que solo etiquetan a otras personas, spam promocional y estafas que suplantan a Meta, y lo que la IA en sombra marcó como spam o estafa. Solo se señala: nada se cierra solo.
