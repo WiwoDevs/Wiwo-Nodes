@@ -397,6 +397,17 @@ export const userAccessRoleSchema = z.object({
   role: z.string().trim().min(1).max(80).nullable(),
 }).strict();
 
+export const discardNoiseSchema = z.object({
+  accountId: z.string().trim().min(1).max(120).optional(),
+  type: z.enum(["dm", "comment"]).optional(),
+  /** Solo los comentarios abiertos de una publicación (Gestión comentarios). */
+  postKey: z.string().trim().min(1).max(500).optional(),
+  /** Incluir lo que solo la IA marcó como posible spam (las reglas siempre se incluyen). */
+  includeAi: z.boolean().default(true),
+  /** true: solo cuenta lo que se descartaría, sin escribir. */
+  dryRun: z.boolean().default(true),
+}).strict();
+
 export const archiveExpiredSchema = z.object({
   accountId: z.string().trim().min(1).max(120).optional(),
   type: z.enum(["dm", "comment"]).optional(),

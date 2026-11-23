@@ -12,6 +12,7 @@
  * lámina de flujo necesita ambos números.
  */
 import type { Brand, Channel, Interaction } from "./types.js";
+import { detectNoise } from "./noise-detection.js";
 
 export interface SacReportOptions {
   /** Primer día del período, YYYY-MM-DD inclusive. */
@@ -65,8 +66,12 @@ export interface SacReportFigures {
   variacion?: { anterior: number; deltaPct: number; comparable: boolean; revisar?: boolean };
   /** Advertencias que el operador debe leer antes de presentar el informe. */
   advertencias: string[];
-  /** De dónde salió la decisión "es caso / es ruido" de cada mensaje entrante del mes. */
-  clasificacion: { manual: number; ia: number; reglas: number };
+  /**
+   * De dónde salió la decisión "es caso / es ruido" de cada mensaje entrante del mes.
+   * `spam`: de los decididos por reglas, cuántos se descartaron por spam o ruido detectado
+   * (texto repetido, el mismo texto desde varias cuentas, solo etiquetas, spam promocional).
+   */
+  clasificacion: { manual: number; ia: number; reglas: number; spam: number };
 }
 
 /**
@@ -213,7 +218,9 @@ export function esMensajeGestionado(item: Interaction): boolean {
   if (kind === "attachment") return true;
   const texto = contenido(item);
   if (!/\p{L}/u.test(texto)) return false;
-  return texto.split(" ").filter((palabra) => /\p{L}/u.test(palabra)).length >= 4;
+  // Una etiqueta (@cuenta) no es una palabra del mensaje: "@ana @luis @pia @tom" es una
+  // cadena de concurso, no cuatro palabras.
+  return texto.split(" ").filter((palabra) => !palabra.startsWith("@") && /\p{L}/u.test(palabra)).length >= 4;
 }
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -273,10 +280,10 @@ export function esCasoSac(item: Interaction): boolean {
   return item.sacTriage ? item.sacTriage.esCasoSac : esMensajeGestionado(item);
 }
 
-function origenes(items: Interaction[]): { manual: number; ia: number; reglas: number } {
+function origenes(items: Interaction[], spam: number): SacReportFigures["clasificacion"] {
   const manual = items.filter(esTriajeManual).length;
   const reglas = items.filter((item) => !item.sacTriage).length;
-  return { manual, ia: items.length - manual - reglas, reglas };
+  return { manual, ia: items.length - manual - reglas, reglas, spam };
 }
 
 export function buildSacReport(
@@ -293,14 +300,22 @@ export function buildSacReport(
 
   // Cuánto se decidió por reglas, a mano o con IA viaja en `clasificacion`: es una nota del
   // mes, no un problema de la marca, así que no se repite como advertencia en cada una.
-  const clasificacion = origenes(entrantes);
+  // Spam y ruido detectados por reglas sobre todo el conjunto (la repetición cruza meses y
+  // personas). Solo pesan donde decidían las reglas: lo marcado a mano o por IA manda. La
+  // sugerencia de la IA en sombra no cuenta aquí.
+  const ruido = detectNoise(interactions.filter((item) => item.brandId === brand.id));
+  const esSpamPorReglas = (item: Interaction) => !item.sacTriage && ruido.get(item.id)?.origen === "reglas";
+  const spam = entrantes.filter(esSpamPorReglas).length;
+  const clasificacion = origenes(entrantes, spam);
 
   // Lo marcado (a mano o por IA) manda; lo demás se decide por reglas de contenido.
-  const casos = entrantes.filter(esCasoSac);
+  const casos = entrantes.filter((item) => esCasoSac(item) && !esSpamPorReglas(item));
   const derivados = entrantes.filter((item) => item.sacTriage?.requiereDerivacion).length;
   const respondidos = casos.filter((item) => item.status === "replied").length;
 
-  const gestionados = options.volumen === "bruto" ? entrantes : entrantes.filter(esMensajeGestionado);
+  const gestionados = options.volumen === "bruto"
+    ? entrantes
+    : entrantes.filter((item) => esMensajeGestionado(item) && !esSpamPorReglas(item));
   const ilegibles = entrantes.filter(esIlegible).length;
   if (ilegibles) {
     advertencias.push(

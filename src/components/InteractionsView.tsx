@@ -42,6 +42,12 @@ export type AssignmentFilter = "all" | "assigned" | "unassigned" | "mine" | `use
  * lo mismo que cuenta el panel Equipo del Inicio.
  */
 type DeadlineFilter = "hide_expired" | "actionable" | "expired" | "all";
+/**
+ * Spam y ruido: por defecto se oculta lo que detectan las reglas (mismo texto repetido, el
+ * mismo texto desde varias cuentas, solo etiquetas, spam promocional). Lo que solo sugiere la
+ * IA sigue visible con su aviso, para que una persona decida.
+ */
+type NoiseFilter = "hide" | "only" | "all";
 
 /** Filtros recordados por navegador (no la búsqueda): al volver, la bandeja queda como estaba. */
 const FILTERS_STORAGE_KEY = "wiwo-nodes.inbox-filters.v1";
@@ -52,6 +58,7 @@ type StoredFilters = {
   kind?: string;
   status?: string;
   deadline?: DeadlineFilter;
+  noise?: NoiseFilter;
 };
 
 function readStoredFilters(): StoredFilters {
@@ -74,6 +81,7 @@ function writeStoredFilters(filters: StoredFilters): void {
 
 const ASSIGNMENT_VALUES: AssignmentFilter[] = ["all", "assigned", "unassigned", "mine"];
 const DEADLINE_VALUES: DeadlineFilter[] = ["hide_expired", "actionable", "expired", "all"];
+const NOISE_VALUES: NoiseFilter[] = ["hide", "only", "all"];
 const PERSON_PREFIX = "user:";
 
 function personFilterUserId(filter: AssignmentFilter): string | undefined {
@@ -130,6 +138,9 @@ export interface InteractionsViewProps {
   canTriage?: boolean;
   /** Marca en lote las conversaciones elegidas como caso o ruido para el reporte. */
   onBulkTriage?: (contactKeys: string[], esCasoSac: boolean) => boolean | Promise<boolean>;
+  /** Descartar en lote el spam señalado (inbox.triage + inbox.assign_others). */
+  canDiscardNoise?: boolean;
+  onDiscardNoise?: (scope: { accountId?: string; type?: "dm" | "comment" }) => void | Promise<void>;
 }
 
 function normalize(value: string) {
@@ -231,6 +242,8 @@ export function InteractionsView({
   onResolveInteraction,
   canArchiveExpired = false,
   onArchiveExpired,
+  canDiscardNoise = false,
+  onDiscardNoise,
   currentUserId,
   canFilterByPerson = false,
   focus,
@@ -258,6 +271,9 @@ export function InteractionsView({
   const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>(
     stored.deadline && DEADLINE_VALUES.includes(stored.deadline) ? stored.deadline : "hide_expired",
   );
+  const [noiseFilter, setNoiseFilter] = useState<NoiseFilter>(
+    stored.noise && NOISE_VALUES.includes(stored.noise) ? stored.noise : "hide",
+  );
 
   useEffect(() => {
     if (!focus) return;
@@ -271,6 +287,8 @@ export function InteractionsView({
       setStatusFilter("all");
       setAssignmentFilter(assignment);
       setDeadlineFilter("actionable");
+      // Igual que el panel Equipo, que cuenta todo lo abierto: la cifra tiene que coincidir.
+      setNoiseFilter("all");
       setFocusLabel(focus.label ? { assignment, label: focus.label } : undefined);
     }
     onFocusApplied?.();
@@ -294,8 +312,9 @@ export function InteractionsView({
       kind: kindFilter,
       status: statusFilter,
       deadline: deadlineFilter,
+      noise: noiseFilter,
     });
-  }, [accountFilter, assignmentFilter, deadlineFilter, kindFilter, platformFilter, statusFilter]);
+  }, [accountFilter, assignmentFilter, deadlineFilter, kindFilter, noiseFilter, platformFilter, statusFilter]);
 
   // Una cuenta recordada que ya no está (desactivada, sin acceso) vuelve a "todas".
   useEffect(() => {
@@ -343,7 +362,10 @@ export function InteractionsView({
           : deadlineFilter === "actionable" ? needsAction(interaction) && !expired
             : !expired);
 
-      return matchesQuery && matchesAccount && matchesPlatform && matchesKind && matchesStatus && matchesAssignment && matchesDeadline;
+      const matchesNoise = noiseFilter === "all"
+        || (noiseFilter === "only" ? Boolean(interaction.noise) : interaction.noise?.origen !== "reglas");
+
+      return matchesQuery && matchesAccount && matchesPlatform && matchesKind && matchesStatus && matchesAssignment && matchesDeadline && matchesNoise;
     })
       // Primero lo que requiere acción y, dentro de eso, lo que vence antes (sin plazo al
       // final); el resto mantiene el orden del servidor (actividad más reciente primero).
@@ -358,7 +380,7 @@ export function InteractionsView({
         || left.deadline - right.deadline
         || left.index - right.index)
       .map(({ interaction }) => interaction);
-  }, [accountFilter, assignmentFilter, currentUserId, deadlineFilter, interactions, kindFilter, now, platformFilter, searchQuery, statusFilter]);
+  }, [accountFilter, assignmentFilter, currentUserId, deadlineFilter, interactions, kindFilter, noiseFilter, now, platformFilter, searchQuery, statusFilter]);
 
   useEffect(() => {
     onVisibleOrderChange?.(filteredInteractions);
@@ -408,6 +430,14 @@ export function InteractionsView({
     && (kindFilter === "all" || includesKind(interaction, kindFilter))).length,
   [accountFilter, interactions, kindFilter, now]);
 
+  // Conversaciones que son solo spam detectado por reglas, en el alcance de cuenta y tipo.
+  const noiseInScope = useMemo(() => interactions.filter((interaction) =>
+    interaction.noise?.origen === "reglas"
+    && !isExpired(interaction, now)
+    && (accountFilter === "all" || interaction.accountId === accountFilter)
+    && (kindFilter === "all" || includesKind(interaction, kindFilter))).length,
+  [accountFilter, interactions, kindFilter, now]);
+
   const totalPages = Math.max(1, Math.ceil(filteredInteractions.length / PAGE_SIZE));
   const visibleInteractions = filteredInteractions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const filteredMessageCount = filteredInteractions.reduce(
@@ -447,7 +477,8 @@ export function InteractionsView({
     kindFilter !== "all" ||
     statusFilter !== "all" ||
     assignmentFilter !== "all" ||
-    deadlineFilter !== "hide_expired";
+    deadlineFilter !== "hide_expired" ||
+    noiseFilter !== "hide";
   const activeFilterCount = [
     accountFilter !== "all",
     assignmentFilter !== "all",
@@ -455,6 +486,7 @@ export function InteractionsView({
     kindFilter !== "all",
     statusFilter !== "all",
     deadlineFilter !== "hide_expired",
+    noiseFilter !== "hide",
   ].filter(Boolean).length;
 
   const toggleSelection = (contactKey: string) => {
@@ -512,6 +544,7 @@ export function InteractionsView({
     setStatusFilter("all");
     setAssignmentFilter("all");
     setDeadlineFilter("hide_expired");
+    setNoiseFilter("hide");
   };
 
   return (
@@ -676,6 +709,19 @@ export function InteractionsView({
         </label>
 
         <label className="filter-field">
+          <span className="filter-field__label">Spam</span>
+          <select
+            value={noiseFilter}
+            onChange={(event) => setNoiseFilter(event.target.value as NoiseFilter)}
+            title="Mismo texto repetido, el mismo texto desde varias cuentas, comentarios que solo etiquetan y spam promocional. La IA sugiere más casos, que siguen visibles con su aviso."
+          >
+            <option value="hide">Ocultar spam detectado</option>
+            <option value="only">Solo posible spam</option>
+            <option value="all">Mostrar todo</option>
+          </select>
+        </label>
+
+        <label className="filter-field">
           <span className="filter-field__label">Estado</span>
           <select
             value={statusFilter}
@@ -722,6 +768,11 @@ export function InteractionsView({
           {deadlineFilter === "hide_expired" && expiredInScope ? (
             <button className="results-toolbar__expired" type="button" onClick={() => setDeadlineFilter("expired")}>
               {new Intl.NumberFormat("es-CL").format(expiredInScope)} fuera de plazo ocultas
+            </button>
+          ) : null}
+          {noiseFilter === "hide" && noiseInScope ? (
+            <button className="results-toolbar__expired" type="button" onClick={() => setNoiseFilter("only")}>
+              {new Intl.NumberFormat("es-CL").format(noiseInScope)} con spam detectado ocultas
             </button>
           ) : null}
         </p>
@@ -779,6 +830,28 @@ export function InteractionsView({
           <button className="button button--ghost" type="button" onClick={() => setSelectedContactKeys(new Set())}>
             Cancelar selección
           </button>
+        </div>
+      ) : null}
+
+      {noiseFilter === "only" && filteredInteractions.length > 0 ? (
+        <div className="expired-banner" role="note">
+          <span>
+            <strong>{new Intl.NumberFormat("es-CL").format(filteredInteractions.length)} conversaciones con posible spam o ruido.</strong>
+            {" "}Cada una dice por qué: texto repetido, el mismo texto desde varias cuentas, solo etiquetas, spam promocional o una sugerencia de la IA.
+            {canDiscardNoise ? " Descartarlas las cierra como «Spam o contenido no válido» y no cuentan en el reporte; el comentario sigue publicado en la red, nunca se escribe en Metricool y los casos sensibles quedan para revisión humana." : ""}
+          </span>
+          {canDiscardNoise && onDiscardNoise ? (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => void onDiscardNoise({
+                ...(accountFilter !== "all" ? { accountId: accountFilter } : {}),
+                ...(kindFilter === "dm" || kindFilter === "comment" ? { type: kindFilter } : {}),
+              })}
+            >
+              Descartar spam
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -865,6 +938,15 @@ export function InteractionsView({
                               <small className="conversation-cell__pending">
                                 {interaction.conversationSummary?.pendingCount}{" "}
                                 {interaction.conversationSummary?.pendingCount === 1 ? "pendiente" : "pendientes"}
+                              </small>
+                            ) : null}
+                            {interaction.noise ? (
+                              <small className={`conversation-cell__noise conversation-cell__noise--${interaction.noise.origen}`} title={interaction.noise.label}>
+                                {interaction.noise.origen === "ia" ? interaction.noise.label : `Posible spam · ${interaction.noise.label.charAt(0).toLowerCase()}${interaction.noise.label.slice(1)}`}
+                              </small>
+                            ) : (interaction.conversationSummary?.noiseCount ?? 0) > 0 ? (
+                              <small className="conversation-cell__noise" title="Mensajes de esta persona señalados como posible spam">
+                                +{interaction.conversationSummary?.noiseCount} posible spam
                               </small>
                             ) : null}
                           </span>

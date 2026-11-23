@@ -103,6 +103,7 @@ function fakeProvider(decide: (item: { id: string; texto: string }) => Partial<R
             requiereDerivacion: false,
             sensible: false,
             motivoSensible: "ninguno",
+            ruido: "ninguno",
             confianza: 0.8,
             ...decide(item),
           })),
@@ -239,8 +240,8 @@ describe("Clasificador", () => {
           usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
           json: {
             results: [
-              { id: item.id, categoria: "pago_facturacion", tonalidad: "negative", esCasoSac: false, requiereDerivacion: true, sensible: true, motivoSensible: "legal", confianza: 1.4 },
-              { id: "otro-caso", categoria: "reclamo", tonalidad: "negative", esCasoSac: true, requiereDerivacion: false, sensible: false, motivoSensible: "ninguno", confianza: 0.5 },
+              { id: item.id, categoria: "pago_facturacion", tonalidad: "negative", esCasoSac: false, requiereDerivacion: true, sensible: true, motivoSensible: "legal", ruido: "ninguno", confianza: 1.4 },
+              { id: "otro-caso", categoria: "reclamo", tonalidad: "negative", esCasoSac: true, requiereDerivacion: false, sensible: false, motivoSensible: "ninguno", ruido: "ninguno", confianza: 0.5 },
             ],
           },
         };
@@ -255,6 +256,7 @@ describe("Clasificador", () => {
       requiereDerivacion: false,
       sensible: true,
       motivoSensible: "legal",
+      ruido: "ninguno",
       confianza: 1,
     }]);
   });
@@ -355,7 +357,7 @@ describe("Clasificación en sombra sobre el repositorio", () => {
     }
     const classified = after.filter((item) => item.aiTriage);
     expect(classified).toHaveLength(candidates.length - 1);
-    expect(classified[0]!.aiTriage).toMatchObject({ proveedor: "byteplus", modelo: BYTEPLUS_DEFAULT_MODEL, promptVersion: "sac-triage-v2" });
+    expect(classified[0]!.aiTriage).toMatchObject({ proveedor: "byteplus", modelo: BYTEPLUS_DEFAULT_MODEL, promptVersion: "sac-triage-v3" });
     expect(classified[0]!.audit.at(-1)).toMatchObject({ action: "classified", actor: "system", metadata: { shadow: true } });
 
     // Reanudable: una segunda corrida no vuelve a gastar en lo ya clasificado.

@@ -176,7 +176,7 @@ describe("buildSacReport", () => {
 
   it("informa lo decidido por reglas en la clasificación, no como advertencia de la marca", () => {
     const cifras = buildSacReport(brand, [caso({ sacTriage: undefined })], AGOSTO);
-    expect(cifras.clasificacion).toEqual({ manual: 0, ia: 0, reglas: 1 });
+    expect(cifras.clasificacion).toEqual({ manual: 0, ia: 0, reglas: 1, spam: 0 });
     expect(cifras.advertencias.some((a) => a.includes("por reglas"))).toBe(false);
   });
 
@@ -205,7 +205,7 @@ describe("buildSacReport", () => {
     ], AGOSTO);
     expect(cifras.casosSac).toBe(2);
     expect(cifras.derivados).toBe(1);
-    expect(cifras.clasificacion).toEqual({ manual: 3, ia: 0, reglas: 0 });
+    expect(cifras.clasificacion).toEqual({ manual: 3, ia: 0, reglas: 0, spam: 0 });
   });
 
   it("advierte cuando el período anterior no es comparable", () => {

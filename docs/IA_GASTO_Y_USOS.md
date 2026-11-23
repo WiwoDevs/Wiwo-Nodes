@@ -36,6 +36,10 @@ Al abrir un caso abierto en la **Bandeja** o en **Gestión DMs/comentarios**, el
 - **No cobra dos veces:** reabrir el mismo caso devuelve la sugerencia guardada (30 minutos) sin llamar a la API.
 - **Sin IA:** si la IA está apagada o la marca no está autorizada, el recuadro dice **Respuesta sugerida por reglas** y muestra la plantilla del protocolo SAC.
 
+### Spam y ruido
+
+Además de caso o ruido, la IA dice **qué tipo de ruido** es cada mensaje: reacción social, etiquetas o concurso, spam promocional o estafa que suplanta a Meta. Esa señal se suma a reglas que no usan IA (el mismo comentario repetido por una cuenta, el mismo texto desde varias cuentas, comentarios que solo etiquetan). En la Bandeja y en Gestión comentarios aparece el aviso **Posible spam** con el motivo, el spam va al final de la fila y un supervisor puede **descartarlo en lote** después de confirmar. Lo que solo sugiere la IA se muestra pero nunca se oculta por defecto. Detectar el tipo de ruido no agrega llamadas: viene en la misma clasificación.
+
 ### Qué cambia hoy en la web
 
 - **Los casos sensibles van a revisión humana.** Si la IA marca un mensaje como sensible, el protocolo SAC lo deja en "revisión humana" (motivo `AI_SENSITIVE_SIGNAL`, riesgo al menos alto). Eso tiene tres efectos:

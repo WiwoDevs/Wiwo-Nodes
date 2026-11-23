@@ -19,10 +19,10 @@ import { z } from "zod";
 import { redactPersonalData } from "./ai-redaction.js";
 import { AiProviderError, type AiProvider, type AiUsage } from "./ai-provider.js";
 import { MANDATORY_HUMAN_REVIEW_CATEGORIES } from "./safety-policy.js";
-import type { Interaction, Sentiment } from "./types.js";
+import { AI_NOISE_KINDS, type AiNoiseKind, type Interaction, type Sentiment } from "./types.js";
 
 /** Versión del prompt y del esquema; queda en cada resultado para comparar corridas. */
-export const CLASSIFIER_PROMPT_VERSION = "sac-triage-v2";
+export const CLASSIFIER_PROMPT_VERSION = "sac-triage-v3";
 
 /** Taxonomía cerrada. Un conjunto fijo mantiene los gráficos comparables mes a mes. */
 export const SAC_CATEGORIES = [
@@ -53,6 +53,7 @@ const resultSchema = z.object({
   requiereDerivacion: z.boolean(),
   sensible: z.boolean(),
   motivoSensible: z.enum(SENSITIVE_REASONS),
+  ruido: z.enum(AI_NOISE_KINDS),
   confianza: z.number(),
 });
 const classificationSchema = z.object({ results: z.array(resultSchema) });
@@ -68,7 +69,7 @@ const CLASSIFICATION_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "categoria", "tonalidad", "esCasoSac", "requiereDerivacion", "sensible", "motivoSensible", "confianza"],
+        required: ["id", "categoria", "tonalidad", "esCasoSac", "requiereDerivacion", "sensible", "motivoSensible", "ruido", "confianza"],
         properties: {
           id: { type: "string", description: "El id exacto del mensaje que se está clasificando." },
           categoria: { type: "string", enum: [...SAC_CATEGORIES] },
@@ -77,6 +78,7 @@ const CLASSIFICATION_JSON_SCHEMA = {
           requiereDerivacion: { type: "boolean" },
           sensible: { type: "boolean" },
           motivoSensible: { type: "string", enum: [...SENSITIVE_REASONS] },
+          ruido: { type: "string", enum: [...AI_NOISE_KINDS] },
           confianza: { type: "number", description: "Entre 0 y 1." },
         },
       },
@@ -135,7 +137,15 @@ Para cada mensaje entregas:
    Si sensible es false, motivoSensible es "ninguno". Ante la duda, marca sensible: una
    revisión de más es barata, una de menos no.
 
-6. confianza — entre 0 y 1. Baja cuando el mensaje es ambiguo, muy corto o está en otro
+6. ruido — qué tipo de ruido es, aunque no sea caso SAC:
+   ninguno: mensaje real de un cliente (consulta, reclamo, comentario con contenido)
+   reaccion_social: solo emojis, elogios de una palabra, reacciones
+   etiquetas_concurso: etiqueta a otras personas o participa en un concurso o sorteo
+   spam_promocional: publicidad ajena, venta de seguidores, inversiones, cripto, "revisa mi perfil", cuentas que se promocionan
+   estafa_phishing: suplanta a Meta o a la marca, "tu página será desactivada", pide verificar la cuenta o hacer clic en un enlace sospechoso
+   Un cliente que pregunta por su premio, por WhatsApp o por un enlace de la marca no es spam.
+
+7. confianza — entre 0 y 1. Baja cuando el mensaje es ambiguo, muy corto o está en otro
    idioma.
 
 Reglas:
@@ -152,6 +162,7 @@ export interface ClassificationOutcome {
   requiereDerivacion: boolean;
   sensible: boolean;
   motivoSensible?: string;
+  ruido: AiNoiseKind;
   confianza: number;
 }
 
@@ -238,6 +249,7 @@ export async function classifyInteractions(
         requiereDerivacion: result.esCasoSac && result.requiereDerivacion,
         sensible,
         ...(sensible && result.motivoSensible !== "ninguno" ? { motivoSensible: result.motivoSensible } : {}),
+        ruido: result.ruido,
         confianza: Math.max(0, Math.min(1, result.confianza)),
       });
     }

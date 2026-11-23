@@ -92,6 +92,13 @@ El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo S
 - **Recomendación de respuesta con IA:** con la IA encendida, el detalle de cada caso abierto de una marca autorizada pide una sugerencia basada en el QA aprobado (`POST /api/interactions/:id/ai/draft`, unos 2-3 s). Se guarda en memoria del servidor 30 minutos por mensaje y QA, y se consulta antes de leer el historial, así que reabrir el caso no vuelve a cobrar ni agrega lecturas; un reinicio de la API la descarta. Con la IA apagada, la web solo hace una consulta de disponibilidad que no toca el almacén. El registro `ai_reply_draft` muestra tokens y latencia por sugerencia. Si el proveedor falla, el recuadro dice el motivo y el agente puede reintentar o escribir a mano; si la IA está apagada, muestra la sugerencia por reglas.
 - **Reclasificar un mes a mano:** `npm run build:api` y `node scripts/classify-interactions.mjs --mes AAAA-MM [--maximo 2000]`. Salta lo ya clasificado y lo marcado a mano.
 
+## Spam y ruido en la bandeja
+
+- **Qué se detecta:** el mismo comentario repetido 3 o más veces por una cuenta, el mismo comentario desde 3 o más cuentas en 72 horas, comentarios que solo etiquetan a otras personas, spam promocional y estafas que suplantan a Meta, y lo que la IA en sombra marcó como spam o estafa. Solo se señala: nada se cierra solo.
+- **Dónde se ve:** en la Bandeja, el filtro **Spam** oculta por defecto lo detectado por reglas y avisa cuántas conversaciones quedaron ocultas; **Solo posible spam** las muestra con el motivo. En Gestión comentarios, cada publicación dice cuántos comentarios parecen spam y esos van al final de la fila.
+- **Descartar:** Supervisor o Admin pulsa **Descartar spam** (Bandeja, con el filtro *Solo posible spam*, o en la publicación abierta). La ventana dice cuántos casos y por qué; al confirmar, quedan cerrados como «Spam o contenido no válido» y no cuentan en el reporte. Los sensibles quedan para revisión humana. El comentario sigue publicado en Instagram/Facebook: wiwo.sac no borra ni oculta nada en la red. El registro `noise_discarded` dice cuántos y de qué tipo.
+- **Si se descartó algo real:** abrir el caso (filtro *Estado → Resuelto*) y usar **Reabrir caso**; si además debe contar en el reporte, marcarlo como caso desde el detalle.
+
 ## Respaldos de la base
 
 En producción, el servicio `backup` de `docker-compose.production.yml` respalda la base PostgreSQL completa con `pg_dump` (script `scripts/postgres-backup.sh`). La base guarda todo el historial: mensajes, borradores, respuestas, asignaciones, casos marcados a mano, marcas, usuarios y roles.

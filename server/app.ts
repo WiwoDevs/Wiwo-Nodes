@@ -89,6 +89,7 @@ import {
   sacMonthlyReportQuerySchema,
   aiAgreementQuerySchema,
   aiDraftBodySchema,
+  discardNoiseSchema,
   inboxChangesQuerySchema,
   integrationMonthQuerySchema,
   integrationTotalsQuerySchema,
@@ -97,6 +98,7 @@ import {
 } from "./schemas.js";
 import { buildSacReport, duplicateAccountGroups, esCasoSac, esMensajeGestionado, esTriajeManual, monthPeriod } from "./sac-report.js";
 import { buildAiAgreement } from "./ai-shadow-triage.js";
+import { detectNoise, isDiscardableNoise } from "./noise-detection.js";
 import { isMetricoolContentUnavailable } from "./metricool-content.js";
 import { createAiProvider, type AiProvider } from "./ai-provider.js";
 import {
@@ -188,6 +190,7 @@ import {
   interactionsForInboxPost,
   interactionsForContact,
   pendingCommentsForInboxPost,
+  postKeyFor,
   publicInboxInteraction,
   publicPostContext,
 } from "./inbox-contacts.js";
@@ -3291,7 +3294,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       const item = byId.get(id);
       if (item) keys.add(contactKeyFor(item));
     }
-    const contacts = keys.size ? groupInboxContacts(visible.filter((item) => keys.has(contactKeyFor(item)))) : [];
+    // El ruido se mide sobre toda la bandeja visible: la repetición y la coordinación cruzan personas.
+    const contacts = keys.size
+      ? groupInboxContacts(visible.filter((item) => keys.has(contactKeyFor(item))), detectNoise(visible))
+      : [];
     return {
       data: { revision: changes.revision, full: false, contacts },
       meta: apiMeta(config),
@@ -3396,14 +3402,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const allComments = await repository.listInteractions(scopedFilters);
     const post = groupInboxPosts(allComments).find((item) => item.postKey === postKey);
     if (!post) throw new ApiError(404, "INBOX_POST_NOT_FOUND", "La publicación no existe o no está disponible para este usuario.");
+    const noise = detectNoise(allComments);
+    // En la fila de trabajo el spam señalado va al final: primero lo que hay que responder.
     const exactComments = pendingOnly
-      ? pendingCommentsForInboxPost(allComments, postKey)
+      ? [...pendingCommentsForInboxPost(allComments, postKey)].sort((left, right) => Number(noise.has(left.id)) - Number(noise.has(right.id)))
       : interactionsForInboxPost(allComments, postKey);
     const total = exactComments.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const offset = (page - 1) * pageSize;
     return {
-      data: exactComments.slice(offset, offset + pageSize).map(publicInboxInteraction),
+      data: exactComments.slice(offset, offset + pageSize).map((item) => publicInboxInteraction(item, noise.get(item.id))),
       pagination: { page, pageSize, total, totalPages },
       meta: {
         ...apiMeta(config),
@@ -4823,6 +4831,95 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    * cuyo plazo de Meta venció. Nunca toca Metricool, nunca archiva casos sensibles (quedan para
    * revisión humana) y respeta el alcance de marcas. `dryRun` (por defecto) solo cuenta.
    */
+  /**
+   * Descarta en lote lo señalado como spam o ruido (reglas y, si se pide, la IA en sombra):
+   * cierra cada caso abierto como "Spam o contenido no válido" y lo marca a mano como ruido
+   * para el reporte, con la persona que lo confirmó. Primero se consulta con `dryRun` y una
+   * persona confirma. Nunca toca casos sensibles ni marcados a mano como caso, nunca escribe
+   * en Metricool (el comentario sigue publicado en la red) y cada caso se puede reabrir.
+   */
+  app.post("/api/interactions/discard-noise", async (request) => {
+    const actor = requirePermission(config, request, "inbox.triage");
+    if (!actorCan(actor, "inbox.assign_others")) {
+      throw new ApiError(403, "FORBIDDEN", "Descartar spam en lote requiere rol supervisor.");
+    }
+    const body = discardNoiseSchema.parse(request.body ?? {});
+    const snapshot = await repository.snapshotCatalog();
+    const scoped = operationalInteractionFilters(actor, snapshot.brands, {
+      ...(body.accountId ? { accountId: body.accountId } : {}),
+    });
+    const all = await repository.listInteractions(scoped);
+    const noise = detectNoise(all);
+    const open = new Set<Interaction["status"]>(["new", "pending", "drafted", "escalated"]);
+    const candidates = all.filter((item) => {
+      if (item.direction !== "inbound" || !open.has(item.status)) return false;
+      if (body.type && item.type !== body.type) return false;
+      if (body.postKey && postKeyFor(item) !== body.postKey) return false;
+      const signal = noise.get(item.id);
+      if (!signal || (signal.origen === "ia" && !body.includeAi)) return false;
+      return isDiscardableNoise(item, signal);
+    });
+    const sensitive = candidates.filter(isSensitiveCase);
+    const toDiscard = candidates.filter((item) => !isSensitiveCase(item));
+    const count = (key: (item: Interaction) => string) => toDiscard.reduce<Record<string, number>>((acc, item) => {
+      const value = key(item);
+      acc[value] = (acc[value] ?? 0) + 1;
+      return acc;
+    }, {});
+    const summary = {
+      eligible: toDiscard.length,
+      skippedSensitive: sensitive.length,
+      byKind: count((item) => noise.get(item.id)!.kind),
+      byOrigin: count((item) => noise.get(item.id)!.origen),
+    };
+    if (body.dryRun || !toDiscard.length) {
+      return { data: { dryRun: body.dryRun, discarded: 0, ...summary }, meta: { ...apiMeta(config), externalWrites: false } };
+    }
+    const reason = statusReasonFor("resolved", "spam")!;
+    const byId = new Map(toDiscard.map((item) => [item.id, noise.get(item.id)!]));
+    const at = new Date().toISOString();
+    const discarded = await repository.mutateInteractions([...byId.keys()], (store) => {
+      let changed = 0;
+      for (const item of store.interactions) {
+        const signal = byId.get(item.id);
+        if (!signal || !open.has(item.status) || isSensitiveCase(item)) continue;
+        if (item.sacTriage?.modelo === "manual" && item.sacTriage.esCasoSac) continue;
+        item.status = "resolved";
+        item.statusReason = {
+          code: reason.code,
+          label: reason.label,
+          changedAt: at,
+          changedBy: { userId: actor.userId, displayName: actor.displayName },
+        };
+        if (item.sacTriage?.modelo !== "manual") {
+          item.sacTriage = {
+            categoria: item.sacTriage?.categoria ?? item.category ?? "no_aplica",
+            esCasoSac: false,
+            requiereDerivacion: false,
+            confianza: 1,
+            clasificadoEn: at,
+            modelo: "manual",
+            marcadoPor: actor.displayName,
+          };
+        }
+        item.audit.push({
+          id: randomUUID(),
+          at,
+          action: "status_changed",
+          actor: "agent",
+          detail: `${reason.label} (descartado en lote: ${signal.label}).`,
+          metadata: { status: "resolved", reasonCode: reason.code, actorId: actor.userId, bulk: true, noiseKind: signal.kind, noiseOrigin: signal.origen },
+        });
+        item.version = (Number.isInteger(item.version) && item.version > 0 ? item.version : 1) + 1;
+        item.updatedAt = at;
+        changed += 1;
+      }
+      return changed;
+    });
+    request.log.info({ event: "noise_discarded", count: discarded, skippedSensitive: sensitive.length, byKind: summary.byKind, by: actor.userId }, "Spam descartado en lote.");
+    return { data: { dryRun: false, discarded, ...summary }, meta: { ...apiMeta(config), externalWrites: false } };
+  });
+
   app.post("/api/interactions/archive-expired", async (request) => {
     const actor = requirePermission(config, request, "inbox.archive_expired");
     const body = archiveExpiredSchema.parse(request.body ?? {});

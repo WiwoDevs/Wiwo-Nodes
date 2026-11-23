@@ -58,7 +58,7 @@ function recentMonths(now = new Date()): Array<{ value: string; label: string }>
 }
 
 /** "Caso o ruido": cuánto se decidió a mano, con IA o por reglas. */
-function clasificacionTexto(counts: { manual: number; ia: number; reglas: number }): string {
+function clasificacionTexto(counts: { manual: number; ia: number; reglas: number; spam?: number }): string {
   const total = counts.manual + counts.ia + counts.reglas;
   if (!total) return "";
   const parts = [
@@ -66,7 +66,10 @@ function clasificacionTexto(counts: { manual: number; ia: number; reglas: number
     counts.ia ? `${formatCount(counts.ia)} con IA` : null,
     counts.reglas ? `${formatCount(counts.reglas)} por reglas` : null,
   ].filter(Boolean);
-  return `Caso o ruido: ${parts.join(", ")}. Corrige a mano desde el detalle de cada caso o en lote desde la Bandeja.`;
+  const spam = counts.spam
+    ? ` De los decididos por reglas, ${formatCount(counts.spam)} no cuentan por spam o ruido (texto repetido, el mismo texto desde varias cuentas, solo etiquetas o spam promocional).`
+    : "";
+  return `Caso o ruido: ${parts.join(", ")}.${spam} Corrige a mano desde el detalle de cada caso o en lote desde la Bandeja.`;
 }
 
 type TipPosition = { top: number; left: number; above: boolean };
@@ -286,7 +289,8 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
     manual: sum.manual + (brand.figures.clasificacion?.manual ?? 0),
     reglas: sum.reglas + (brand.figures.clasificacion?.reglas ?? 0),
     ia: sum.ia + (brand.figures.clasificacion?.ia ?? 0),
-  }), { casos: 0, recibidos: 0, gestionados: 0, respondidos: 0, manual: 0, reglas: 0, ia: 0 }), [withCases]);
+    spam: sum.spam + (brand.figures.clasificacion?.spam ?? 0),
+  }), { casos: 0, recibidos: 0, gestionados: 0, respondidos: 0, manual: 0, reglas: 0, ia: 0, spam: 0 }), [withCases]);
   const selected = report?.brands.find((brand) => brand.brandId === selectedBrandId) ?? null;
 
   // Avisos que afectan a todo el mes: cuentas duplicadas y una sincronización detenida.

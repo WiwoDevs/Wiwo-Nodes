@@ -117,6 +117,9 @@ export interface ManualManagementViewProps {
   onClearSelection?: () => void;
   onRetryPostComments?: () => void;
   postCommentsError?: string | null;
+  /** Descartar el spam señalado de una publicación (inbox.triage + inbox.assign_others). */
+  canDiscardNoise?: boolean;
+  onDiscardNoise?: (scope: { accountId?: string; type?: "dm" | "comment"; postKey?: string }) => void | Promise<void>;
 }
 
 const PENDING_STATUSES = new Set(["pending", "needs_review"]);
@@ -438,6 +441,8 @@ export function ManualManagementView({
   onClearSelection,
   onRetryPostComments,
   postCommentsError = null,
+  canDiscardNoise = false,
+  onDiscardNoise,
   surfaceKind,
 }: ManualManagementViewProps) {
   const [activeSurfaceId, setActiveSurfaceId] = useState<ManualSurfaceId>("all");
@@ -592,10 +597,12 @@ export function ManualManagementView({
       && postCommentsPostKey === selectedEntry.postKey
       ? postComments
       : selectedEntry.items;
+    // Primero lo que hay que responder, del más antiguo al más reciente; el posible spam al final.
     return source
       .filter(isOpenInboundComment)
       .sort((left, right) =>
-        timestamp(left.receivedAt) - timestamp(right.receivedAt)
+        Number(Boolean(left.noise)) - Number(Boolean(right.noise))
+        || timestamp(left.receivedAt) - timestamp(right.receivedAt)
         || left.id.localeCompare(right.id));
   }, [isCommentSurface, postComments, postCommentsPostKey, selectedEntry]);
   const selectedCommentIsOpen = !isCommentSurface
@@ -1061,6 +1068,11 @@ export function ManualManagementView({
                           {entry.postId
                             ? <em>{entry.pendingCount} sin responder</em>
                             : entry.pendingCount ? <em>{entry.pendingCount} pendientes</em> : null}
+                          {entry.postSummary?.noisePendingCount ? (
+                            <em className="manual-inbox-noise" title="Comentarios abiertos con texto repetido, el mismo texto desde varias cuentas, solo etiquetas o spam">
+                              {entry.postSummary.noisePendingCount} posible spam
+                            </em>
+                          ) : null}
                         </span>
                       </span>
                     </button>
@@ -1155,6 +1167,17 @@ export function ManualManagementView({
                           <small>Del más antiguo al más reciente para proteger el SLA.</small>
                         </div>
                         <span aria-live="polite">{selectedPendingComments.length} pendientes</span>
+                        {canDiscardNoise && onDiscardNoise && selectedEntry.postKey && selectedPendingComments.some((comment) => comment.noise) ? (
+                          <button
+                            type="button"
+                            className="manual-inbox-discard-noise"
+                            disabled={isSaving}
+                            onClick={() => void onDiscardNoise({ accountId: selectedEntry.target.accountId, type: "comment", postKey: selectedEntry.postKey })}
+                            title="Cierra como spam los comentarios señalados de esta publicación; no borra nada en la red"
+                          >
+                            Descartar spam ({selectedPendingComments.filter((comment) => comment.noise).length})
+                          </button>
+                        ) : null}
                       </header>
                       {selectedPendingComments.length ? (
                         <ol aria-label="Comentarios abiertos, del más antiguo al más reciente">
@@ -1182,6 +1205,11 @@ export function ManualManagementView({
                                       {interaction.assignedTo?.displayName ? ` · ${interaction.assignedTo.displayName}` : " · sin asignar"}
                                     </small>
                                     <p><ContentContext text={interaction.preview} context={interaction.contentContext} compact /></p>
+                                    {interaction.noise ? (
+                                      <small className={`manual-inbox-comment__noise manual-inbox-comment__noise--${interaction.noise.origen}`}>
+                                        {interaction.noise.origen === "ia" ? interaction.noise.label : `Posible spam · ${interaction.noise.label.charAt(0).toLowerCase()}${interaction.noise.label.slice(1)}`}
+                                      </small>
+                                    ) : null}
                                     <em>{selected ? "Seleccionado para responder" : "Seleccionar y responder"}</em>
                                   </span>
                                 </button>

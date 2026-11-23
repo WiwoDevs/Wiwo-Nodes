@@ -58,6 +58,7 @@ import {
   setBrandVisibility,
   importMetricoolBrands,
   archiveExpiredInteractions,
+  discardNoiseInteractions,
   deleteInteractionDraft,
   disconnectMetricoolAccount,
   downloadBrandWorkbook,
@@ -1010,6 +1011,51 @@ export function App({ onSignOut, sessionActor }: {
       await refreshInboxData(true);
     } catch (error) {
       setToast({ tone: "warning", title: "No se pudo archivar", detail: error instanceof Error ? error.message : "Error desconocido." });
+    }
+  }
+
+  /**
+   * Descarta en lote lo señalado como spam: primero cuenta, una persona confirma y recién
+   * entonces se cierran los casos como «Spam o contenido no válido». No toca Metricool.
+   */
+  async function discardNoise(scope: { accountId?: string; type?: "dm" | "comment"; postKey?: string }) {
+    try {
+      const preview = await discardNoiseInteractions({ ...scope, dryRun: true });
+      if (!preview.eligible) {
+        setToast({
+          tone: "warning",
+          title: "Nada para descartar",
+          detail: preview.skippedSensitive
+            ? `Los ${preview.skippedSensitive} casos con posible spam son sensibles y quedan para revisión humana.`
+            : "No hay casos abiertos con posible spam en este alcance.",
+        });
+        return;
+      }
+      const format = new Intl.NumberFormat("es-CL").format;
+      const byRules = preview.byOrigin.reglas ?? 0;
+      const byAi = preview.byOrigin.ia ?? 0;
+      const origin = [
+        byRules ? `${format(byRules)} detectados por reglas (texto repetido, el mismo texto desde varias cuentas, solo etiquetas o spam promocional)` : "",
+        byAi ? `${format(byAi)} sugeridos por la IA` : "",
+      ].filter(Boolean).join(" y ");
+      const confirmed = await confirmAction({
+        title: `¿Descartar ${format(preview.eligible)} casos como spam?`,
+        message: `${origin}.\n\nSe cierran en wiwo.sac con el motivo «Spam o contenido no válido» y no cuentan como casos en el reporte. `
+          + "El comentario sigue publicado en la red: no se borra ni se envía nada a Metricool. Cada caso se puede reabrir."
+          + (preview.skippedSensitive ? `\n\n${format(preview.skippedSensitive)} casos sensibles quedan sin descartar para revisión humana.` : ""),
+        confirmLabel: "Descartar spam",
+        tone: "danger",
+      });
+      if (!confirmed) return;
+      const result = await discardNoiseInteractions({ ...scope, dryRun: false });
+      setToast({
+        tone: "success",
+        title: "Spam descartado",
+        detail: `${format(result.discarded)} casos quedaron cerrados como spam.${result.skippedSensitive ? ` ${format(result.skippedSensitive)} sensibles siguen en revisión.` : ""}`,
+      });
+      await refreshInboxData(true);
+    } catch (error) {
+      setToast({ tone: "warning", title: "No se pudo descartar", detail: error instanceof Error ? error.message : "Error desconocido." });
     }
   }
 
@@ -2235,6 +2281,8 @@ export function App({ onSignOut, sessionActor }: {
               onVisibleOrderChange={rememberInboxOrder}
               canTriage={allowed("inbox.triage")}
               onBulkTriage={bulkReportTriage}
+              canDiscardNoise={allowed("inbox.triage") && allowed("inbox.assign_others")}
+              onDiscardNoise={discardNoise}
             />
           </div>
         ) : null}
@@ -2261,6 +2309,8 @@ export function App({ onSignOut, sessionActor }: {
               isLoadingPosts={isRefreshingManualPosts && manualPostsAccountId !== manualAccountId}
               isLoadingPostComments={isRefreshingManualPostComments && manualPostCommentsPostKey !== selectedManualPostKey}
               postCommentsError={manualCommentsIssue}
+              canDiscardNoise={allowed("inbox.triage") && allowed("inbox.assign_others")}
+              onDiscardNoise={discardNoise}
               canWrite={canOperate}
               canRefresh={canSync}
               currentUserId={visibleData.actor.userId}

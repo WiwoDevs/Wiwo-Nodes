@@ -7251,3 +7251,63 @@ button.users-roles-person:hover strong { color: var(--accent-text); }
 @media (max-width: 760px) {
   .manual-inbox-recommendation .ai-suggestion__actions { grid-column: 2; justify-self: start; }
 }
+
+/* Posible spam o ruido: ámbar cuando lo detectan las reglas, tono primario cuando solo lo
+   sugiere la IA. Solo señala; descartar siempre lo confirma una persona. */
+.conversation-cell__noise,
+.manual-inbox-comment__noise,
+.manual-inbox-contact__meta .manual-inbox-noise {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--amber-line);
+  border-radius: 999px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-cell__noise--ia,
+.manual-inbox-comment__noise--ia {
+  border-color: var(--accent-line);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.manual-inbox-comment__noise { margin: 2px 0 4px; }
+.manual-inbox-discard-noise {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--amber-line);
+  border-radius: 999px;
+  color: var(--amber);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+.manual-inbox-discard-noise:hover:not(:disabled) { background: var(--amber-soft); }
+/* En la tarjeta de publicación, el aviso de spam baja a su propia línea en vez de cortarse. */
+.manual-inbox-contact__meta:has(.manual-inbox-noise) { flex-wrap: wrap; row-gap: 3px; }
+.manual-inbox-contact__meta .manual-inbox-noise { margin-left: 0; }
+/* El botón de descartar vive en la cabecera de la lista: no hereda la forma de tarjeta de los comentarios. */
+.manual-inbox-exact-comments > header > .manual-inbox-discard-noise {
+  display: inline-flex;
+  width: auto;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--amber-line);
+  border-radius: 999px;
+  color: var(--amber);
+  background: transparent;
+  box-shadow: none;
+}
+.manual-inbox-exact-comments > header > .manual-inbox-discard-noise:hover:not(:disabled) { border-color: var(--amber-line); background: var(--amber-soft); }

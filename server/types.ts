@@ -199,6 +199,9 @@ export interface SacTriage {
  * Reportes hasta que su concordancia con las marcas manuales esté medida. Lo único que actúa
  * desde ya es `sensible`, y solo para escalar a revisión humana, nunca para quitarla.
  */
+export const AI_NOISE_KINDS = ["ninguno", "reaccion_social", "etiquetas_concurso", "spam_promocional", "estafa_phishing"] as const;
+export type AiNoiseKind = (typeof AI_NOISE_KINDS)[number];
+
 export interface AiTriage {
   categoria: string;
   tonalidad: Sentiment;
@@ -207,6 +210,8 @@ export interface AiTriage {
   sensible: boolean;
   /** Categoría de revisión obligatoria que motivó `sensible`. */
   motivoSensible?: string;
+  /** Tipo de ruido según la IA; ausente en clasificaciones anteriores a `sac-triage-v3`. */
+  ruido?: AiNoiseKind;
   confianza: number;
   clasificadoEn: string;
   proveedor: string;

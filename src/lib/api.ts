@@ -32,6 +32,7 @@ import type {
   InboxSyncStatus,
   SacMonthlyReport,
   ReportTriage,
+  NoiseSignal,
 } from "../types";
 
 export type RunResult = {
@@ -129,6 +130,7 @@ type ApiInteraction = {
   postContext?: InteractionPostContext;
   contentContext?: InteractionContentContext;
   reportTriage?: ReportTriage;
+  noise?: NoiseSignal;
 };
 
 type ApiInboxContact = {
@@ -159,6 +161,7 @@ type ApiInboxContact = {
   reviewCount: number;
   threadCount: number;
   assignmentConflict: boolean;
+  noiseCount?: number;
 };
 
 type ApiInboxPost = {
@@ -177,6 +180,7 @@ type ApiInboxPost = {
   participantCount: number;
   latestComment: ApiInteraction;
   replyTarget?: ApiInteraction;
+  noisePendingCount?: number;
 };
 
 type ApiReplyDelivery = ReplyDelivery & {
@@ -684,6 +688,7 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
       automation: replyTarget?.automation,
       postContext: replyTarget?.postContext ?? contact.latest.postContext,
       contentContext: contact.latest.contentContext,
+      noise: replyTarget?.noise,
       conversationSummary: {
         messageCount: contact.messageCount,
         pendingCount: contact.pendingCount,
@@ -696,6 +701,7 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
         latestKind: contact.latest.type,
         latestStatus: mapRawStatus(contact.latest.status),
         hasReplyTarget: Boolean(replyTarget),
+        noiseCount: contact.noiseCount ?? 0,
       },
       responseSummary: replyTarget?.responseText
         || (rawStatus === "escalated"
@@ -733,6 +739,7 @@ function mapRawInteractions(interactions: ApiInteraction[], brandName: string): 
     postContext: interaction.postContext,
     contentContext: interaction.contentContext,
     responseSummary: interaction.responseText,
+    noise: interaction.noise,
   })).sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt));
 }
 
@@ -942,6 +949,7 @@ export async function loadManualAccountPosts(accountId: string, brandName: strin
     replyTarget: post.replyTarget
       ? mapRawInteractions([post.replyTarget], brandName)[0]
       : undefined,
+    noisePendingCount: post.noisePendingCount ?? 0,
   })).sort((left, right) =>
     Date.parse(right.sortAt) - Date.parse(left.sortAt)
     || Date.parse(right.latestCommentAt) - Date.parse(left.latestCommentAt)
@@ -950,8 +958,10 @@ export async function loadManualAccountPosts(accountId: string, brandName: strin
 
 export async function loadManualPostComments(postKey: string, brandName: string): Promise<Interaction[]> {
   const interactions = await fetchAllPostComments(postKey, { cache: "no-store" });
+  // Primero lo que hay que responder (más antiguo primero); el posible spam, al final.
   return mapRawInteractions(interactions, brandName).sort((left, right) =>
-    Date.parse(left.receivedAt) - Date.parse(right.receivedAt)
+    Number(Boolean(left.noise)) - Number(Boolean(right.noise))
+    || Date.parse(left.receivedAt) - Date.parse(right.receivedAt)
     || left.id.localeCompare(right.id));
 }
 
@@ -1675,6 +1685,32 @@ export async function requestAiReplyDraft(interactionId: string, regenerate = fa
   });
   if (!response.ok) await throwApiError(response);
   return ((await response.json()) as { data: AiReplyDraft }).data;
+}
+
+export interface DiscardNoiseResult {
+  dryRun: boolean;
+  discarded: number;
+  eligible: number;
+  skippedSensitive: number;
+  byKind: Partial<Record<NoiseSignal["kind"], number>>;
+  byOrigin: Partial<Record<NoiseSignal["origen"], number>>;
+}
+
+/** Descarta como spam lo señalado (reglas y sugerencias de IA). Primero con dryRun; nunca toca Metricool. */
+export async function discardNoiseInteractions(input: {
+  dryRun: boolean;
+  accountId?: string;
+  type?: "dm" | "comment";
+  postKey?: string;
+  includeAi?: boolean;
+}): Promise<DiscardNoiseResult> {
+  const response = await fetch(`${API_BASE}/interactions/discard-noise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) await throwApiError(response);
+  return ((await response.json()) as { data: DiscardNoiseResult }).data;
 }
 
 /** Marca en lote los mensajes entrantes de las conversaciones elegidas (sin pisar marcas manuales). */

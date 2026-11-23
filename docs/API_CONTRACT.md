@@ -290,6 +290,8 @@ type Interaction = {
     requiereDerivacion: boolean;
     sensible: boolean;
     motivoSensible?: string;
+    /** Desde `sac-triage-v3`: ninguno, reaccion_social, etiquetas_concurso, spam_promocional o estafa_phishing. */
+    ruido?: string;
     confianza: number;
     clasificadoEn: string;
     proveedor: "byteplus" | "anthropic";
@@ -786,6 +788,20 @@ Rol `viewer` (exige sesión). Server-Sent Events (`text/event-stream`, sin cach�
 Metricool informa 7 días para responder DMs y 24 horas para comentarios en Instagram y Facebook, contados desde el último mensaje del cliente (para DMs, el último entrante de la conversación). La UI usa `latestInboundAt` de cada contacto para mostrar "Vence en…"/"Venció hace…", contar en Inicio solo lo que sigue **en plazo** y, en la Bandeja, ocultar por defecto lo vencido (filtro **Plazo**). Fuera de plazo igual se puede abrir, redactar e intentar una respuesta manual: Metricool/Meta deciden.
 
 `POST /api/interactions/archive-expired` (permiso `inbox.archive_expired`) con `{ dryRun?: boolean = true, accountId?, type?: "dm" | "comment" }`: cierra como `resolved` con motivo `reply_window_expired` ("Fuera de plazo de respuesta (histórico)") los casos entrantes abiertos (`new`, `pending`, `drafted`, `escalated`) cuyo plazo venció, dentro del alcance de marcas del actor. Nunca archiva casos sensibles (sentimiento negativo o riesgo `high`/`critical`), nunca escribe en Metricool y deja una entrada de auditoría por caso (`metadata.bulk: true`). Responde `{ data: { dryRun, archived, eligible, skippedSensitive } }`; con `dryRun` solo cuenta. Un caso archivado se reabre cambiando su estado.
+
+### Spam y ruido y `POST /api/interactions/discard-noise`
+
+`server/noise-detection.ts` señala posible spam o ruido sobre la lista que ya cargan la bandeja, los comentarios por publicación y Reportes (no agrega lecturas ni persiste nada). Reglas:
+
+- `repetido`: la misma cuenta pega el mismo comentario (20+ caracteres, o con enlace o mención) 3 o más veces en 7 días.
+- `coordinado`: el mismo comentario (25+ caracteres) desde 3 o más cuentas en 72 horas (bots o cadenas de concurso).
+- `solo_menciones`: un comentario que solo etiqueta a otras cuentas.
+- `promocional`: spam promocional o estafas que suplantan a Meta (inversiones, cripto, venta de seguidores, "tu página será desactivada", "verifica tu cuenta"), solo junto a un enlace, una cuenta, un teléfono o un "escríbeme por DM"; vale también en DMs.
+- `ia_spam`: sin señal de reglas, la IA en sombra clasificó el mensaje como `spam_promocional` o `estafa_phishing` (`aiTriage.ruido`).
+
+La repetición y la coordinación solo miran comentarios: un cliente que insiste en un DM no es spam. Cada señal es `{ kind, label, origen: "reglas" | "ia", veces? }` y viaja como `noise` en cada interacción pública (`replyTarget`, `latestComment`, comentarios por publicación). `GET /api/inbox/contacts` y `/api/inbox/changes` agregan `noiseCount` (mensajes abiertos de la persona señalados) y eligen como `replyTarget` un mensaje sin señal cuando lo hay; `GET /api/inbox/posts` agrega `noisePendingCount` y hace lo mismo con su `replyTarget`; `GET /api/inbox/posts/:postKey/comments?pendingOnly=true` deja el posible spam al final de la fila. En Reportes, lo señalado por reglas (no la IA) deja de contar como caso o mensaje gestionado salvo que alguien lo haya marcado a mano como caso, y `figures.clasificacion.spam` dice cuántos fueron.
+
+`POST /api/interactions/discard-noise` (permisos `inbox.triage` e `inbox.assign_others`; un agente recibe `403`) con `{ dryRun?: boolean = true, accountId?, type?: "dm" | "comment", postKey?, includeAi?: boolean = true }`: cierra como `resolved` con motivo `spam` los casos abiertos señalados en ese alcance y los marca a mano como ruido para el reporte (`sacTriage.modelo = "manual"`, `marcadoPor` = quien confirmó), con una entrada de auditoría `status_changed` con `bulk`, `noiseKind` y `noiseOrigin`. Nunca toca casos sensibles (`isSensitiveCase`), ni lo que alguien marcó a mano como caso, ni Metricool: el comentario sigue publicado en la red y el caso se puede reabrir. Responde `{ dryRun, discarded, eligible, skippedSensitive, byKind, byOrigin }`; con `dryRun` solo cuenta.
 
 ### `GET /api/inbox/contacts`
 

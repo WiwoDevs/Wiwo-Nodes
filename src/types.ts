@@ -238,6 +238,8 @@ export interface InteractionConversationSummary {
   latestKind: InteractionKind;
   latestStatus: InteractionStatus;
   hasReplyTarget: boolean;
+  /** Mensajes abiertos de esta persona señalados como posible spam o ruido. */
+  noiseCount?: number;
 }
 
 export type SacAutomationRoute = "auto_reply" | "draft" | "human_review" | "quarantine" | "ignore";
@@ -264,6 +266,14 @@ export interface SacAutomationAssessment {
   effectiveRoute: SacAutomationRoute;
   reasonCodes: string[];
   proposal?: { text: string; templateId: string; sourceIds: string[] };
+}
+
+/** Posible spam o ruido detectado por reglas o sugerido por la IA en sombra. Solo señala. */
+export interface NoiseSignal {
+  kind: "repetido" | "coordinado" | "solo_menciones" | "promocional" | "ia_spam";
+  label: string;
+  origen: "reglas" | "ia";
+  veces?: number;
 }
 
 export interface Interaction {
@@ -294,6 +304,8 @@ export interface Interaction {
   conversationSummary?: InteractionConversationSummary;
   postContext?: InteractionPostContext;
   contentContext?: InteractionContentContext;
+  /** Posible spam o ruido del mensaje que se abre. */
+  noise?: NoiseSignal;
 }
 
 export interface ManualPostSummary {
@@ -311,6 +323,8 @@ export interface ManualPostSummary {
   participantCount: number;
   latestComment: Interaction;
   replyTarget?: Interaction;
+  /** Comentarios abiertos señalados como posible spam o ruido. */
+  noisePendingCount?: number;
 }
 
 export type InteractionAuditAction =
@@ -510,7 +524,7 @@ export interface SacReportFigures {
   variacion?: { anterior: number; deltaPct: number; comparable: boolean; revisar?: boolean };
   advertencias: string[];
   /** Quién decidió caso o ruido en cada mensaje del mes. */
-  clasificacion?: { manual: number; ia: number; reglas: number };
+  clasificacion?: { manual: number; ia: number; reglas: number; spam?: number };
 }
 
 export interface SacReportBrand {

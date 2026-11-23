@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { conversationKey } from "./sac-automation.js";
+import { detectNoise, type NoiseSignal } from "./noise-detection.js";
 import {
   isMetricoolContentUnavailable,
   metricoolContentContextForDisplay,
@@ -34,6 +35,8 @@ export interface PublicPostContext {
 export type PublicInboxInteraction = Omit<Interaction, "metricoolRef" | "audit" | "internalNotes"> & {
   contentContext: InteractionContentContext;
   postContext?: PublicPostContext;
+  /** Posible spam o ruido (reglas o IA en sombra); solo señala, nunca descarta. */
+  noise?: NoiseSignal;
 };
 
 export interface InboxContactLatest {
@@ -67,6 +70,8 @@ export interface InboxContactSummary {
   reviewCount: number;
   threadCount: number;
   assignmentConflict: boolean;
+  /** Mensajes abiertos de esta persona señalados como posible spam o ruido. */
+  noiseCount: number;
 }
 
 export interface InboxPostSummary {
@@ -85,6 +90,8 @@ export interface InboxPostSummary {
   participantCount: number;
   latestComment: PublicInboxInteraction;
   replyTarget?: PublicInboxInteraction;
+  /** Comentarios abiertos señalados como posible spam o ruido (no son el siguiente a responder). */
+  noisePendingCount: number;
 }
 
 function safePublicUrl(value: string | undefined): string | undefined {
@@ -142,7 +149,7 @@ export function publicPostContext(interaction: Interaction): PublicPostContext |
   };
 }
 
-export function publicInboxInteraction(interaction: Interaction): PublicInboxInteraction {
+export function publicInboxInteraction(interaction: Interaction, noise?: NoiseSignal): PublicInboxInteraction {
   const {
     metricoolRef: _metricoolRef,
     audit: _audit,
@@ -170,6 +177,7 @@ export function publicInboxInteraction(interaction: Interaction): PublicInboxInt
       },
     } : undefined,
     postContext: publicPostContext(interaction),
+    ...(noise ? { noise } : {}),
   };
 }
 
@@ -254,7 +262,10 @@ function mergedPostContext(ordered: Interaction[]): PublicPostContext | undefine
   };
 }
 
-export function groupInboxPosts(interactions: Interaction[]): InboxPostSummary[] {
+export function groupInboxPosts(
+  interactions: Interaction[],
+  noise: Map<string, NoiseSignal> = detectNoise(interactions),
+): InboxPostSummary[] {
   const groups = new Map<string, Interaction[]>();
   for (const interaction of interactions) {
     const identity = inboxPostIdentity(interaction);
@@ -270,6 +281,8 @@ export function groupInboxPosts(interactions: Interaction[]): InboxPostSummary[]
     const inbound = ordered.filter((interaction) => interaction.direction === "inbound");
     if (!inbound.length) return [];
     const pending = inbound.filter((interaction) => OPEN_STATUSES.has(interaction.status));
+    // El siguiente a responder es un comentario real: el spam queda al final de la fila.
+    const realPending = pending.filter((interaction) => !noise.has(interaction.id));
     const latestComment = inbound[0]!;
     const postContext = mergedPostContext(ordered);
     const postKey = postKeyFor(latestComment);
@@ -290,10 +303,14 @@ export function groupInboxPosts(interactions: Interaction[]): InboxPostSummary[]
       pendingCount: pending.length,
       teamReplyCount: ordered.length - inbound.length,
       participantCount: new Set(inbound.map(inboxPersonKey)).size,
-      latestComment: publicInboxInteraction(latestComment),
+      latestComment: publicInboxInteraction(latestComment, noise.get(latestComment.id)),
       replyTarget: pending.length
-        ? publicInboxInteraction([...pending].sort(comparePriority)[0]!)
+        ? (() => {
+            const target = [...(realPending.length ? realPending : pending)].sort(comparePriority)[0]!;
+            return publicInboxInteraction(target, noise.get(target.id));
+          })()
         : undefined,
+      noisePendingCount: pending.length - realPending.length,
     }];
   }).sort((left, right) =>
     Date.parse(right.sortAt) - Date.parse(left.sortAt)
@@ -301,7 +318,10 @@ export function groupInboxPosts(interactions: Interaction[]): InboxPostSummary[]
     || right.postKey.localeCompare(left.postKey));
 }
 
-export function groupInboxContacts(interactions: Interaction[]): InboxContactSummary[] {
+export function groupInboxContacts(
+  interactions: Interaction[],
+  noise: Map<string, NoiseSignal> = detectNoise(interactions),
+): InboxContactSummary[] {
   const groups = new Map<string, Interaction[]>();
   for (const interaction of interactions) {
     const key = inboxPersonKey(interaction);
@@ -315,7 +335,8 @@ export function groupInboxContacts(interactions: Interaction[]): InboxContactSum
     const latest = ordered[0]!;
     const openInbound = ordered.filter((interaction) =>
       interaction.direction === "inbound" && OPEN_STATUSES.has(interaction.status));
-    const replyTarget = [...openInbound].sort(comparePriority)[0];
+    const realOpen = openInbound.filter((interaction) => !noise.has(interaction.id));
+    const replyTarget = [...(realOpen.length ? realOpen : openInbound)].sort(comparePriority)[0];
     const display = ordered.find((interaction) => interaction.direction === "inbound") ?? latest;
     const assignmentSource = openInbound.length ? openInbound : ordered;
     const assignmentStates = new Set(assignmentSource.map((interaction) => interaction.assignedTo?.userId ?? "unassigned"));
@@ -326,7 +347,7 @@ export function groupInboxContacts(interactions: Interaction[]): InboxContactSum
       channel: latest.channel,
       customerName: display.customerName,
       customerHandle: display.customerHandle,
-      replyTarget: replyTarget ? publicInboxInteraction(replyTarget) : undefined,
+      replyTarget: replyTarget ? publicInboxInteraction(replyTarget, noise.get(replyTarget.id)) : undefined,
       // Sin nada pendiente y con la cuenta como último en escribir: el chat se abre en el último
       // mensaje del cliente, para poder seguir la conversación desde ahí.
       ...(!replyTarget && latest.direction === "outbound" && display.direction === "inbound"
@@ -350,6 +371,7 @@ export function groupInboxContacts(interactions: Interaction[]): InboxContactSum
       reviewCount: ordered.filter((interaction) => interaction.type === "review").length,
       threadCount: new Set(ordered.map(conversationKey)).size,
       assignmentConflict: assignmentStates.size > 1,
+      noiseCount: openInbound.length - realOpen.length,
     };
   }).sort((left, right) =>
     Date.parse(right.latest.createdAt) - Date.parse(left.latest.createdAt)
