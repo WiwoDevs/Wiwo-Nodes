@@ -42,6 +42,13 @@
   --neo-glass-stroke: rgba(255, 255, 255, 0.14);
   --neo-glass-highlight: rgba(255, 255, 255, 0.06);
   --logo-fill: var(--neo-beige); /* el logo va crema en oscuro, como MetriQ y Creators */
+  /* Colores sólidos (sin color-mix con transparente: al cambiar de tema, Chrome dejaba la transición
+     de color pegada a mitad de camino y el menú quedaba ilegible en claro). */
+  --neo-nav-fg: #a3a39e;          /* ítems del menú en reposo */
+  --neo-icon-fg: #d6d6d2;         /* íconos de la barra superior */
+  --neo-hover: rgba(255, 255, 255, 0.08);
+  --neo-hover-soft: rgba(255, 255, 255, 0.05);
+  --neo-topbar: rgba(18, 18, 18, 0.82);
 
   /* Forma, sombra y movimiento Neo */
   --radius-card: 12px;
@@ -132,6 +139,11 @@
   --neo-glass-stroke: rgba(255, 255, 255, 0.6);
   --neo-glass-highlight: rgba(255, 255, 255, 0.55);
   --logo-fill: var(--neo-blue);  /* azul de marca en claro */
+  --neo-nav-fg: #5c5c58;
+  --neo-icon-fg: #3a3a38;
+  --neo-hover: rgba(26, 26, 26, 0.07);
+  --neo-hover-soft: rgba(26, 26, 26, 0.045);
+  --neo-topbar: rgba(250, 250, 248, 0.82);
 
   --shadow-1: 0 1px 2px rgba(26, 26, 26, 0.05), 0 6px 20px rgba(26, 26, 26, 0.04);
   --shadow-2: 0 18px 42px -14px rgba(26, 26, 26, 0.18);
@@ -140,10 +152,33 @@
   --lab-primary-soft: rgba(66, 66, 255, 0.08);
   --lab-primary-line: rgba(66, 66, 255, 0.3);
 
+  /* styles.css trae su propio tema claro (beige y superficies translúcidas) con más especificidad que
+     :root: aquí se vuelven a fijar en claro todos los tokens que comparten, con los valores Neo. */
+  --bg: var(--neo-canvas);
+  --bg-sidebar: var(--neo-sidebar);
+  --ink: var(--neo-fg);
   --ink-2: #3a3a38;
+  --muted: var(--neo-muted-fg);
   --muted-2: #8a8a84;
+  --surface: var(--neo-card);
+  --surface-soft: var(--neo-muted);
   --surface-strong: #e6e6e1;
+  --surface-warm: var(--neo-muted);
+  --surface-overlay: var(--neo-card);
+  --border: var(--neo-border);
   --border-strong: #d4d4ce;
+  --accent: var(--neo-blue);
+  --accent-dark: var(--neo-blue-deep);
+  --accent-soft: var(--lab-primary-soft);
+  --accent-line: var(--lab-primary-line);
+  --accent-text: var(--neo-link);
+  --shadow-sm: var(--shadow-1);
+  --shadow-md: var(--shadow-2xl);
+  --hover: var(--neo-muted);
+  --focus-ring: var(--neo-blue);
+  --focus-glow: var(--neo-focus-glow);
+  color: var(--ink);
+  background: var(--bg);
 }
 
 /* ── 2. Base y lienzo (MetriQ: body con lavado de marca fijo) ───────────────
@@ -315,7 +350,7 @@ h1, h2, h3 { letter-spacing: -0.025em; }
     padding: 0 12px;
     border: 0;
     border-radius: var(--shape-full);
-    color: color-mix(in srgb, var(--ink) 62%, transparent);
+    color: var(--neo-nav-fg);
     background: transparent;
     box-shadow: none;
     font-size: 13.5px;
@@ -323,7 +358,7 @@ h1, h2, h3 { letter-spacing: -0.025em; }
     letter-spacing: 0;
     line-height: 1.2;
     text-align: left;
-    transition: background-color var(--motion-micro) ease, color var(--motion-micro) ease;
+    transition: background-color var(--motion-micro) ease;
   }
 
   .app-shell .primary-nav button svg { width: 18px; height: 18px; flex: none; }
@@ -446,7 +481,7 @@ h1, h2, h3 { letter-spacing: -0.025em; }
 :root[data-theme="light"] .topbar {
   min-height: 60px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  background: var(--neo-topbar);
   box-shadow: none;
   -webkit-backdrop-filter: blur(12px) saturate(1.2);
   backdrop-filter: blur(12px) saturate(1.2);
@@ -477,14 +512,14 @@ h1, h2, h3 { letter-spacing: -0.025em; }
 }
 
 .topbar-actions .icon-button,
-.topbar-actions > .icon-button { width: 40px; height: 40px; color: color-mix(in srgb, var(--ink) 75%, transparent); }
+.topbar-actions > .icon-button { width: 40px; height: 40px; color: var(--neo-icon-fg); }
 
 .icon-button:hover,
 .topbar-actions .icon-button:hover,
 :root[data-theme="light"] .icon-button:hover {
   border-color: transparent;
   color: var(--ink);
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  background: var(--neo-hover);
 }
 
 .icon-button:active:not(:disabled) { transform: scale(0.96); }
@@ -576,7 +611,7 @@ h1, h2, h3 { letter-spacing: -0.025em; }
 :root[data-theme="light"] .button.secondary:hover,
 :root[data-theme="light"] .button--secondary:hover {
   border-color: var(--neo-input);
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  background: var(--neo-hover);
 }
 
 .button--danger,
@@ -692,7 +727,7 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 }
 
 .sac-queue-list > button:hover,
-.sac-account-list > button:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.sac-account-list > button:hover { background: var(--neo-hover-soft); }
 
 /* Rótulos de sección Neo: mayúsculas espaciadas, en gris (MetriQ: «Tu trabajo»). */
 .eyebrow,
@@ -1097,7 +1132,7 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .manual-inbox-refresh:hover,
 .manual-inbox-surface:hover,
 .manual-inbox-exact-comments button:hover,
-.case-history-toggle:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.case-history-toggle:hover { background: var(--neo-hover); }
 
 .case-conversation-message--outbound,
 .manual-inbox-message--outbound { background: var(--lab-primary-soft); }
@@ -1109,4 +1144,70 @@ input[type="radio"] { accent-color: var(--neo-blue); }
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
     linear-gradient(103deg, rgba(59, 255, 0, 0.55), rgba(66, 66, 255, 0.7)) border-box;
+}
+
+/* ── 12. Detalle de caso: el mensaje y la respuesta, lo antes posible ───────
+   Los datos del caso van en una grilla compacta de tres columnas (antes ocupaban media pantalla
+   en una sola columna) para que el mensaje del cliente y el cuadro de respuesta asomen sin scroll. */
+.case-detail-panel .case-meta-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.case-detail-panel .case-meta-grid div { gap: 2px; padding: 7px 9px; background: var(--neo-muted); }
+
+@media (max-width: 520px) {
+  .case-detail-panel .case-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── 13. Tablas anchas ──────────────────────────────────────────────────────
+   Las barras de scroll van ocultas (como en Lab), pero en una tabla más ancha que la pantalla eso
+   escondía columnas como «Acciones» sin ninguna señal. Aquí la barra horizontal se ve, fina, y el
+   contenedor queda posicionado: sin eso, los textos para lectores de pantalla (.sr-only, absolutos)
+   de la última columna escapaban del scroll y ensanchaban toda la página en el teléfono. */
+.table-scroll {
+  position: relative;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neo-input) transparent;
+}
+
+.table-scroll::-webkit-scrollbar { display: block; width: 0; height: 8px; }
+.table-scroll::-webkit-scrollbar-track { background: transparent; }
+.table-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--shape-full);
+  background-color: var(--neo-input);
+  background-clip: content-box;
+}
+
+/* ── 14. Teléfono: barra superior y acciones de cada vista ───────────────── */
+@media (max-width: 780px) {
+  /* Sonido y tema siguen a mano (styles.css ocultaba todos los íconos menos el perfil). */
+  .topbar-actions > .icon-button.theme-toggle,
+  .topbar-actions > .icon-button.sound-toggle { display: inline-grid; width: 36px; height: 36px; }
+  .topbar-actions { gap: 2px; }
+
+  /* Las acciones de la cabecera bajan de línea en vez de salirse de la pantalla. */
+  .view-header__actions { flex-wrap: wrap; }
+}
+
+/* ── 15. Wordmark centrado según el ancho real de la barra ──────────────────
+   styles.css lo ocultaba bajo 1400 px de ventana, o sea en casi todas las laptops (1366). Ahora
+   depende del ancho de la propia barra superior (container query), que es lo que de verdad cuenta
+   con el menú abierto o en riel: se muestra mientras quepan título, marca y acciones. */
+@media (min-width: 781px) {
+  .topbar { container: topbar / inline-size; }
+  .topbar-wordmark { display: flex; }
+  .page-heading { max-width: calc(50% - 90px); }
+}
+
+@container topbar (max-width: 760px) {
+  .topbar-wordmark { display: none; }
+  .page-heading { max-width: none; }
+}
+
+/* Flujo SAC suma interruptor, «Probar» y «Ejecutar flujo» a la derecha: necesita más ancho. */
+@container topbar (max-width: 1340px) {
+  .topbar-wordmark:has(~ .topbar-actions .workflow-state) { display: none; }
+  .page-heading:has(~ .topbar-actions .workflow-state) { max-width: none; }
 }

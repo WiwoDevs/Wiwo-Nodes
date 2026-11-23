@@ -492,12 +492,19 @@ export function App({ onSignOut, sessionActor }: {
     const required = VIEW_PERMISSIONS[destination];
     return !required || required.some((permission) => can(navActor, permission));
   }, [navActor]);
+  // Los plazos de Meta vencen solos: un reloj por minuto recalcula los contadores "en plazo".
+  const minuteTick = useMinuteTick();
+  // Por atender en plazo, igual que el Inicio: lo vencido ya no es trabajo del día y la Bandeja lo
+  // oculta por defecto, así que tampoco cuenta en el menú ni en la campana.
+  const inWindowPending = useMemo(
+    () => operationalData?.interactions.filter((interaction) => needsAction(interaction) && !isExpired(interaction, minuteTick)).length,
+    [operationalData, minuteTick],
+  );
   const navItems = useMemo(
     () =>
       navigation.filter((item) => canSeeView(item.id)).map((item) => {
         if (item.id === "interactions") {
-          const pending = operationalData?.interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review").length;
-          return { ...item, badge: operationalData ? String(pending) : "…" };
+          return { ...item, badge: inWindowPending === undefined ? "…" : String(inWindowPending) };
         }
         if (item.id === "accounts") {
           const withAlerts = operationalData?.accounts.filter((account) =>
@@ -506,7 +513,7 @@ export function App({ onSignOut, sessionActor }: {
         }
         return item;
       }),
-    [canSeeView, operationalData],
+    [canSeeView, operationalData, inWindowPending],
   );
   // Si la sección abierta deja de estar permitida (cambio de rol, sesión nueva), vuelve a Inicio.
   useEffect(() => {
@@ -837,8 +844,6 @@ export function App({ onSignOut, sessionActor }: {
     };
   }, [connectionIssue, hasOperationalData]);
 
-  // Los plazos de Meta vencen solos: un reloj por minuto recalcula los contadores "en plazo".
-  useMinuteTick();
 
   useEffect(() => {
     if (view !== "manual-comments" || !manualAccountId || !selectedManualAccount || connectionIssue) return;
@@ -2090,7 +2095,7 @@ export function App({ onSignOut, sessionActor }: {
             <SoundToggle />
             <button className="icon-button theme-toggle" aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"} title={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggleTheme}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button>
             <button className="icon-button" aria-label="Buscar conversaciones" onClick={() => navigateToView("interactions")}><MagnifyingGlass size={19} /></button>
-            <button className="icon-button notification-button" aria-label={`Abrir pendientes SAC: ${visibleData.interactions.filter((interaction) => interaction.status === "pending" || interaction.status === "needs_review").length}`} onClick={() => navigateToView("interactions")}><Bell size={19} />{visibleData.interactions.some((interaction) => interaction.status === "pending" || interaction.status === "needs_review") ? <span /> : null}</button>
+            <button className="icon-button notification-button" aria-label={`Abrir pendientes SAC en plazo: ${inWindowPending ?? 0}`} title="Pendientes en plazo" onClick={() => navigateToView("interactions")}><Bell size={19} />{inWindowPending ? <span /> : null}</button>
             {view === "workflow" ? (
               <>
                 <div className="workflow-state">

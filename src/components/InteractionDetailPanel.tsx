@@ -35,6 +35,7 @@ import { ContentContext } from "./ContentContext";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb } from "./ThinkingOrb";
 import { AiReplySuggestion } from "./AiReplySuggestion";
+import { categoryLabel } from "../lib/category-label";
 
 export interface InteractionDetailPanelProps {
   detail: InteractionDetail | null;
@@ -527,7 +528,7 @@ export function InteractionDetailPanel({
               </div>
               <div>
                 <dt>Categoría</dt>
-                <dd>{detail.category}</dd>
+                <dd>{categoryLabel(detail.category)}</dd>
               </div>
               <div>
                 <dt>Confianza</dt>
@@ -576,60 +577,6 @@ export function InteractionDetailPanel({
               {!canAssign ? "Solo lectura" : detail.assignedTo && !canRelease ? "Asignado" : detail.assignedTo ? "Liberar" : "Asignarme"}
             </button>
           </section>
-
-          {detail.direction === "inbound" && detail.reportTriage ? (() => {
-            const triage = detail.reportTriage;
-            const manual = triage.source === "manual";
-            const sourceText = manual
-              ? `Marcado a mano${triage.marcadoPor ? ` por ${triage.marcadoPor}` : ""}.`
-              : triage.source === "ia"
-                ? "Clasificado con IA. Puedes corregirlo."
-                : "Decidido por reglas: no cuentan reacciones, menciones, emojis ni textos muy cortos. Corrígelo si no corresponde.";
-            return (
-              <section className={`case-triage-card${triage.esCasoSac ? "" : " is-noise"}`} aria-label="Clasificación para el reporte mensual">
-                <div className="case-triage-card__copy">
-                  <strong>Para el reporte: {triage.esCasoSac ? "cuenta como caso SAC" : "no cuenta (ruido)"}{triage.esCasoSac && triage.requiereDerivacion ? " · requiere derivación" : ""}</strong>
-                  <p>{sourceText}</p>
-                </div>
-                {canTriage && onSetTriage ? (
-                  <div className="case-triage-card__actions" role="group" aria-label="Marcar para el reporte">
-                    <button
-                      className={`button button--secondary${manual && triage.esCasoSac ? " is-selected" : ""}`}
-                      type="button"
-                      aria-pressed={manual && triage.esCasoSac}
-                      disabled={isSaving}
-                      onClick={() => void onSetTriage(detail, true, triage.requiereDerivacion)}
-                    >
-                      Es caso
-                    </button>
-                    <button
-                      className={`button button--secondary${manual && !triage.esCasoSac ? " is-selected" : ""}`}
-                      type="button"
-                      aria-pressed={manual && !triage.esCasoSac}
-                      disabled={isSaving}
-                      onClick={() => void onSetTriage(detail, false, false)}
-                    >
-                      No es caso
-                    </button>
-                    <label className="case-triage-card__check">
-                      <input
-                        type="checkbox"
-                        checked={triage.esCasoSac && triage.requiereDerivacion}
-                        disabled={isSaving || !triage.esCasoSac}
-                        onChange={(event) => void onSetTriage(detail, true, event.target.checked)}
-                      />
-                      Requiere derivación
-                    </label>
-                    {manual ? (
-                      <button className="text-button" type="button" disabled={isSaving} onClick={() => void onSetTriage(detail, null, false)}>
-                        Volver a automático
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </section>
-            );
-          })() : null}
 
           {detail.kind === "comment" ? <PostContextPreview postContext={detail.postContext} /> : null}
 
@@ -873,6 +820,61 @@ export function InteractionDetailPanel({
               </button>
             </div>
           </form>
+
+          {/* Clasificación para el reporte mensual: después de responder, no antes del mensaje. */}
+          {detail.direction === "inbound" && detail.reportTriage ? (() => {
+            const triage = detail.reportTriage;
+            const manual = triage.source === "manual";
+            const sourceText = manual
+              ? `Marcado a mano${triage.marcadoPor ? ` por ${triage.marcadoPor}` : ""}.`
+              : triage.source === "ia"
+                ? "Clasificado con IA. Puedes corregirlo."
+                : "Decidido por reglas: no cuentan reacciones, menciones, emojis ni textos muy cortos. Corrígelo si no corresponde.";
+            return (
+              <section className={`case-triage-card${triage.esCasoSac ? "" : " is-noise"}`} aria-label="Clasificación para el reporte mensual">
+                <div className="case-triage-card__copy">
+                  <strong>Para el reporte: {triage.esCasoSac ? "cuenta como caso SAC" : "no cuenta (ruido)"}{triage.esCasoSac && triage.requiereDerivacion ? " · requiere derivación" : ""}</strong>
+                  <p>{sourceText}</p>
+                </div>
+                {canTriage && onSetTriage ? (
+                  <div className="case-triage-card__actions" role="group" aria-label="Marcar para el reporte">
+                    <button
+                      className={`button button--secondary${manual && triage.esCasoSac ? " is-selected" : ""}`}
+                      type="button"
+                      aria-pressed={manual && triage.esCasoSac}
+                      disabled={isSaving}
+                      onClick={() => void onSetTriage(detail, true, triage.requiereDerivacion)}
+                    >
+                      Es caso
+                    </button>
+                    <button
+                      className={`button button--secondary${manual && !triage.esCasoSac ? " is-selected" : ""}`}
+                      type="button"
+                      aria-pressed={manual && !triage.esCasoSac}
+                      disabled={isSaving}
+                      onClick={() => void onSetTriage(detail, false, false)}
+                    >
+                      No es caso
+                    </button>
+                    <label className="case-triage-card__check">
+                      <input
+                        type="checkbox"
+                        checked={triage.esCasoSac && triage.requiereDerivacion}
+                        disabled={isSaving || !triage.esCasoSac}
+                        onChange={(event) => void onSetTriage(detail, true, event.target.checked)}
+                      />
+                      Requiere derivación
+                    </label>
+                    {manual ? (
+                      <button className="text-button" type="button" disabled={isSaving} onClick={() => void onSetTriage(detail, null, false)}>
+                        Volver a automático
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+            );
+          })() : null}
 
           <section className="case-automation-card">
             <header>
