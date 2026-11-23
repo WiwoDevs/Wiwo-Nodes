@@ -2,7 +2,7 @@
 
 Plataforma de atención al cliente (SAC) multicuenta de WIWO. Reúne en un solo lugar los mensajes directos, comentarios y reseñas de las marcas que se gestionan en **Metricool** (Instagram, Facebook, X, TikTok Business, YouTube, LinkedIn y Google Business). Desde ahí el equipo responde, coordina quién atiende cada caso y saca las métricas del **reporte mensual**. Incluye además un módulo de automatización general (Automation Studio).
 
-- **Producción:** https://nodes.wiwo.me. Cada push a `main` se despliega solo (ver [Despliegue](#despliegue)).
+- **Producción:** https://sac.wiwo.me. Cada push a `main` se despliega solo (ver [Despliegue](#despliegue)).
 - **Inicio de sesión:** Google, contra una lista de personas autorizadas. No hay usuario y contraseña en producción.
 - **Datos:** PostgreSQL en producción y JSON local en desarrollo. Metricool solo se lee, salvo las respuestas que una persona confirma.
 - **Aspecto:** el sistema visual del ecosistema WiWO (el Neo Design System de **WiwoMetriQ**, con el wordmark y los tokens de **WiWo for Creators** y la barra superior de **WiwoLab**): menú lateral desplegable con secciones que se contrae a un riel de íconos, logo azul en claro y crema en oscuro, tarjetas neutras y botones píldora. Modo oscuro por defecto y modo claro desde la barra superior. Mientras algo carga se ve el **orb de WIWO** con "Cargando…".
