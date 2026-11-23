@@ -1349,3 +1349,13 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .app-error__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .app-error__details summary { color: var(--neo-muted-fg); font-size: 12px; cursor: pointer; }
 .app-error__details code { display: block; margin-top: 6px; color: var(--neo-fg); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Orbe de los paneles que cargan (Gestión DMs/comentarios y detalle del caso): el orbe nítido de la
+   barra superior en grande, sin el recuadro oscuro del orbe volumétrico, que en modo claro se veía
+   como un cuadro y sin él quedaba como una mancha borrosa. Igual en los dos temas. */
+.manual-inbox-loading .loading-orb,
+.case-detail-panel__loading .loading-orb {
+  width: 64px !important;
+  height: 64px !important;
+  margin-bottom: 6px;
+}
