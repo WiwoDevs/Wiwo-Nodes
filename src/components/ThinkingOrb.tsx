@@ -1,13 +1,21 @@
 /**
  * Thinking Orb de WiwoLab (components/ui/orb.tsx), con los estilos de src/styles/thinking-orb.css.
- * Tamaños xs/sm/md: orbe en línea (botones, filas). lg/xl: orbe volumétrico (paneles y pantallas de carga).
+ * Por pedido del usuario, todos los orbes de wiwo.sac son el orbe volumétrico de la pantalla de carga
+ * (`Cargando…`): la esfera líquida sobre su aura oscura, a cualquier tamaño. El aura oscura no es
+ * decorado: el orbe se mezcla en `screen` y sin un fondo oscuro detrás se lava en una mancha borrosa
+ * (sobre todo en modo claro). El tamaño es el diámetro visible de la esfera; el lienzo de Lab (600 px)
+ * se escala para que la esfera ocupe ese diámetro y los brillos se salen del recuadro, como en Lab.
  * El orbe del login es otro (WiwoThinkingOrb, de WiWO Ops) y no cambia.
  */
 import type { CSSProperties } from "react";
 
-const SIZE_PX = { xs: 12, sm: 16, md: 24, lg: 40, xl: 72 } as const;
-const STAGE_PX = { md: 84, lg: 112, xl: 208 } as const;
+/** Diámetro visible de la esfera, en px. xs/sm/md conservan el tamaño de los antiguos orbes en línea. */
+const SIZE_PX = { xs: 12, sm: 16, md: 24, hero: 34, lg: 64, xl: 136 } as const;
+/** Proporción esfera / escenario del orbe de Lab (la esfera mide ~390 de un escenario que se escala a 600). */
+const BODY_RATIO = 0.65;
 const ORB_CANVAS = 600;
+/** En los orbes chicos, proporción de la esfera dentro de la bola oscura recortada. */
+const SMALL_BODY = 0.78;
 
 const SPARKS = [
   { sx: "70%", sy: "18%", size: 18, color: "rgba(248, 250, 215, .92)", speed: "5600ms", delay: "-900ms" },
@@ -32,32 +40,36 @@ const STATE_LABEL: Record<OrbState, string> = {
 export function ThinkingOrb({
   size = "md",
   state = "thinking",
-  variant = "auto",
-  bare = false,
+  aura = true,
   className,
   label,
 }: {
   size?: keyof typeof SIZE_PX;
   state?: OrbState;
-  variant?: "auto" | "inline" | "stage";
-  bare?: boolean;
+  /** Aura oscura propia. Solo `OrbLoader` la apaga, porque pone la suya (más grande) alrededor. */
+  aura?: boolean;
   className?: string;
   /** Texto para lectores de pantalla; vacío lo oculta (cuando el texto visible ya lo dice). */
   label?: string;
 }) {
   const a11yLabel = label ?? STATE_LABEL[state];
-  const useStage = variant === "stage" || (variant === "auto" && (size === "lg" || size === "xl"));
-
-  if (useStage) {
-    const px = STAGE_PX[size === "lg" || size === "xl" ? size : "md"];
-    return (
+  const diameter = SIZE_PX[size];
+  const tier = size === "lg" || size === "xl" ? "large" : "small";
+  // Los orbes chicos son una esfera oscura recortada (la esfera de Lab ocupa ~78% de ella, con sus
+  // brillos dentro): fuera del aura los brillos se lavaban en un halo borroso, sobre todo en modo claro.
+  const body = tier === "small" ? diameter * SMALL_BODY : diameter;
+  return (
+    <span
+      role={a11yLabel ? "status" : undefined}
+      aria-label={a11yLabel || undefined}
+      aria-hidden={a11yLabel ? undefined : "true"}
+      className={`aura-orb aura-orb--${tier} ${aura ? "wiwo-orb-aura" : ""} ${className ?? ""}`}
+      style={{ width: diameter, height: diameter, "--orb-d": `${diameter}px` } as CSSProperties}
+    >
       <span
-        role={a11yLabel ? "status" : undefined}
-        aria-label={a11yLabel || undefined}
-        aria-hidden={a11yLabel ? undefined : "true"}
         data-thinking-state={state}
-        className={`wiwo-orb-stage ${bare ? "wiwo-orb-stage--bare" : ""} ${className ?? ""}`}
-        style={{ width: px, height: px, "--orb-fit": px / ORB_CANVAS } as CSSProperties}
+        className="wiwo-orb-stage wiwo-orb-stage--bare aura-orb__stage"
+        style={{ "--orb-fit": body / BODY_RATIO / ORB_CANVAS } as CSSProperties}
       >
         <span className="wiwo-orb-canvas" aria-hidden="true">
           <span className="orb-state-field">
@@ -102,25 +114,13 @@ export function ThinkingOrb({
           ))}
         </span>
       </span>
-    );
-  }
-
-  const px = SIZE_PX[size];
-  const stateClass = state === "thinking" ? "" : `wiwo-orb--${state}`;
-  return (
-    <span
-      role={a11yLabel ? "status" : undefined}
-      aria-label={a11yLabel || undefined}
-      aria-hidden={a11yLabel ? undefined : "true"}
-      className={`wiwo-orb ${stateClass} ${className ?? ""}`}
-      style={{ width: px, height: px }}
-    />
+    </span>
   );
 }
 
 /**
  * Pantalla de carga de WiwoLab (components/app-shell.tsx): orbe volumétrico dentro de su aura y el texto
- * debajo. `compact` es la versión para paneles (orbe más chico, sin aura).
+ * debajo. `compact` es la versión para paneles (orbe más chico, con su propia aura).
  */
 export function OrbLoader({ label = "Cargando…", detail, compact = false, className }: {
   label?: string;
@@ -131,10 +131,10 @@ export function OrbLoader({ label = "Cargando…", detail, compact = false, clas
   return (
     <div className={`orb-loader ${compact ? "orb-loader--compact" : ""} ${className ?? ""}`} role="status" aria-live="polite" aria-busy="true">
       {compact ? (
-        <ThinkingOrb size="lg" state="thinking" bare label="" />
+        <ThinkingOrb size="lg" state="thinking" label="" />
       ) : (
         <div className="wiwo-orb-aura orb-loader__aura">
-          <ThinkingOrb size="xl" state="thinking" bare label="" />
+          <ThinkingOrb size="xl" state="thinking" aura={false} label="" />
         </div>
       )}
       <p className="orb-loader__label">{label}</p>

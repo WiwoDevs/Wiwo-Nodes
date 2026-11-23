@@ -795,7 +795,7 @@ export function AutomationPlatform({
         <div className="sac-home-intro__copy">
           <span className="eyebrow"><ChatCircleDots weight="fill" /> SAC multicuenta</span>
           <h2 id="sac-home-title" className="sac-home-greeting">
-            <span className="wiwo-orb" aria-hidden="true" />
+            <ThinkingOrb size="hero" className="sac-home-greeting__orb" label="" />
             {salutationFor()}{greetingName ? <>, <span className="wiwo-accent-name">{greetingName}</span></> : null}
           </h2>
           <p className="sac-home-lead">Lo que necesita atención, primero.</p>

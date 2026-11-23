@@ -922,8 +922,6 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 /* Los paneles de carga ya traen su título y detalle; el orbe toma el lugar del ícono. */
 .case-detail-panel__loading,
 .manual-inbox-loading { gap: 10px; }
-.case-detail-panel__loading .wiwo-orb-stage,
-.manual-inbox-loading .wiwo-orb-stage { margin-bottom: 6px; }
 
 /* Orbe pequeño dentro de botones y avisos en curso. */
 .busy-orb { flex: none; }
@@ -1350,12 +1348,51 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .app-error__details summary { color: var(--neo-muted-fg); font-size: 12px; cursor: pointer; }
 .app-error__details code { display: block; margin-top: 6px; color: var(--neo-fg); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* Orbe de los paneles que cargan (Gestión DMs/comentarios y detalle del caso): el orbe nítido de la
-   barra superior en grande, sin el recuadro oscuro del orbe volumétrico, que en modo claro se veía
-   como un cuadro y sin él quedaba como una mancha borrosa. Igual en los dos temas. */
-.manual-inbox-loading .loading-orb,
-.case-detail-panel__loading .loading-orb {
-  width: 64px !important;
-  height: 64px !important;
-  margin-bottom: 6px;
+/* Todos los orbes de wiwo.sac son el orbe volumétrico de la pantalla de carga, por pedido del usuario
+   (ThinkingOrb.tsx): la esfera de Lab escalada al diámetro pedido (--orb-d) sobre su aura oscura. Las
+   medidas del aura y del brillo del escenario son proporciones del orbe de `Cargando…` (esfera de
+   136px, aura de 280px), para que se vea igual a cualquier tamaño. Los orbes chicos (botones, barra
+   superior, saludo del Inicio) son la esfera recortada en una bola oscura nítida: con un aura difusa
+   sus brillos se salían en un halo borroso, sobre todo en modo claro. El aura de los grandes se
+   desvanece a transparente en los dos temas, así funciona sobre tarjetas, botones y la página. */
+.aura-orb {
+  --aura-spread: 100%;
+  --aura-blur: calc(var(--orb-d) * .09);
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  vertical-align: middle;
 }
+.wiwo-orb-aura.aura-orb::before,
+:root:not([data-theme="light"]) .wiwo-orb-aura.aura-orb::before {
+  inset: calc(var(--aura-spread) * -1);
+  background: radial-gradient(
+    closest-side,
+    #16161f 0% 48%,
+    rgba(22, 22, 31, 0.58) 64%,
+    rgba(22, 22, 31, 0.2) 79%,
+    transparent 92%
+  );
+  filter: blur(var(--aura-blur));
+}
+.aura-orb--small::before { content: none !important; }
+.aura-orb__stage {
+  position: absolute;
+  inset: 0;
+}
+.aura-orb__stage.wiwo-orb-stage::before {
+  width: 197%;
+  height: 179%;
+  filter: blur(calc(var(--orb-d) * .22)) saturate(1.7);
+}
+.aura-orb--small .aura-orb__stage.wiwo-orb-stage {
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%, #1d1e2a, #121219 70%);
+  box-shadow: inset 0 0 0 1px rgba(248, 250, 215, .08);
+}
+.aura-orb--small .aura-orb__stage.wiwo-orb-stage::before { filter: blur(calc(var(--orb-d) * .18)) saturate(1.7); }
+.manual-inbox-loading .loading-orb,
+.case-detail-panel__loading .loading-orb { margin: 28px 0 36px; }

@@ -489,7 +489,7 @@ export function InteractionDetailPanel({
 
       {isLoading || !detail ? (
         <div className="case-detail-panel__loading">
-          <ThinkingOrb size="lg" variant="inline" className="loading-orb" label="" />
+          <ThinkingOrb size="lg" className="loading-orb" label="" />
           <strong>Cargando conversación</strong>
           <p>Consultando la API operativa y la auditoría del caso.</p>
         </div>

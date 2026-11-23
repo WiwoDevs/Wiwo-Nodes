@@ -1000,7 +1000,7 @@ export function ManualManagementView({
               <div className="manual-inbox-contact-list" aria-busy={isLoadingPosts && isCommentSurface}>
                 {isLoadingPosts && isCommentSurface ? (
                   <div className="manual-inbox-loading" role="status">
-                    <ThinkingOrb size="lg" variant="inline" className="loading-orb" label="" />
+                    <ThinkingOrb size="lg" className="loading-orb" label="" />
                     <strong>Cargando publicaciones</strong>
                     <p>Ordenaremos los posts del más nuevo al más antiguo.</p>
                   </div>
@@ -1093,7 +1093,7 @@ export function ManualManagementView({
             <section className="manual-inbox-column manual-inbox-column--conversation" aria-label="Conversación y respuesta manual">
               {isLoadingDetail || (isCommentSurface && isLoadingPostComments) ? (
                 <div className="manual-inbox-loading" role="status">
-                  <ThinkingOrb size="lg" variant="inline" className="loading-orb" label="" />
+                  <ThinkingOrb size="lg" className="loading-orb" label="" />
                   <strong>{isCommentSurface ? "Cargando comentarios del post" : "Cargando conversación exacta"}</strong>
                   <p>{isCommentSurface
                     ? "Estamos reuniendo únicamente los comentarios abiertos de esta publicación."

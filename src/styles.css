@@ -5670,7 +5670,7 @@ textarea:focus { border-color: var(--accent-line); background-color: rgba(255, 2
   letter-spacing: -0.035em;
 }
 
-.sac-home-greeting .wiwo-orb { width: 0.62em; height: 0.62em; margin-right: 0.1em; }
+.sac-home-greeting .sac-home-greeting__orb { margin: 0 0.28em 0.08em 0.1em; }
 
 .sac-home-intro__copy > p.sac-home-lead {
   margin-bottom: 6px;
