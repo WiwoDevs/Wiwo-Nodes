@@ -87,6 +87,8 @@ type ApiBrand = {
     name: string;
     handle: string;
     channels: SocialPlatform[];
+    /** Redes que se usan hoy en SAC; ausente si nunca se marcó. */
+    sacChannels?: SocialPlatform[];
     active: boolean;
     metricoolConfigured: boolean;
     metricool?: {
@@ -641,6 +643,7 @@ function mapAccounts(
       workbook: brand.workbook,
       qaWorkbook: brand.qaWorkbook,
       resources: brand.resources ?? [],
+      sacChannels: brand.account.sacChannels?.filter((channel) => brand.account.channels.includes(channel)),
       channels: brand.account.channels.map((channel) => ({
         platform: channel,
         username: brand.account.handle,
@@ -1474,6 +1477,36 @@ export async function setBrandVisibility(brandId: string, hidden: boolean): Prom
     body: JSON.stringify({ hidden }),
   });
   if (!response.ok) await throwApiError(response);
+}
+
+/** Marca qué redes de la cuenta se usan hoy en SAC (solo admin principal). Lista vacía: no se usa. */
+export async function setBrandSacUsage(brandId: string, channels: SocialPlatform[]): Promise<void> {
+  const response = await fetch(`${API_BASE}/brands/${encodeURIComponent(brandId)}/sac-usage`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channels }),
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
+/** Mensajes recibidos por día UTC, cuenta y red (tablero de Clientes; sin registros de planilla). */
+export interface MessageVolumeRow {
+  date: string;
+  brandId: string;
+  accountId: string;
+  channel: SocialPlatform;
+  dms: number;
+  comments: number;
+  reviews: number;
+  total: number;
+}
+
+export async function loadMessageVolume(from: string, to: string, signal?: AbortSignal): Promise<{ from: string; to: string; rows: MessageVolumeRow[] }> {
+  const params = new URLSearchParams({ from, to });
+  const response = await fetch(`${API_BASE}/stats/messages?${params}`, { signal });
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json() as { data: { from: string; to: string; rows: MessageVolumeRow[] } };
+  return payload.data;
 }
 
 export type ManualRecordsChannel = "tiktok" | "linkedin";

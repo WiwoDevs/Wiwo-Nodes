@@ -136,6 +136,8 @@ export interface BrandAccount {
   workbook?: BrandWorkbook;
   qaWorkbook?: BrandQaWorkbook;
   resources: BrandResource[];
+  /** Redes de la cuenta que se usan hoy en SAC (marca «En SAC» de Clientes); ausente si nunca se marcó. */
+  sacChannels?: SocialPlatform[];
   channels: ChannelConnection[];
 }
 

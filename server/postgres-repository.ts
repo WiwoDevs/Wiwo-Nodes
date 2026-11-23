@@ -84,6 +84,7 @@ type BrandRow = {
   account_name: string;
   handle: string;
   channels: unknown;
+  sac_channels: unknown;
   account_active: boolean;
   user_id: string | null;
   blog_id: string | null;
@@ -662,6 +663,7 @@ function accountRowPart(brand: Brand) {
     name: brand.account.name,
     handle: brand.account.handle,
     channels: brand.account.channels,
+    sacChannels: brand.account.sacChannels ?? null,
     active: brand.account.active,
   };
 }
@@ -2179,6 +2181,7 @@ export class PostgresRepository implements SacFlowRepository {
          sa.display_name AS account_name,
          sa.handle,
          sa.channels,
+         sa.sac_channels,
          sa.active AS account_active,
          pgp_sym_decrypt(mar.encrypted_user_id, $2)::text AS user_id,
          pgp_sym_decrypt(mar.encrypted_blog_id, $2)::text AS blog_id,
@@ -2210,6 +2213,7 @@ export class PostgresRepository implements SacFlowRepository {
         name: row.account_name,
         handle: row.handle,
         channels: asStringArray(row.channels) as Channel[],
+        ...(row.sac_channels == null ? {} : { sacChannels: asStringArray(row.sac_channels) as Channel[] }),
         active: row.account_active,
         metricool: row.user_id && row.blog_id
           ? {
@@ -2776,8 +2780,8 @@ export class PostgresRepository implements SacFlowRepository {
     const insertedAccount = await client.query<{ id: string }>(
       `INSERT INTO social_accounts
          (organization_id, brand_id, provider, handle, display_name, active, metricool_source,
-          metricool_reference_fingerprint, account_key, channels)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          metricool_reference_fingerprint, account_key, channels, sac_channels)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id::text AS id`,
       [
         organizationId,
@@ -2790,6 +2794,7 @@ export class PostgresRepository implements SacFlowRepository {
         accountFingerprint,
         brand.account.id,
         brand.account.channels,
+        brand.account.sacChannels ?? null,
       ],
     );
     const accountUuid = insertedAccount.rows[0]?.id;
@@ -2838,6 +2843,7 @@ export class PostgresRepository implements SacFlowRepository {
          SET provider = $3, handle = $4, display_name = $5, active = $6, account_key = $7, channels = $8,
              metricool_source = $9, metricool_reference_fingerprint = $10,
              metricool_reference_updated_at = CASE WHEN $11::boolean THEN now() ELSE metricool_reference_updated_at END,
+             sac_channels = $12,
              updated_at = now()
          WHERE organization_id = $1 AND id = $2`,
         [
@@ -2852,6 +2858,7 @@ export class PostgresRepository implements SacFlowRepository {
           nextReference ? "stored" : "none",
           accountFingerprint,
           referenceChanged,
+          next.account.sacChannels ?? null,
         ],
       );
       if (referenceChanged) {

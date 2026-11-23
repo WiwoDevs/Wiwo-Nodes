@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowClockwise,
   Buildings,
@@ -39,6 +39,8 @@ import {
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
 import { confirmAction } from "../lib/confirm";
+import { AccountFilter } from "./AccountFilter";
+import { ClientsDashboard, type UsageScope } from "./ClientsDashboard";
 
 type HealthFilter = AccountHealth | "all" | "inactive";
 
@@ -85,6 +87,8 @@ export interface AccountsViewProps {
   /** Admin principal: puede ocultar y volver a mostrar clientes; ve los ocultos aparte. */
   canHide?: boolean;
   onSetBrandHidden?: (account: BrandAccount, hidden: boolean) => Promise<void>;
+  /** Admin principal: marca qué redes de cada cuenta se usan hoy en SAC (solo etiqueta y filtro). */
+  onSetSacUsage?: (account: BrandAccount, channels: SocialPlatform[]) => Promise<void>;
   /** Importa marcas del catálogo de Metricool (solo admin). */
   onImportMetricoolBrands?: (blogIds: string[], instagramProvider: MetricoolInstagramProvider) => Promise<MetricoolImportResult>;
   /** Oculta varias marcas de una vez (p. ej. las de ejemplo sin referencia a Metricool). */
@@ -214,6 +218,7 @@ export function AccountsView({
   onUpdateBrand,
   canHide = false,
   onSetBrandHidden,
+  onSetSacUsage,
   onSyncAccount,
   onSaveMetricoolAccount,
   onDisconnectMetricoolAccount,
@@ -244,15 +249,35 @@ export function AccountsView({
     "INSTAGRAMBUSINESS",
   );
   const [workbookAccountId, setWorkbookAccountId] = useState<string | null>(null);
+  // «En SAC» por defecto en cuanto hay cuentas marcadas; si nadie marcó nada, todas.
+  const [usageChoice, setUsageChoice] = useState<UsageScope | null>(null);
+  const [metricoolAccountId, setMetricoolAccountId] = useState("all");
+  const [periodTotals, setPeriodTotals] = useState<Record<string, number>>({});
+  const onPeriodTotals = useCallback((totals: Record<string, number>) => setPeriodTotals(totals), []);
+  const [usageAccountId, setUsageAccountId] = useState<string | null>(null);
+  const [usageDraft, setUsageDraft] = useState<SocialPlatform[]>([]);
+  const [isSavingUsage, setSavingUsage] = useState(false);
 
   // Los clientes ocultos no cuentan como alertas ni se operan. Solo el admin principal los
   // recibe de la API y los ve aparte, en el filtro "Ocultos", para volver a mostrarlos.
   const activeAccounts = useMemo(() => accounts.filter((account) => !isInactiveAccount(account)), [accounts]);
   const inactiveCount = accounts.length - activeAccounts.length;
+  const sacMarkedCount = activeAccounts.filter((account) => account.sacChannels?.length).length;
+  const usageScope: UsageScope = usageChoice ?? (sacMarkedCount ? "sac" : "all");
+  /** Cuentas del alcance elegido (En SAC o Todas) y de la cuenta de Metricool elegida: tablero y lista. */
+  const scopedAccounts = useMemo(() => activeAccounts.filter((account) =>
+    (usageScope === "all" || Boolean(account.sacChannels?.length))
+    && (metricoolAccountId === "all" || account.id === metricoolAccountId)), [activeAccounts, metricoolAccountId, usageScope]);
+  const filterAccounts = useMemo(
+    () => activeAccounts.filter((account) => usageScope === "all" || Boolean(account.sacChannels?.length)),
+    [activeAccounts, usageScope],
+  );
 
   const visibleAccounts = useMemo(() => {
     const normalizedQuery = normalize(query.trim());
-    const base = healthFilter === "inactive" ? accounts.filter(isInactiveAccount) : activeAccounts;
+    const base = healthFilter === "inactive"
+      ? accounts.filter(isInactiveAccount).filter((account) => metricoolAccountId === "all" || account.id === metricoolAccountId)
+      : scopedAccounts;
 
     return base.filter((account) => {
       const searchableText = `${account.name} ${account.category} ${account.manager} ${account.channels
@@ -263,9 +288,9 @@ export function AccountsView({
       const matchesHealth = healthFilter === "all" || healthFilter === "inactive" || account.health === healthFilter;
       return matchesQuery && matchesHealth;
     });
-  }, [accounts, activeAccounts, healthFilter, query]);
+  }, [accounts, healthFilter, metricoolAccountId, query, scopedAccounts]);
 
-  const healthCounts = activeAccounts.reduce(
+  const healthCounts = scopedAccounts.reduce(
     (counts, account) => {
       counts[account.health] += 1;
       return counts;
@@ -409,6 +434,32 @@ export function AccountsView({
     }
   };
 
+  const usageAccount = useMemo(
+    () => accounts.find((account) => account.id === usageAccountId) ?? null,
+    [accounts, usageAccountId],
+  );
+  const openUsageDialog = (account: BrandAccount) => {
+    setUsageAccountId(account.id);
+    setUsageDraft(account.sacChannels ?? []);
+  };
+  const closeUsageDialog = () => {
+    if (isSavingUsage) return;
+    setUsageAccountId(null);
+  };
+  const submitUsage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!usageAccount || !onSetSacUsage) return;
+    setSavingUsage(true);
+    try {
+      await onSetSacUsage(usageAccount, usageDraft);
+      setUsageAccountId(null);
+    } catch {
+      // El contenedor muestra el error; el diálogo queda abierto.
+    } finally {
+      setSavingUsage(false);
+    }
+  };
+
   const openWorkbookDialog = (account: BrandAccount) => {
     setWorkbookAccountId(account.id);
   };
@@ -422,10 +473,10 @@ export function AccountsView({
     <section className="app-view accounts-view" aria-labelledby="accounts-title">
       <header className="view-header">
         <div className="view-header__copy">
-          <p className="view-header__eyebrow">Administración multicuenta</p>
-          <h1 id="accounts-title" className="view-header__title">Cuentas conectadas</h1>
+          <p className="view-header__eyebrow">Sistema</p>
+          <h1 id="accounts-title" className="view-header__title">Clientes</h1>
           <p className="view-header__description">
-            Estado de las marcas, sus canales y su libro de registros SAC.
+            Mensajes recibidos, cuentas de Metricool y qué redes se usan hoy en SAC.
           </p>
         </div>
         <div className="view-header__actions">
@@ -462,58 +513,49 @@ export function AccountsView({
         </div>
       </header>
 
-      <div className="health-summary" aria-label="Resumen del estado de las cuentas">
-        <button
-          className={`health-card health-card--healthy${healthFilter === "healthy" ? " health-card--active" : ""}`}
-          type="button"
-          onClick={() => setHealthFilter(healthFilter === "healthy" ? "all" : "healthy")}
-          aria-pressed={healthFilter === "healthy"}
-        >
-          <span className="health-card__icon"><CheckCircle size={21} weight="fill" aria-hidden="true" /></span>
-          <span className="health-card__copy">
-            <strong>{healthCounts.healthy}</strong>
-            <span>Operativas</span>
-          </span>
-          <small>Sincronización normal</small>
-        </button>
-        <button
-          className={`health-card health-card--attention${healthFilter === "attention" ? " health-card--active" : ""}`}
-          type="button"
-          onClick={() => setHealthFilter(healthFilter === "attention" ? "all" : "attention")}
-          aria-pressed={healthFilter === "attention"}
-        >
-          <span className="health-card__icon"><WarningCircle size={21} weight="fill" aria-hidden="true" /></span>
-          <span className="health-card__copy">
-            <strong>{healthCounts.attention}</strong>
-            <span>Con atención</span>
-          </span>
-          <small>Retraso o límite de API</small>
-        </button>
-        <button
-          className={`health-card health-card--disconnected${healthFilter === "disconnected" ? " health-card--active" : ""}`}
-          type="button"
-          onClick={() => setHealthFilter(healthFilter === "disconnected" ? "all" : "disconnected")}
-          aria-pressed={healthFilter === "disconnected"}
-        >
-          <span className="health-card__icon"><XCircle size={21} weight="fill" aria-hidden="true" /></span>
-          <span className="health-card__copy">
-            <strong>{healthCounts.disconnected}</strong>
-            <span>Desconectada</span>
-          </span>
-          <small>Requiere reconexión</small>
-        </button>
-      </div>
-
-      <div className="accounts-toolbar" role="search" aria-label="Buscar y filtrar cuentas">
+      <div className="accounts-toolbar clients-toolbar" role="search" aria-label="Filtrar clientes">
+        <div className="clients-usage" role="radiogroup" aria-label="Uso en SAC">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={usageScope === "sac"}
+            className={usageScope === "sac" ? "is-active" : ""}
+            onClick={() => setUsageChoice("sac")}
+            title="Cuentas con al menos una red marcada «En SAC»"
+          >
+            En SAC <small>{sacMarkedCount}</small>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={usageScope === "all"}
+            className={usageScope === "all" ? "is-active" : ""}
+            onClick={() => setUsageChoice("all")}
+            title="Todas las cuentas visibles, se usen o no en SAC"
+          >
+            Todas <small>{activeAccounts.length}</small>
+          </button>
+        </div>
+        <div className="filter-field filter-field--compact clients-toolbar__account">
+          <span className="filter-field__label">Cuenta de Metricool</span>
+          <AccountFilter
+            accounts={filterAccounts}
+            value={metricoolAccountId}
+            onChange={setMetricoolAccountId}
+            inWindowCounts={periodTotals}
+            countLabel="Mensajes recibidos en el período"
+            allLabel="Todas las cuentas"
+          />
+        </div>
         <label className="search-field">
-          <span className="sr-only">Buscar cuentas</span>
+          <span className="sr-only">Buscar clientes</span>
           <MagnifyingGlass className="search-field__icon" size={18} aria-hidden="true" />
           <input
             className="search-field__input"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar marca, responsable o usuario"
+            placeholder="Buscar cliente o usuario"
           />
           {query ? (
             <button
@@ -533,16 +575,24 @@ export function AccountsView({
             onChange={(event) => setHealthFilter(event.target.value as HealthFilter)}
           >
             <option value="all">Todas</option>
-            <option value="healthy">Operativas</option>
-            <option value="attention">Con atención</option>
-            <option value="disconnected">Desconectadas</option>
+            <option value="healthy">Operativas ({healthCounts.healthy})</option>
+            <option value="attention">Con atención ({healthCounts.attention})</option>
+            <option value="disconnected">Desconectadas ({healthCounts.disconnected})</option>
             {canHide && (inactiveCount > 0 || healthFilter === "inactive") ? <option value="inactive">Ocultos ({inactiveCount})</option> : null}
           </select>
         </label>
+      </div>
+
+      {healthFilter !== "inactive" ? (
+        <ClientsDashboard accounts={scopedAccounts} scope={usageScope} totalsAccounts={filterAccounts} onTotalsChange={onPeriodTotals} />
+      ) : null}
+
+      <div className="clients-list-heading">
+        <h2>Cuentas</h2>
         <p className="accounts-toolbar__count" aria-live="polite">
           {healthFilter === "inactive"
             ? `${visibleAccounts.length} oculto${visibleAccounts.length === 1 ? "" : "s"}`
-            : `${visibleAccounts.length} de ${activeAccounts.length} cuentas activas`}
+            : `${visibleAccounts.length} de ${activeAccounts.length} cuentas visibles`}
         </p>
       </div>
 
@@ -554,6 +604,7 @@ export function AccountsView({
               <thead>
                 <tr>
                   <th scope="col">Marca</th>
+                  <th scope="col">En SAC</th>
                   <th scope="col">Canales</th>
                   <th scope="col">Estado</th>
                   <th scope="col">Interacciones en 30 días</th>
@@ -583,6 +634,32 @@ export function AccountsView({
                             <small>{account.category}</small>
                           </span>
                         </button>
+                      </td>
+                      <td>
+                        <div className="sac-usage-cell">
+                          {account.sacChannels?.length ? (
+                            <span className="sac-usage-cell__networks" aria-label={`Se usa en SAC: ${account.sacChannels.map(platformLabel).join(", ")}`}>
+                              {account.sacChannels.map((platform) => (
+                                <span key={platform} className="sac-usage-chip" title={platformLabel(platform)}>
+                                  <SocialPlatformIcon platform={platform} size={14} weight="fill" aria-hidden="true" />
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="sac-usage-cell__none">No se usa</span>
+                          )}
+                          {onSetSacUsage && canHide ? (
+                            <button
+                              type="button"
+                              className="icon-button sac-usage-cell__edit"
+                              onClick={() => openUsageDialog(account)}
+                              aria-label={`Editar redes en SAC de ${account.name}`}
+                              title="Editar qué redes se usan en SAC"
+                            >
+                              <PencilSimple size={14} weight="bold" aria-hidden="true" />
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                       <td>
                         <div className="channel-stack">
@@ -938,6 +1015,61 @@ export function AccountsView({
           onImport={onImportMetricoolBrands}
           onDeactivate={onDeactivateBrands}
         />
+      ) : null}
+
+      {usageAccount ? (
+        <div className="account-credentials-backdrop" role="presentation">
+          <form className="account-credentials-panel sac-usage-panel" onSubmit={submitUsage} aria-labelledby="sac-usage-title">
+            <header>
+              <span className="account-credentials-panel__icon">
+                <CheckCircle size={20} weight="fill" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="view-header__eyebrow">Uso en SAC</p>
+                <h2 id="sac-usage-title">{usageAccount.name}</h2>
+                <p>
+                  Marca las redes que el equipo atiende hoy en SAC. Es solo una etiqueta para filtrar Clientes:
+                  las demás siguen sincronizando y conservan su historial.
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="Cerrar uso en SAC"
+                onClick={closeUsageDialog}
+                disabled={isSavingUsage}
+              >
+                <X size={16} weight="bold" aria-hidden="true" />
+              </button>
+            </header>
+            <fieldset className="brand-admin-options">
+              <legend>Redes conectadas</legend>
+              {usageAccount.channels.map((channel) => (
+                <label key={channel.platform}>
+                  <input
+                    type="checkbox"
+                    checked={usageDraft.includes(channel.platform)}
+                    onChange={(event) => setUsageDraft((current) => event.target.checked
+                      ? [...new Set([...current, channel.platform])]
+                      : current.filter((platform) => platform !== channel.platform))}
+                    disabled={isSavingUsage}
+                  />
+                  <SocialPlatformIcon platform={channel.platform} size={16} weight="fill" aria-hidden="true" />
+                  <span>{platformLabel(channel.platform)}<small>{channel.username}</small></span>
+                </label>
+              ))}
+            </fieldset>
+            <footer>
+              <button className="button button--secondary" type="button" onClick={closeUsageDialog} disabled={isSavingUsage}>
+                Cancelar
+              </button>
+              <button className="button button--primary" type="submit" disabled={isSavingUsage}>
+                <FloppyDisk size={16} weight="bold" aria-hidden="true" />
+                {isSavingUsage ? "Guardando" : "Guardar"}
+              </button>
+            </footer>
+          </form>
+        </div>
       ) : null}
 
       {credentialAccount ? (

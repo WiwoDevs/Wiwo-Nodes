@@ -286,6 +286,12 @@ export interface BrandAccount {
   handle: string;
   channels: Channel[];
   active: boolean;
+  /**
+   * Redes de esta cuenta que el equipo usa hoy en SAC (marca "En SAC" de Clientes). Es solo una
+   * etiqueta para filtrar: las demás siguen sincronizando y conservan su historial. `undefined`
+   * significa que nunca se marcó (la precarga de server/sac-usage.ts solo corre en ese caso).
+   */
+  sacChannels?: Channel[];
   metricool?: MetricoolAccountReference;
 }
 

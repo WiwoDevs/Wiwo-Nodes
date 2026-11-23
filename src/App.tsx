@@ -14,13 +14,11 @@ import {
   GitBranch,
   House,
   Key,
-  Lightning,
   LockSimple,
   MagnifyingGlass,
   Moon,
   Play,
   SidebarSimple,
-  SquaresFour,
   UsersThree,
   Sun,
   TestTube,
@@ -53,6 +51,7 @@ import {
   deactivateBrand,
   liveSyncAccount,
   setBrandVisibility,
+  setBrandSacUsage,
   importMetricoolBrands,
   archiveExpiredInteractions,
   discardNoiseInteractions,
@@ -95,7 +94,8 @@ import { playToastSound } from "./lib/brand-sounds";
 import { SoundToggle } from "./components/SoundToggle";
 import { HelpAssistant } from "./components/HelpAssistant";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
-import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor } from "./types";
+import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor, SocialPlatform } from "./types";
+import { platformLabel } from "./components/SocialPlatformIcon";
 import { confirmAction } from "./lib/confirm";
 import { useMinuteTick } from "./lib/use-minute-tick";
 import { ConfirmHost } from "./components/ConfirmHost";
@@ -108,7 +108,7 @@ const AutomationPlatform = lazy(() =>
   import("./components/AutomationPlatform").then((module) => ({ default: module.AutomationPlatform })),
 );
 
-type ViewId = "platform-home" | "automations" | "automation-executions" | "templates" | "credentials" | "workflow" | "dashboard" | "reports" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "users" | "settings";
+type ViewId = "platform-home" | "automation-executions" | "workflow" | "dashboard" | "reports" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "users" | "settings";
 type EditorTab = "editor" | "executions" | "evaluations";
 
 /** Vistas de respuesta por cuenta. Comparten componente y difieren solo en la superficie. */
@@ -141,38 +141,48 @@ function mergeInboxRows(current: Interaction[], changed: Interaction[]): Interac
   return byKey.size ? [...byKey.values(), ...merged] : merged;
 }
 
-const navigation = [
-  { id: "platform-home" as const, label: "Inicio", icon: House, group: "Operación SAC" },
-  { id: "interactions" as const, label: "Bandeja SAC", icon: ChatCircleDots, badge: "0", group: "Operación SAC" },
-  { id: "manual-dms" as const, label: "Gestión DMs", icon: ChatsCircle, group: "Operación SAC" },
-  { id: "manual-comments" as const, label: "Gestión comentarios", railLabel: "Gestión comen\u00ADtarios", icon: ChatCircleText, group: "Operación SAC" },
-  { id: "dashboard" as const, label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
-  { id: "reports" as const, label: "Reportes", icon: PresentationChart, group: "Operación SAC" },
-  { id: "workflow" as const, label: "Flujo SAC", icon: GitBranch, group: "Operación SAC" },
-  { id: "accounts" as const, label: "Cuentas", icon: Buildings, badge: "0", group: "Operación SAC" },
-  // railLabel: guiones suaves (\\u00AD) donde partir las palabras más anchas que el riel; no
-  // depende del diccionario de guionado del navegador.
-  { id: "automations" as const, label: "Automatización", railLabel: "Automati\u00ADzación", icon: Lightning, group: "Automatización" },
-  { id: "automation-executions" as const, label: "Ejecuciones", railLabel: "Ejecu\u00ADciones", icon: ClockCounterClockwise, group: "Automatización" },
-  { id: "templates" as const, label: "Plantillas", icon: SquaresFour, group: "Automatización" },
-  { id: "credentials" as const, label: "Credenciales", railLabel: "Creden\u00ADciales", icon: Key, group: "Automatización", adminOnly: true },
-  { id: "users" as const, label: "Usuarios", icon: UsersThree, group: "Sistema", adminOnly: true },
-  { id: "settings" as const, label: "Configuración", railLabel: "Configu\u00ADración", icon: GearSix, group: "Sistema" },
+/**
+ * Menú lateral, como el de WiwoMetriQ: Inicio arriba y solo (sin grupo) y después los grupos con
+ * etiqueta. Un grupo sin secciones visibles para el rol no se dibuja. Automatización, Plantillas y
+ * Credenciales salieron del menú por pedido del usuario: su código y sus datos siguen en el
+ * servidor, pero no tienen ruta visible.
+ */
+const NAV_GROUPS = ["Bandejas", "Operación SAC", "Sistema"] as const;
+type NavGroup = (typeof NAV_GROUPS)[number];
+const navigation: Array<{
+  id: ViewId;
+  label: string;
+  /** Guiones suaves (U+00AD) donde partir las palabras más anchas que el riel; no depende del navegador. */
+  railLabel?: string;
+  icon: typeof House;
+  badge?: string;
+  group: NavGroup | null;
+  adminOnly?: boolean;
+}> = [
+  { id: "platform-home", label: "Inicio", icon: House, group: null },
+  { id: "interactions", label: "Bandeja SAC", icon: ChatCircleDots, badge: "0", group: "Bandejas" },
+  { id: "manual-dms", label: "Gestión DMs", icon: ChatsCircle, group: "Bandejas" },
+  { id: "manual-comments", label: "Gestión comentarios", railLabel: "Gestión comen­tarios", icon: ChatCircleText, group: "Bandejas" },
+  { id: "dashboard", label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
+  { id: "reports", label: "Reportes", icon: PresentationChart, group: "Operación SAC" },
+  { id: "workflow", label: "Flujo SAC", icon: GitBranch, group: "Operación SAC" },
+  { id: "accounts", label: "Clientes", icon: Buildings, badge: "0", group: "Sistema" },
+  { id: "automation-executions", label: "Ejecuciones", railLabel: "Ejecu­ciones", icon: ClockCounterClockwise, group: "Sistema" },
+  { id: "users", label: "Usuarios", icon: UsersThree, group: "Sistema", adminOnly: true },
+  { id: "settings", label: "Configuración", railLabel: "Configu­ración", icon: GearSix, group: "Sistema" },
 ];
 
 /**
  * Permisos que muestran cada sección del menú (basta uno). Las que no aparecen aquí las ve
- * todo rol; Credenciales y Usuarios son solo de Admin. Ocultar ordena la pantalla: el
- * servidor vuelve a validar cada acción.
+ * todo rol; Usuarios es solo de Admin. Ocultar ordena la pantalla: el servidor vuelve a
+ * validar cada acción.
  */
 const VIEW_PERMISSIONS: Partial<Record<ViewId, Permission[]>> = {
   dashboard: ["metrics.read"],
   reports: ["metrics.read"],
   workflow: ["workflow.edit", "workflow.publish"],
   accounts: ["brands.manage", "metrics.read"],
-  automations: ["automations.edit"],
   "automation-executions": ["automations.edit"],
-  templates: ["automations.edit"],
   settings: ["workflow.edit"],
 };
 
@@ -187,21 +197,9 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
     title: "Centro de operaciones SAC",
     description: "Mensajes, cuentas y automatizaciones en un solo lugar",
   },
-  automations: {
-    title: "Automatizaciones",
-    description: "Diseña, publica y administra workflows",
-  },
   "automation-executions": {
     title: "Ejecuciones",
     description: "Trazabilidad, errores y datos de cada recorrido",
-  },
-  templates: {
-    title: "Plantillas",
-    description: "Bases reutilizables para nuevos procesos",
-  },
-  credentials: {
-    title: "Credenciales y variables",
-    description: "Accesos cifrados y configuración reutilizable",
   },
   workflow: {
     title: "SAC Multicuenta · Metricool",
@@ -228,8 +226,8 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
     description: "Comentarios agrupados por publicación, con el contexto del post",
   },
   accounts: {
-    title: "Cuentas conectadas",
-    description: "Marcas, canales y estado de sincronización",
+    title: "Clientes",
+    description: "Mensajes recibidos, cuentas de Metricool y su uso en SAC",
   },
   users: {
     title: "Usuarios y roles",
@@ -429,9 +427,6 @@ export function App({ onSignOut, sessionActor }: {
   sessionActor?: SessionActor | null;
 } = {}) {
   const [view, setView] = useState<ViewId>("platform-home");
-  // Filtro que el panel Equipo del Inicio pide a la Bandeja SAC (persona o sin asignar).
-  const [inboxFocus, setInboxFocus] = useState<InteractionsViewProps["focus"]>();
-  const clearInboxFocus = useCallback(() => setInboxFocus(undefined), []);
   const [editorTab, setEditorTab] = useState<EditorTab>("editor");
   const { isCollapsed: isSidebarCollapsed, toggleSidebar } = useSidebarMode();
   const [isExportOpen, setExportOpen] = useState(false);
@@ -490,7 +485,7 @@ export function App({ onSignOut, sessionActor }: {
   const canSeeView = useCallback((destination: ViewId): boolean => {
     if (!navActor) return destination === "platform-home";
     if (navActor.role === "admin") return true;
-    if (navigation.some((item) => item.id === destination && "adminOnly" in item)) return false;
+    if (navigation.some((item) => item.id === destination && item.adminOnly)) return false;
     const required = VIEW_PERMISSIONS[destination];
     return !required || required.some((permission) => can(navActor, permission));
   }, [navActor]);
@@ -527,7 +522,7 @@ export function App({ onSignOut, sessionActor }: {
   const visibleData = operationalData
     ?? (sessionActor ? { ...emptyOperationalData, actor: sessionActor } : emptyOperationalData);
   // Solo marcas operativas: las desactivadas (p. ej. las de ejemplo retiradas en live) no son
-  // alertas ni se seleccionan para operar; siguen en Cuentas para poder reactivarlas.
+  // alertas ni se seleccionan para operar; siguen en Clientes para poder reactivarlas.
   const operationalAccounts = useMemo(
     () => visibleData.accounts.filter((account) => account.brandActive !== false && account.accountActive !== false),
     [visibleData.accounts],
@@ -629,10 +624,7 @@ export function App({ onSignOut, sessionActor }: {
   const isActive = visibleData.workflow.enabled;
   const platformSection = ({
     "platform-home": "home",
-    automations: "workflows",
     "automation-executions": "executions",
-    templates: "templates",
-    credentials: "credentials",
   } as Partial<Record<ViewId, AutomationSection>>)[view];
 
   const refreshInboxData = useCallback((showError = false): Promise<boolean> => {
@@ -1804,6 +1796,27 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
+  /** Marca «En SAC» (solo admin principal): etiqueta para filtrar Clientes; no cambia la operación. */
+  async function setAccountSacUsage(account: BrandAccount, channels: SocialPlatform[]) {
+    try {
+      await setBrandSacUsage(account.brandId ?? account.id, channels);
+      setOperationalData((current) => current ? {
+        ...current,
+        accounts: current.accounts.map((item) => item.id === account.id ? { ...item, sacChannels: channels } : item),
+      } : current);
+      setToast({
+        tone: "success",
+        title: channels.length ? `${account.name} queda «En SAC»` : `${account.name} ya no se marca en SAC`,
+        detail: channels.length
+          ? `Redes en SAC: ${channels.map(platformLabel).join(", ")}.`
+          : "Sigue visible en Clientes, sincronizando y con todo su historial.",
+      });
+    } catch (error) {
+      setToast({ tone: "warning", title: "No se pudo guardar el uso en SAC", detail: error instanceof Error ? error.message : "Revisa la API real." });
+      throw error;
+    }
+  }
+
   async function saveAccountMetricoolCredentials(
     account: BrandAccount,
     credentials: {
@@ -2051,12 +2064,12 @@ export function App({ onSignOut, sessionActor }: {
         </div>
 
         <nav className="primary-nav" aria-label="Navegación principal">
-          {["Operación SAC", "Automatización", "Sistema"].map((group) => {
+          {[null, ...NAV_GROUPS].map((group) => {
             const items = navItems.filter((item) => item.group === group);
             if (!items.length) return null;
             return (
-              <div className="nav-group" key={group}>
-                <span className="nav-section-label">{group}</span>
+              <div className={`nav-group${group ? "" : " nav-group--home"}`} key={group ?? "inicio"}>
+                {group ? <span className="nav-section-label">{group}</span> : null}
                 {items.map((item) => {
                   const Icon = item.icon;
                   const isCurrent = view === item.id;
@@ -2064,7 +2077,7 @@ export function App({ onSignOut, sessionActor }: {
                     <button key={item.id} className={isCurrent ? "is-active" : ""} aria-current={isCurrent ? "page" : undefined} onClick={() => navigateToView(item.id)} title={item.label}>
                       <Icon size={19} weight={isCurrent ? "fill" : "regular"} />
                       <span className="nav-label">{item.label}</span>
-                      <span className="nav-micro" aria-hidden="true">{"railLabel" in item ? item.railLabel : item.label}</span>
+                      <span className="nav-micro" aria-hidden="true">{item.railLabel ?? item.label}</span>
                       {item.badge && item.badge !== "0" ? <small>{item.badge}</small> : null}
                     </button>
                   );
@@ -2087,14 +2100,13 @@ export function App({ onSignOut, sessionActor }: {
             <span className="wiwo-logo" role="img" aria-label="wiwo.sac" />
           </div>
           <div className="page-heading">
-            <div className="breadcrumb"><span>{activeNav?.label}</span><span>/</span><strong>Operación SAC</strong></div>
+            <div className="breadcrumb"><span>{activeNav?.label}</span><span>/</span><strong>{activeNav?.group ?? "Operación SAC"}</strong></div>
             <div>
               <h1>{page.title}</h1>
               <p>{page.description}</p>
             </div>
           </div>
           <div className="topbar-actions">
-            <HelpAssistant view={view} viewTitle={page.title} />
             <SoundToggle />
             <button className="icon-button theme-toggle" aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"} title={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggleTheme}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button>
             <button className="icon-button" aria-label="Buscar conversaciones" onClick={() => navigateToView("interactions")}><MagnifyingGlass size={19} /></button>
@@ -2216,24 +2228,13 @@ export function App({ onSignOut, sessionActor }: {
               canSupervise={canReadMetrics}
               accounts={operationalAccounts}
               interactions={visibleData.interactions}
-              sacWorkflow={visibleData.workflow}
               isOperationalLoading={isLoadingData}
               onNavigate={(destination) => { if (canSeeView(destination)) setView(destination); }}
               canOpen={canSeeView}
               homeRole={visibleData.actor.role === "admin" ? "admin" : canSeeTeam ? "supervisor" : "agent"}
               currentUserId={visibleData.actor.userId}
               onTakeNext={allowed("inbox.assign") ? takeNextCase : undefined}
-              inboxSync={visibleData.inboxSync}
-              automaticRepliesEnabled={visibleData.automationSettings.automaticRepliesEnabled}
               onOpenInteraction={openInteractionDetail}
-              onOpenTeamMember={canSeeTeam ? (member) => {
-                if (!canSeeView("interactions")) return;
-                setInboxFocus({
-                  assignment: !member ? "unassigned" : member.userId === visibleData.actor.userId ? "mine" : `user:${member.userId}`,
-                  label: member?.displayName,
-                });
-                setView("interactions");
-              } : undefined}
               onToast={showPlatformToast}
               userName={visibleData.actor.displayName}
             />
@@ -2292,8 +2293,6 @@ export function App({ onSignOut, sessionActor }: {
               onArchiveExpired={archiveExpired}
               currentUserId={visibleData.actor.userId}
               canFilterByPerson={canSeeTeam}
-              focus={inboxFocus}
-              onFocusApplied={clearInboxFocus}
               canAssign={allowed("inbox.assign")}
               onTakeNext={takeNextCase}
               onVisibleOrderChange={rememberInboxOrder}
@@ -2309,7 +2308,7 @@ export function App({ onSignOut, sessionActor }: {
             <ManualManagementView
               surfaceKind={view === "manual-comments" ? "comment" : "dm"}
               // Solo cuentas operativas: una marca desactivada no debe poder seleccionarse
-              // para responder. Sigue apareciendo en Cuentas para poder reactivarla.
+              // para responder. Sigue apareciendo en Clientes para poder reactivarla.
               accounts={operationalAccounts}
               pendingCounts={manualPendingCounts[view === "manual-comments" ? "comment" : "dm"]}
               interactions={manualInteractions}
@@ -2398,6 +2397,7 @@ export function App({ onSignOut, sessionActor }: {
               onUpdateBrand={updateBrandAccount}
               canHide={canHideBrands}
               onSetBrandHidden={canHideBrands ? setBrandAccountHidden : undefined}
+              onSetSacUsage={canHideBrands ? setAccountSacUsage : undefined}
               onImportMetricoolBrands={importBrandsFromMetricool}
               onDeactivateBrands={canHideBrands ? deactivateBrandAccounts : undefined}
               onSyncAccount={syncSingleAccount}
@@ -2477,6 +2477,13 @@ export function App({ onSignOut, sessionActor }: {
           } : undefined}
         />
       ) : null}
+
+      <HelpAssistant
+        view={view}
+        viewTitle={page.title}
+        hidden={detailPresentation === "panel" && (Boolean(selectedInteractionDetail) || isLoadingDetail)}
+        liftAbove={isManualView(view) ? ".manual-inbox-composer" : undefined}
+      />
 
       <ConfirmHost />
 

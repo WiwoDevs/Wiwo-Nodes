@@ -131,6 +131,23 @@ export const brandVisibilitySchema = z.object({
   hidden: z.boolean(),
 }).strict();
 
+/** Redes de la cuenta que se usan hoy en SAC (lista vacía: la cuenta no se usa en SAC). */
+export const brandSacUsageSchema = z.object({
+  channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length),
+}).strict();
+
+const isoDay = z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "Usa el formato AAAA-MM-DD.");
+
+/** Mensajes recibidos del tablero de Clientes: días UTC inclusive, como Reportes (máx. 366 días). */
+export const messageVolumeQuerySchema = z.object({
+  from: isoDay,
+  to: isoDay,
+}).strict().refine((value) => value.from <= value.to, { message: "La fecha inicial no puede ser posterior a la final.", path: ["from"] })
+  .refine((value) => Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`) <= 365 * 86_400_000, {
+    message: "El período no puede superar un año.",
+    path: ["to"],
+  });
+
 /** Carga manual del Excel BD SAC: red por defecto para filas sin "Plataforma" y si solo se revisa. */
 export const manualRecordsQuerySchema = z.object({
   red: z.enum(["tiktok", "linkedin"]).optional(),

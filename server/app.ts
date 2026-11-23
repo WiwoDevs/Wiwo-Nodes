@@ -56,6 +56,8 @@ import {
   brandResourceParamsSchema,
   brandUpdateSchema,
   brandVisibilitySchema,
+  brandSacUsageSchema,
+  messageVolumeQuerySchema,
   brandWorkbookUpdateSchema,
   manualRecordsQuerySchema,
   liveSyncSchema,
@@ -98,6 +100,7 @@ import {
   interactionBulkTriageSchema,
 } from "./schemas.js";
 import { buildSacReport, duplicateAccountGroups, esCasoSac, esMensajeGestionado, esTriajeManual, monthPeriod } from "./sac-report.js";
+import { applySacUsagePlan, messageVolumeRows, planSacUsageSeed, shouldSeedSacUsage, type SacUsageSeedPlan } from "./sac-usage.js";
 import { buildAiAgreement } from "./ai-shadow-triage.js";
 import { detectNoise, isDiscardableNoise } from "./noise-detection.js";
 import {
@@ -1212,6 +1215,22 @@ async function autoLinkMetricoolCatalog(
  * una cuenta real se respeta). Corre al arrancar y antes de cada sincronización, sin
  * depender de que el catálogo de Metricool responda. Solo escribe si hay algo que cambiar.
  */
+/**
+ * Precarga la marca «En SAC» (server/sac-usage.ts) la primera vez: solo si ninguna cuenta la tiene
+ * y hay cuentas que calzan por nombre y red. Después solo la cambia un admin principal en Clientes.
+ */
+async function seedSacUsage(repository: SacFlowRepository): Promise<SacUsageSeedPlan | undefined> {
+  const catalog = await repository.snapshotCatalog();
+  if (!shouldSeedSacUsage(catalog)) return undefined;
+  const plan = planSacUsageSeed(catalog.brands);
+  if (!plan.matches.length) return undefined;
+  await repository.mutateCatalog((store) => {
+    if (!shouldSeedSacUsage(store)) return;
+    applySacUsagePlan(store, plan);
+  });
+  return plan;
+}
+
 export async function retireDemoSeedBrands(
   config: AppConfig,
   repository: SacFlowRepository,
@@ -1699,6 +1718,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   await repository.recoverStaleReplyDeliveries();
   // En live, las marcas de ejemplo no deben verse ni contar como cuentas sin conectar.
   const retiredDemoBrands = await retireDemoSeedBrands(config, repository);
+  const sacUsageSeed = await seedSacUsage(repository);
 
   const metricoolClient = options.metricoolClient
     || (!config.demoMode && config.metricool.token
@@ -1715,6 +1735,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   const apiSessionSigningKey = randomBytes(32);
   if (retiredDemoBrands.length) {
     app.log.info({ event: "demo_brands_retired", count: retiredDemoBrands.length }, "Marcas de ejemplo desactivadas en live.");
+  }
+  if (sacUsageSeed) {
+    // Solo nombres de cliente y redes: nada de IDs de Metricool en el registro.
+    app.log.info({
+      event: "sac_usage_seeded",
+      marked: sacUsageSeed.matches.length,
+      unmatched: sacUsageSeed.unmatched.map((item) => `${item.cliente} (${item.redes.join(", ")}): ${item.motivo === "sin_cuenta" ? "sin cuenta" : "red no conectada"}`),
+    }, "Marca «En SAC» precargada en Clientes.");
   }
   // Roles asignados desde "Usuarios y roles": la identidad los consulta en cada solicitud.
   const accessDirectory = createAccessDirectory(repository);
@@ -2863,7 +2891,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       if (body.active !== undefined) brand.active = body.active;
       if (body.accountName !== undefined) brand.account.name = body.accountName;
       if (body.accountHandle !== undefined) brand.account.handle = body.accountHandle;
-      if (body.channels !== undefined) brand.account.channels = [...new Set(body.channels)];
+      if (body.channels !== undefined) {
+        brand.account.channels = [...new Set(body.channels)];
+        // La marca «En SAC» solo vale para redes conectadas.
+        if (brand.account.sacChannels) brand.account.sacChannels = brand.account.sacChannels.filter((channel) => brand.account.channels.includes(channel));
+      }
       if (body.accountActive !== undefined) brand.account.active = body.accountActive;
       store.workflow.updatedAt = new Date().toISOString();
       return brand;
@@ -2905,6 +2937,35 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return {
       data: publicBrand(config, updated),
       meta: { ...apiMeta(config), hidden: body.hidden, externalWrites: false },
+    };
+  });
+
+  /**
+   * Marca qué redes de la cuenta se usan hoy en SAC (filtro «En SAC» de Clientes). Es solo una
+   * etiqueta: no oculta, no deja de sincronizar y no cambia la bandeja ni Reportes. Como la
+   * visibilidad, la edita solo un admin principal.
+   */
+  app.put("/api/brands/:brandId/sac-usage", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    if (!canHideBrands(actor)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede marcar qué cuentas se usan en SAC.");
+    }
+    const { brandId } = brandParamsSchema.parse(request.params);
+    assertBrandAccess(actor, brandId);
+    const body = brandSacUsageSchema.parse(request.body);
+    const updated = await repository.mutateCatalog((store) => {
+      const brand = store.brands.find((item) => item.id === brandId);
+      if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
+      const unknown = body.channels.filter((channel) => !brand.account.channels.includes(channel));
+      if (unknown.length) {
+        throw new ApiError(422, "CHANNEL_NOT_CONNECTED", `La cuenta no tiene conectada: ${unknown.join(", ")}.`, { channels: unknown });
+      }
+      brand.account.sacChannels = brand.account.channels.filter((channel) => body.channels.includes(channel));
+      return brand;
+    });
+    return {
+      data: publicBrand(config, updated),
+      meta: { ...apiMeta(config), externalWrites: false },
     };
   });
 
@@ -3626,7 +3687,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       }))
       .sort((left, right) => right.figures.casosSac - left.figures.casosSac || left.brandName.localeCompare(right.brandName, "es"));
     const warnings = duplicateAccountGroups(brands).map((names) =>
-      `Cuentas con el mismo usuario: ${names.join(", ")}. Sus mensajes se cuentan dos veces; desactiva la duplicada en Cuentas.`);
+      `Cuentas con el mismo usuario: ${names.join(", ")}. Sus mensajes se cuentan dos veces; oculta la duplicada en Clientes.`);
     return {
       data: { ...period, volumen: query.volumen, brands: reports, warnings, generatedAt: new Date().toISOString() },
       meta: apiMeta(config),
@@ -3890,6 +3951,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       }
       throw error;
     }
+  });
+
+  /**
+   * Mensajes recibidos del tablero de Clientes: entrantes de clientes visibles entre `from` y `to`
+   * (días UTC, inclusive), por día, cuenta y red. Sin los registros cargados a mano (`planilla`).
+   * Mismo acceso que la sección Clientes: `brands.manage` o `metrics.read`.
+   */
+  app.get("/api/stats/messages", async (request) => {
+    const actor = requestActor(config, request);
+    if (!actorCan(actor, "metrics.read") && !actorCan(actor, "brands.manage")) {
+      throw new ApiError(403, "FORBIDDEN", "Tu rol no permite ver las métricas de Clientes.");
+    }
+    const query = messageVolumeQuerySchema.parse(request.query);
+    const snapshot = await repository.snapshotCatalog();
+    const brands = filterBrandsForActor(actor, snapshot.brands).filter((brand) => brand.active && brand.account.active);
+    const interactions = await repository.listInteractions(scopedInteractionFilters(actor, snapshot.brands, {
+      from: `${query.from}T00:00:00.000Z`,
+      to: `${query.to}T23:59:59.999Z`,
+      excludeSources: ["planilla"],
+    }));
+    const rows = messageVolumeRows(interactions, new Set(brands.map((brand) => brand.id)), query.from, query.to);
+    return {
+      data: { from: query.from, to: query.to, rows, generatedAt: new Date().toISOString() },
+      meta: { ...apiMeta(config), excludedSources: ["planilla"] },
+    };
   });
 
   app.get("/api/stats/summary", async (request) => {

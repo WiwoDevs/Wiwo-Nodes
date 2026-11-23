@@ -605,6 +605,9 @@ export function ManualManagementView({
         || timestamp(left.receivedAt) - timestamp(right.receivedAt)
         || left.id.localeCompare(right.id));
   }, [isCommentSurface, postComments, postCommentsPostKey, selectedEntry]);
+  const selectedPermalink = safeHttpsUrl(selectedContext?.permalink);
+  const selectedPostThumbnail = safeHttpsUrl(selectedContext?.thumbnailUrl);
+  const selectedNoiseCount = selectedPendingComments.filter((comment) => comment.noise).length;
   const selectedCommentIsOpen = !isCommentSurface
     || Boolean(visibleDetail && selectedPendingComments.some((comment) => comment.id === visibleDetail.id));
   const postOrderDetail = entries.some((entry) => entry.postSortSource === "latest_comment_at")
@@ -1060,11 +1063,10 @@ export function ManualManagementView({
                         <span className="manual-inbox-contact__meta">
                           <span>
                             <SocialPlatformIcon platform={entry.target.platform} size={14} weight="fill" aria-hidden="true" />
-                            {interactionKindLabel(entry.target.kind)}
+                            {entry.postId ? platformLabel(entry.target.platform) : interactionKindLabel(entry.target.kind)}
                           </span>
-                          <span>{entry.postId
-                            ? countLabel(entry.messageCount, "comentario", "comentarios")
-                            : countLabel(entry.messageCount, "mensaje", "mensajes")}</span>
+                          {/* En un post el total de comentarios ya está en la línea de arriba. */}
+                          {entry.postId ? null : <span>{countLabel(entry.messageCount, "mensaje", "mensajes")}</span>}
                           {entry.postId
                             ? <em>{entry.pendingCount} sin responder</em>
                             : entry.pendingCount ? <em>{entry.pendingCount} pendientes</em> : null}
@@ -1109,13 +1111,23 @@ export function ManualManagementView({
                       </button>
                     ) : null}
                     <div className="manual-inbox-conversation-header__identity">
-                      <span className="manual-inbox-conversation-header__avatar" aria-hidden="true">
-                        {isCommentSurface ? <ImageSquare size={20} weight="duotone" /> : visibleDetail.customerName.slice(0, 2).toLocaleUpperCase("es-CL")}
+                      <span className={`manual-inbox-conversation-header__avatar${isCommentSurface && selectedPostThumbnail ? " has-media" : ""}`} aria-hidden="true">
+                        {isCommentSurface
+                          ? selectedPostThumbnail
+                            ? <img src={selectedPostThumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true; }} />
+                            : <ImageSquare size={20} weight="duotone" />
+                          : visibleDetail.customerName.slice(0, 2).toLocaleUpperCase("es-CL")}
                       </span>
+                      {/* En comentarios el texto del post ya está en su tarjeta de la izquierda: aquí solo
+                          cuántos quedan y en qué orden se atienden. */}
                       <div>
-                        <strong>{isCommentSurface ? "Comentarios de la publicación" : visibleDetail.customerName}</strong>
+                        <strong aria-live={isCommentSurface ? "polite" : undefined}>{isCommentSurface
+                          ? selectedPendingComments.length
+                            ? `${selectedPendingComments.length} sin responder`
+                            : "Publicación al día"
+                          : visibleDetail.customerName}</strong>
                         <small>{isCommentSurface
-                          ? `${selectedPendingComments.length} sin responder · ${platformLabel(visibleDetail.platform)} · caso seleccionado: ${visibleDetail.customerName}`
+                          ? `${platformLabel(visibleDetail.platform)} · los más antiguos primero`
                           : `${visibleDetail.customerHandle} · ${platformLabel(visibleDetail.platform)}`}</small>
                       </div>
                     </div>
@@ -1127,17 +1139,48 @@ export function ManualManagementView({
                         currentUserId={currentUserId}
                         scope={isCommentSurface ? "post" : "chat"}
                       />
-                      <span className={`manual-inbox-status manual-inbox-status--${visibleDetail.status}`}>
-                        {statusLabel(visibleDetail)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void onChangeAssignment(visibleDetail)}
-                        disabled={!canWrite || isSaving || caseClosed}
-                      >
-                        <UserPlus size={15} weight="bold" aria-hidden="true" />
-                        {visibleDetail.assignedTo ? "Liberar" : "Asignarme"}
-                      </button>
+                      {isCommentSurface ? (
+                        <>
+                          {canDiscardNoise && onDiscardNoise && selectedEntry?.postKey && selectedNoiseCount ? (
+                            <button
+                              type="button"
+                              className="manual-inbox-discard-noise"
+                              disabled={isSaving}
+                              onClick={() => void onDiscardNoise({ accountId: selectedEntry.target.accountId, type: "comment", postKey: selectedEntry.postKey })}
+                              title="Cierra como spam los comentarios señalados de esta publicación; no borra nada en la red"
+                            >
+                              Descartar spam ({selectedNoiseCount})
+                            </button>
+                          ) : null}
+                          {selectedPermalink ? (
+                            <a
+                              className="manual-inbox-post-link"
+                              href={selectedPermalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              referrerPolicy="no-referrer"
+                              title={selectedContext?.publishedAt ? `Publicado ${formatDateTime(selectedContext.publishedAt)}` : "Abre la publicación en la red social"}
+                            >
+                              <ArrowSquareOut size={15} weight="bold" aria-hidden="true" />
+                              Abrir publicación
+                            </a>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <span className={`manual-inbox-status manual-inbox-status--${visibleDetail.status}`}>
+                            {statusLabel(visibleDetail)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void onChangeAssignment(visibleDetail)}
+                            disabled={!canWrite || isSaving || caseClosed}
+                          >
+                            <UserPlus size={15} weight="bold" aria-hidden="true" />
+                            {visibleDetail.assignedTo ? "Liberar" : "Asignarme"}
+                          </button>
+                        </>
+                      )}
                       {onOpenFullDetail ? (
                         <button
                           type="button"
@@ -1155,34 +1198,31 @@ export function ManualManagementView({
                     </div>
                   </header>
 
-                  {selectedContext && (isCommentSurface || visibleDetail.kind === "comment" || selectedListInteraction?.kind === "comment") ? (
+                  {/* La tarjeta con el texto del post solo queda donde no hay lista de publicaciones
+                      (un comentario abierto desde DMs); en Gestión comentarios ya está a la izquierda. */}
+                  {!isCommentSurface && selectedContext && (visibleDetail.kind === "comment" || selectedListInteraction?.kind === "comment") ? (
                     <PostPreview context={selectedContext} />
                   ) : null}
 
                   {isCommentSurface && selectedEntry ? (
-                    <section className="manual-inbox-exact-comments" aria-label="Comentarios exactos de la publicación">
-                      <header>
-                        <div>
-                          <strong>Comentarios sin responder</strong>
-                          <small>Del más antiguo al más reciente para proteger el SLA.</small>
-                        </div>
-                        <span aria-live="polite">{selectedPendingComments.length} pendientes</span>
-                        {canDiscardNoise && onDiscardNoise && selectedEntry.postKey && selectedPendingComments.some((comment) => comment.noise) ? (
-                          <button
-                            type="button"
-                            className="manual-inbox-discard-noise"
-                            disabled={isSaving}
-                            onClick={() => void onDiscardNoise({ accountId: selectedEntry.target.accountId, type: "comment", postKey: selectedEntry.postKey })}
-                            title="Cierra como spam los comentarios señalados de esta publicación; no borra nada en la red"
-                          >
-                            Descartar spam ({selectedPendingComments.filter((comment) => comment.noise).length})
-                          </button>
-                        ) : null}
-                      </header>
+                    <section className="manual-inbox-exact-comments" aria-label="Comentarios sin responder de la publicación">
                       {selectedPendingComments.length ? (
-                        <ol aria-label="Comentarios abiertos, del más antiguo al más reciente">
+                        <ol aria-label="Comentarios sin responder, del más antiguo al más reciente">
                           {selectedPendingComments.map((interaction) => {
                             const selected = interaction.id === visibleDetail.id;
+                            const handle = interaction.customerHandle.replace(/^@/, "");
+                            // El usuario solo se repite si dice algo distinto del nombre (no un ID numérico).
+                            const showHandle = Boolean(handle)
+                              && !/^\d+$/.test(handle)
+                              && handle.toLocaleLowerCase("es-CL") !== interaction.customerName.replace(/^@/, "").toLocaleLowerCase("es-CL");
+                            const owner = interaction.assignedTo
+                              ? interaction.assignedTo.userId === currentUserId ? "Tú" : interaction.assignedTo.displayName
+                              : undefined;
+                            const flagged = interaction.status === "needs_review" || interaction.priority === "urgent";
+                            const flagLabel = [
+                              interaction.status === "needs_review" ? "Revisión humana" : null,
+                              `prioridad ${priorityLabel(interaction.priority).toLocaleLowerCase("es-CL")}`,
+                            ].filter(Boolean).join(" · ");
                             return (
                               <li key={interaction.id}>
                                 <button
@@ -1191,6 +1231,7 @@ export function ManualManagementView({
                                   onClick={() => requestInteractionChange(interaction)}
                                   disabled={isSaving}
                                   aria-current={selected ? "true" : undefined}
+                                  aria-label={`${interaction.customerName}${selected ? ", respondiendo" : ""}. ${flagLabel}${owner ? `. A cargo: ${owner}` : ""}`}
                                 >
                                   <span className="manual-inbox-comment__avatar" aria-hidden="true">
                                     {interaction.customerName.slice(0, 2).toLocaleUpperCase("es-CL")}
@@ -1198,19 +1239,23 @@ export function ManualManagementView({
                                   <span className="manual-inbox-comment__body">
                                     <span className="manual-inbox-comment__topline">
                                       <strong>{interaction.customerName}</strong>
-                                      <time dateTime={interaction.receivedAt}>{formatDateTime(interaction.receivedAt)}</time>
+                                      {showHandle ? <small className="manual-inbox-comment__handle">@{handle}</small> : null}
+                                      <span className="manual-inbox-comment__marks">
+                                        {flagged ? (
+                                          <span className="manual-inbox-comment__flag" title={flagLabel} aria-hidden="true">
+                                            <UserFocus size={14} weight="fill" />
+                                          </span>
+                                        ) : null}
+                                        {owner ? <span className="manual-inbox-comment__owner" title={`A cargo: ${owner}`} aria-hidden="true">{owner}</span> : null}
+                                        <time dateTime={interaction.receivedAt}>{formatDateTime(interaction.receivedAt)}</time>
+                                      </span>
                                     </span>
-                                    <small>
-                                      {interaction.customerHandle} · {statusLabel(interaction)} · prioridad {priorityLabel(interaction.priority).toLocaleLowerCase("es-CL")}
-                                      {interaction.assignedTo?.displayName ? ` · ${interaction.assignedTo.displayName}` : " · sin asignar"}
-                                    </small>
                                     <p><ContentContext text={interaction.preview} context={interaction.contentContext} compact /></p>
                                     {interaction.noise ? (
                                       <small className={`manual-inbox-comment__noise manual-inbox-comment__noise--${interaction.noise.origen}`}>
                                         {interaction.noise.origen === "ia" ? interaction.noise.label : `Posible spam · ${interaction.noise.label.charAt(0).toLowerCase()}${interaction.noise.label.slice(1)}`}
                                       </small>
                                     ) : null}
-                                    <em>{selected ? "Seleccionado para responder" : "Seleccionar y responder"}</em>
                                   </span>
                                 </button>
                               </li>
@@ -1256,9 +1301,27 @@ export function ManualManagementView({
 
                   <section className="manual-inbox-composer" aria-label="Compositor de respuesta humana">
                     {isCommentSurface ? (
-                      <div className="manual-inbox-reply-target" aria-live="polite">
-                        <strong>Respondiendo a {visibleDetail.customerName}</strong>
-                        <ContentContext text={visibleDetail.text} context={visibleDetail.contentContext} />
+                      // Estado y asignación son del comentario que se responde (no del post): viven aquí,
+                      // junto a quién se responde, y la acción queda ligada a su ID y versión.
+                      <div className="manual-inbox-reply-target manual-inbox-reply-target--comment" aria-live="polite">
+                        <span className="manual-inbox-reply-target__who">
+                          Respondiendo a <strong>{visibleDetail.customerName}</strong>
+                        </span>
+                        <span className={`manual-inbox-status manual-inbox-status--${visibleDetail.status}`}>
+                          {statusLabel(visibleDetail)}
+                        </span>
+                        <button
+                          type="button"
+                          className="manual-inbox-reply-target__assign"
+                          onClick={() => void onChangeAssignment(visibleDetail)}
+                          disabled={!canWrite || isSaving || caseClosed}
+                        >
+                          <UserPlus size={14} weight="bold" aria-hidden="true" />
+                          {visibleDetail.assignedTo ? "Liberar" : "Asignarme"}
+                        </button>
+                        <span className="manual-inbox-reply-target__quote">
+                          <ContentContext text={visibleDetail.text} context={visibleDetail.contentContext} compact />
+                        </span>
                       </div>
                     ) : null}
                     {/* Compacta: una línea de etiqueta y una de texto, para no quitarle alto al historial. */}
@@ -1308,10 +1371,9 @@ export function ManualManagementView({
                     />
                     <EmojiPicker onPick={insertEmoji} disabled={!canWrite || isSaving || composerLocked} />
                     </div>
+                    {/* Solo avisa cuando hay algo sin guardar; el estado "sincronizado" no aporta. */}
                     <small className={`manual-inbox-draft-state${isDraftDirty ? " is-dirty" : ""}`} aria-live="polite">
-                      {isDraftDirty
-                        ? "Cambios locales sin guardar; se pedirá confirmación antes de cambiar de caso."
-                        : "Borrador sincronizado con el caso seleccionado."}
+                      {isDraftDirty ? "Cambios locales sin guardar; se pedirá confirmación antes de cambiar de caso." : ""}
                     </small>
 
                     {caseClosed ? (

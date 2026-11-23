@@ -1,16 +1,17 @@
 /**
  * Asistente de wiwo.sac: el orbe de ayuda, adaptado del asistente de WiwoMetriQ.
  *
- * El orbe vive en la barra superior y no flotando abajo a la derecha como en MetriQ: en
- * wiwo.sac esa esquina es la del botón Enviar en Gestión DMs/comentarios y en el detalle del
- * caso, y el orbe lo taparía. El orbe también es el estado: late en reposo, genera mientras
- * llega la respuesta y celebra un instante cuando llega.
+ * El orbe flota abajo a la derecha, como en MetriQ, y es el mismo orbe volumétrico de la pantalla
+ * «Cargando…» (esfera sobre su aura oscura). Esa esquina también es la del botón Enviar: en Gestión
+ * DMs/comentarios el orbe sube por encima del compositor (`liftAbove`), y mientras el detalle del
+ * caso está abierto se oculta (`hidden`), porque ese panel es modal. El orbe también es el estado:
+ * late en reposo, genera mientras llega la respuesta y celebra un instante cuando llega.
  *
  * SOLO ORIENTA (lo refuerza el prompt en server/help-assistant.ts): no ejecuta acciones, no
  * navega y no ve casos ni mensajes. Responde según el rol y los permisos de la sesión.
  */
 import { PaperPlaneRight, X } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { askHelpAssistant, loadAiAvailability, type HelpMessage } from "../lib/api";
 import { ThinkingOrb, type OrbState } from "./ThinkingOrb";
@@ -34,8 +35,19 @@ function AnswerText({ content }: { content: string }) {
   );
 }
 
-export function HelpAssistant({ view, viewTitle }: { view: string; viewTitle: string }) {
+/** Separación entre el orbe y lo que esquiva (compositor) o el borde de la ventana. */
+const ORB_GAP = 16;
+
+export function HelpAssistant({ view, viewTitle, hidden = false, liftAbove }: {
+  view: string;
+  viewTitle: string;
+  /** Oculta el orbe (p. ej. con el detalle del caso abierto, que es modal y tiene su Enviar abajo). */
+  hidden?: boolean;
+  /** Selector del compositor que el orbe no debe tapar: el orbe flota por encima de él. */
+  liftAbove?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [lift, setLift] = useState(0);
   const [messages, setMessages] = useState<HelpMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState("");
@@ -58,6 +70,31 @@ export function HelpAssistant({ view, viewTitle }: { view: string; viewTitle: st
     if (log.current) log.current.scrollTop = log.current.scrollHeight;
   }, [messages, pending, open]);
   useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => {
+    if (hidden) setOpen(false);
+  }, [hidden]);
+
+  // Sube el orbe sobre el compositor visible: mide su borde superior (cambia al elegir otro caso,
+  // al escribir o al redimensionar) y deja el orbe ORB_GAP por encima. Sin compositor, vuelve abajo.
+  useEffect(() => {
+    if (!liftAbove) {
+      setLift(0);
+      return undefined;
+    }
+    const measure = () => {
+      const target = document.querySelector(liftAbove);
+      const rect = target?.getBoundingClientRect();
+      const next = rect && rect.height > 0 && rect.bottom > 0 ? Math.max(0, Math.round(window.innerHeight - rect.top)) : 0;
+      setLift((current) => (Math.abs(current - next) > 1 ? next : current));
+    };
+    measure();
+    const intervalId = window.setInterval(measure, 400);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("resize", measure);
+    };
+  }, [liftAbove]);
 
   // Un clic fuera del panel y del orbe lo cierra, como los demás menús de la barra.
   useEffect(() => {
@@ -116,28 +153,34 @@ export function HelpAssistant({ view, viewTitle }: { view: string; viewTitle: st
   // Sin IA solo responden las preguntas sugeridas (tienen respuesta escrita en la guía).
   const suggestions = mode === "ia" ? [`¿Para qué sirve ${viewTitle}?`, ...SUGGESTIONS] : SUGGESTIONS;
 
-  return (
+  const placement = { "--help-orb-lift": `${lift ? lift + ORB_GAP : 0}px` } as CSSProperties;
+
+  // En un portal sobre <body>: el orbe y el panel son fijos y no deben quedar atrapados en un
+  // contenedor con backdrop-filter o transform (como la barra superior).
+  return createPortal(
     <>
       <button
         ref={trigger}
         type="button"
-        className="help-orb-button"
+        className={`help-orb-button${hidden ? " is-hidden" : ""}${lift ? " is-lifted" : ""}`}
+        style={placement}
         aria-expanded={open}
         aria-controls="wiwo-sac-assistant"
         aria-label={open ? "Cerrar el asistente de wiwo.sac" : "Abrir el asistente de wiwo.sac"}
+        aria-hidden={hidden || undefined}
+        tabIndex={hidden ? -1 : undefined}
         title="Asistente de wiwo.sac"
         onClick={() => (open ? close() : setOpen(true))}
       >
-        <ThinkingOrb size="md" state={orb} label="" />
+        <ThinkingOrb size="fab" state={orb} label="" />
       </button>
 
-      {/* En un portal: la barra superior usa backdrop-filter, que atrapa a los hijos fijos en
-          su propio contexto y dejaba el panel invisible debajo del contenido. */}
-      {open ? createPortal(
+      {open ? (
         <aside
           ref={panel}
           id="wiwo-sac-assistant"
           className="help-assistant"
+          style={placement}
           aria-label="Asistente de wiwo.sac"
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -214,9 +257,9 @@ export function HelpAssistant({ view, viewTitle }: { view: string; viewTitle: st
               <PaperPlaneRight size={17} weight="fill" />
             </button>
           </form>
-        </aside>,
-        document.body,
+        </aside>
       ) : null}
-    </>
+    </>,
+    document.body,
   );
 }
