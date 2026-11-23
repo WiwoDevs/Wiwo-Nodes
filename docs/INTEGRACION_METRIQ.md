@@ -4,7 +4,7 @@ MetriQ (`WiwoDevs/WiwoMetrics`) arma el módulo SAC (dashboard, informes, Excel 
 
 ## Conexión
 
-- **Base:** `https://nodes.wiwo.me`
+- **Base:** `https://sac.wiwo.me`
 - **Autenticación:** `Authorization: Bearer <clave>` (o `X-API-Key: <clave>`). La clave es `SAC_FLOW_SERVICE_API_KEY` en el servidor de wiwo.sac, de 32 caracteres o más.
 - **Solo desde el servidor de MetriQ** (route handlers de Next.js, con la clave en las variables de entorno del VPS donde corre MetriQ). Nunca desde el navegador: wiwo.sac no habilita CORS para estas rutas y la clave no debe llegar al cliente.
 - **Solo lectura:** cualquier método distinto de `GET` responde `405`. La clave no abre ninguna otra ruta de wiwo.sac.
@@ -121,4 +121,4 @@ El Excel del mes (mismo archivo que se descarga desde Reportes), de una marca o 
 2. **Lectura:** en `loadSacRows`, las marcas con fuente wiwo.sac piden `sac-rows` con el período solicitado; los meses anteriores a su inicio se siguen leyendo de la planilla. Mantener la caché corta de 60 s y el manejo de errores por marca (`errors` sin cortar el resto).
 3. **Totales:** donde hoy se lee "Total interacciones", usar `sac-totals`.
 4. **Frescura:** mostrar `lastSyncAt` ("datos al …") y advertir si `lastSyncStatus` es `failed` o si tiene más de 24 horas.
-5. **Variables en el VPS de MetriQ** (MetriQ ya no se despliega en Vercel: un push a `main` lo despliega por SSH en su propio VPS): `NODES_API_URL=https://nodes.wiwo.me` y `NODES_SERVICE_API_KEY=<clave>`, en el mismo archivo de entorno donde están sus otras claves de servidor (`METRICOOL_USER_TOKEN`, `META_ACCESS_TOKEN`…), y volver a desplegar o reiniciar MetriQ. Solo servidor, nunca `NEXT_PUBLIC_`.
+5. **Variables en el VPS de MetriQ** (MetriQ ya no se despliega en Vercel: un push a `main` lo despliega por SSH en su propio VPS): `NODES_API_URL=https://sac.wiwo.me` y `NODES_SERVICE_API_KEY=<clave>`, en el mismo archivo de entorno donde están sus otras claves de servidor (`METRICOOL_USER_TOKEN`, `META_ACCESS_TOKEN`…), y volver a desplegar o reiniciar MetriQ. Solo servidor, nunca `NEXT_PUBLIC_`.
