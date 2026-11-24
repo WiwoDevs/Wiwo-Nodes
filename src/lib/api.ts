@@ -453,7 +453,7 @@ function mapSystemStatus(
         description: "Origen de DMs, comentarios y respuestas de las cuentas SAC.",
         status: metricoolReady ? "ready" : "needs_action",
         statusLabel: metricoolReady ? "Conectada" : "Sin conexión live",
-        detail: health.demoMode ? "La API opera con datos ficticios; no se contacta Metricool." : health.metricool.configured ? "Token presente; falta completar o validar referencias de cuenta." : "Falta configurar el token en el servidor.",
+        detail: health.demoMode ? "La API opera con datos ficticios; no se contacta Metricool." : metricoolReady ? "Token configurado en el servidor y cuentas vinculadas." : health.metricool.configured ? "Token presente; falta completar o validar referencias de cuenta." : "Falta configurar el token en el servidor.",
         lastCheckedLabel: checked,
       },
       {
@@ -463,38 +463,13 @@ function mapSystemStatus(
         statusLabel: readiness.status === "ready" ? "Disponible" : "No disponible",
         detail: "La exportación se genera exclusivamente en el backend.", lastCheckedLabel: checked,
       },
-      {
-        id: "automation-engine", kind: "automation", name: "Motor de automatización",
-        description: "Workflows visuales, webhooks, transformaciones y ejecución auditable.",
-        status: readiness.status === "ready" ? "ready" : "offline",
-        statusLabel: readiness.status === "ready" ? "Disponible" : "No disponible",
-        detail: protectedDevelopment ? "Egress y mutaciones externas bloqueados por el protocolo de desarrollo." : "Hay capacidades externas habilitadas; revisa las políticas del entorno.",
-        lastCheckedLabel: checked,
-      },
-      {
-        id: "persistence", kind: "storage", name: "Persistencia",
-        description: "Conserva configuraciones, deduplicación e historial de ejecución.",
-        status: readiness.checks.repository.status === "ok" ? "ready" : "offline",
-        statusLabel: readiness.checks.repository.status === "ok" ? "Operativa" : "Sin conexión",
-        detail: `Repositorio ${health.persistence.driver === "postgres" ? "PostgreSQL" : "JSON local"}.`, lastCheckedLabel: checked,
-      },
     ],
+    // Solo lo que sirve para operar: la API, la base de datos y, si el envío automático está
+    // armado, su cola. Las filas de la puesta en marcha (frontend, worker) se retiraron.
     environmentChecks: [
-      { id: "frontend", kind: "frontend", label: "Aplicación web", value: "Vite + React", status: "ready", detail: "La interfaz cargó correctamente desde el entorno actual." },
-      { id: "api", kind: "api", label: "API de aplicación", value: "Fastify", status: readiness.status === "ready" ? "ready" : "offline", detail: readiness.status === "ready" ? "Health y readiness respondieron correctamente." : "La comprobación de readiness falló." },
-      {
-        id: "worker",
-        kind: "worker",
-        label: "Worker durable",
-        value: health.persistence.driver === "postgres"
-          ? `PostgreSQL · ${health.operations.autoReplyDispatchMode === "live" ? "live" : "sombra"}`
-          : "Pendiente",
-        status: "needs_action",
-        detail: health.operations.autoReplyDispatchMode === "live"
-          ? "El despacho automático está armado; comprueba el heartbeat del worker y ambos cortacorrientes antes del UAT."
-          : "Modo sombra: clasifica y mide candidatas, pero el worker no contacta Metricool.",
-      },
-      {
+      { id: "api", kind: "api", label: "Servidor", value: readiness.status === "ready" ? "En línea" : "Sin respuesta", status: readiness.status === "ready" ? "ready" : "offline", detail: readiness.status === "ready" ? "Responde correctamente." : "La comprobación del servidor falló." },
+      { id: "database", kind: "database", label: "Base de datos", value: health.persistence.driver === "postgres" ? "PostgreSQL" : "JSON local", status: readiness.checks.repository.status === "ok" ? "ready" : "offline", detail: `${readiness.checks.repository.brands ?? 0} marcas y ${readiness.checks.repository.interactions ?? 0} interacciones guardadas.` },
+      ...(health.operations.autoReplyDispatchMode !== "live" ? [] : [{
         id: "reply-outbox",
         kind: "worker",
         label: "Cola de respuestas SAC",
@@ -503,8 +478,7 @@ function mapSystemStatus(
         detail: readiness.checks.replyOutbox?.status === "saturated"
           ? "Capacidad alcanzada: las nuevas candidatas quedan retenidas para revisión y no se envían."
           : "La cola durable conserva margen para nuevas auto-respuestas.",
-      },
-      { id: "database", kind: "database", label: "Base de datos", value: health.persistence.driver === "postgres" ? "PostgreSQL" : "JSON local", status: readiness.checks.repository.status === "ok" ? "ready" : "offline", detail: `${readiness.checks.repository.brands ?? 0} marcas y ${readiness.checks.repository.interactions ?? 0} interacciones accesibles.` },
+      } satisfies EnvironmentCheck]),
     ],
     requirements: [
       { id: "metricool-plan", label: "Token Metricool y plan con API", description: "Se requiere Advanced o Custom antes de conectar datos reales.", complete: health.metricool.configured },
