@@ -28,8 +28,9 @@ const ALLOWED_HOST_SUFFIXES = [
   ".tiktokcdn-eu.com",
   ".twimg.com",
   ".metricool.com",
-  // Fotos de perfil de Messenger (platform-lookaside). graph.facebook.com NO: Metricool entrega
-  // ahí la foto con su access_token de Facebook en el enlace, y eso nunca se guarda ni se pide.
+  // Fotos de perfil de Messenger (platform-lookaside). De graph.facebook.com solo se acepta la
+  // foto pública de una página (ver PUBLIC_GRAPH_PICTURE): para las personas Metricool la entrega
+  // con su access_token en el enlace, y eso nunca se guarda ni se pide.
   ".fbsbx.com",
 ];
 const VIDEO_PATH = /\.(mp4|mov|m4v|webm|m3u8)$/i;
@@ -70,6 +71,25 @@ export function isVideoUrl(url: string): boolean {
   }
 }
 
+/**
+ * Foto pública de una página de Facebook (`graph.facebook.com/<id>/picture`, con o sin versión):
+ * Metricool la usa como foto de algunas cuentas en su catálogo. No necesita token y redirige a la
+ * CDN de Facebook. Los parámetros con credenciales se rechazan antes, como en cualquier enlace.
+ */
+const PUBLIC_GRAPH_PICTURE = /^\/(v\d{1,2}\.\d{1,2}\/)?\d{5,25}\/picture\/?$/;
+
+/** Foto pública de página en tamaño grande (la predeterminada mide 50 px). */
+export function largeProfilePictureUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.hostname.toLowerCase() !== "graph.facebook.com" || url.searchParams.has("type") || url.searchParams.has("width")) return value;
+    url.searchParams.set("type", "large");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 /** Parámetros que delatan una credencial en el enlace (tokens de la Graph API y similares). */
 const CREDENTIAL_PARAMS = /^(access_token|appsecret_proof|appsecret_time|token|client_secret|api_key|apikey|key|signature|sig)$/i;
 
@@ -84,6 +104,7 @@ export function isCacheableThumbnailUrl(value: string | undefined): value is str
     if (url.protocol !== "https:" || url.username || url.password || url.port) return false;
     if ([...url.searchParams.keys()].some((name) => CREDENTIAL_PARAMS.test(name))) return false;
     const host = url.hostname.toLowerCase();
+    if (host === "graph.facebook.com") return PUBLIC_GRAPH_PICTURE.test(url.pathname);
     if (!ALLOWED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return false;
     return !VIDEO_PATH.test(url.pathname);
   } catch {
