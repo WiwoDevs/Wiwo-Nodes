@@ -1794,6 +1794,10 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .manual-inbox-view .manual-inbox-conversation-header__avatar:not(.has-media) { background: var(--neo-muted); color: var(--ink); }
 .manual-inbox-view .manual-inbox-conversation-header__avatar.has-media { background: var(--neo-muted); }
 
+/* Gestión comentarios: «<red> · los más antiguos primero» puede bajar a una segunda línea en vez de
+   cortarse cuando la cabecera tiene A cargo, Descartar spam y Abrir publicación (laptops de 1366 px). */
+.manual-inbox-conversation-header__identity small { white-space: normal; text-overflow: clip; }
+
 /* Inicio: la cola priorizada va de 5 en 5 con flechas, para que la página no se alargue. */
 .sac-queue-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 14px; }
 .sac-queue-pager { display: inline-flex; align-items: center; gap: 4px; }
