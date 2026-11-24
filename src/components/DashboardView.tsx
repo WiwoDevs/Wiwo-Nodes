@@ -19,6 +19,7 @@ import type {
 import { SocialPlatformIcon } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
 import { BusyOrb } from "./ThinkingOrb";
+import { ProfileAvatar } from "./ProfileAvatar";
 
 export interface DashboardViewProps {
   kpis: DashboardKpi[];
@@ -82,7 +83,7 @@ export function DashboardView({
         <div className="view-header__copy">
           <p className="view-header__eyebrow">Vista general</p>
           <h1 id="dashboard-title" className="view-header__title">
-            Operación de atención al cliente
+            Resumen SAC
           </h1>
           <p className="view-header__description">
             Mensajes, comentarios, menciones y reseñas de todas las cuentas conectadas en un solo lugar.
@@ -145,11 +146,11 @@ export function DashboardView({
             <div>
               <h2 className="panel__title">Rendimiento por marca</h2>
               <p className="panel__description">
-                Volumen y cobertura automática de las cuentas con mayor actividad.
+                Volumen, pendientes y tiempo de respuesta de las cuentas con mayor actividad.
               </p>
             </div>
             <button className="text-button" type="button" onClick={onViewAllAccounts}>
-              Ver cuentas
+              Ver clientes
               <ArrowRight size={15} weight="bold" aria-hidden="true" />
             </button>
           </header>
@@ -162,9 +163,8 @@ export function DashboardView({
                   <th scope="col">Marca</th>
                   <th scope="col">Interacciones</th>
                   <th scope="col">Pendientes</th>
-                  <th scope="col">Automáticas</th>
+                  <th scope="col" title="Mensajes con respuesta del equipo sobre el total">Respondidas</th>
                   <th scope="col">Tiempo de respuesta</th>
-                  <th scope="col">Tendencia</th>
                 </tr>
               </thead>
               <tbody>
@@ -178,7 +178,7 @@ export function DashboardView({
                         aria-label={`Abrir cuenta ${brand.brandName}`}
                       >
                         <span className="brand-avatar" aria-hidden="true">
-                          {brand.initials}
+                          <ProfileAvatar url={`/api/media/brand-picture/${brand.brandId}`} initials={brand.initials} />
                         </span>
                         <span className="brand-cell__copy">
                           <strong>{brand.brandName}</strong>
@@ -216,25 +216,6 @@ export function DashboardView({
                             sobre {brand.responseSampleSize} {brand.responseSampleSize === 1 ? "caso" : "casos"}
                           </small>
                         </>
-                      )}
-                    </td>
-                    <td>
-                      {brand.changePercent === null ? (
-                        <span className="cell-detail" title="Requiere al menos dos períodos sincronizados">
-                          Sin histórico
-                        </span>
-                      ) : (
-                        <span
-                          className={`trend trend--${brand.changePercent >= 0 ? "up" : "down"}`}
-                          aria-label={`${Math.abs(brand.changePercent)} por ciento ${brand.changePercent >= 0 ? "de aumento" : "de disminución"}`}
-                        >
-                          {brand.changePercent >= 0 ? (
-                            <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
-                          ) : (
-                            <ArrowDownRight size={14} weight="bold" aria-hidden="true" />
-                          )}
-                          {brand.changePercent >= 0 ? "+" : ""}{brand.changePercent}%
-                        </span>
                       )}
                     </td>
                   </tr>

@@ -98,6 +98,7 @@ import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, Int
 import { platformLabel } from "./components/SocialPlatformIcon";
 import { confirmAction } from "./lib/confirm";
 import { useMinuteTick } from "./lib/use-minute-tick";
+import { readWorkScope, writeWorkScope, type WorkScope } from "./lib/work-scope";
 import { ConfirmHost } from "./components/ConfirmHost";
 import { OrbLoader, BusyOrb } from "./components/ThinkingOrb";
 
@@ -205,8 +206,8 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
     description: "Captura, registro y respuesta con guardrails",
   },
   dashboard: {
-    title: "Resumen operativo",
-    description: "Rendimiento de todas las marcas en un solo lugar",
+    title: "Resumen SAC",
+    description: "Volumen, pendientes y tiempos de respuesta por cuenta",
   },
   reports: {
     title: "Reportes",
@@ -444,6 +445,7 @@ export function App({ onSignOut, sessionActor }: {
   // Revisión del servidor con la que se descargó la bandeja y cuándo fue la descarga completa.
   const inboxRevisionRef = useRef<string | null>(null);
   const lastFullInboxLoadRef = useRef(0);
+  const operationalLoadRef = useRef<Promise<void> | null>(null);
   const [inboxRefreshIssue, setInboxRefreshIssue] = useState<string | null>(null);
   const [connectionIssue, setConnectionIssue] = useState<string | null>(null);
   const [accessKey, setAccessKey] = useState("");
@@ -494,9 +496,29 @@ export function App({ onSignOut, sessionActor }: {
   const minuteTick = useMinuteTick();
   // Por atender en plazo, igual que el Inicio: lo vencido ya no es trabajo del día y la Bandeja lo
   // oculta por defecto, así que tampoco cuenta en el menú ni en la campana.
+  // Alcance de trabajo (Inicio, menú, campana y filtro de la Bandeja): por defecto solo las cuentas
+  // marcadas «En SAC» en Clientes; si no hay ninguna marcada, todas.
+  const [workScopeChoice, setWorkScopeChoice] = useState<WorkScope>(readWorkScope);
+  const sacAccountIds = useMemo(
+    () => new Set((operationalData?.accounts ?? [])
+      .filter((account) => account.brandActive !== false && account.accountActive !== false && account.sacChannels?.length)
+      .map((account) => account.id)),
+    [operationalData?.accounts],
+  );
+  const workScope: WorkScope = sacAccountIds.size ? workScopeChoice : "all";
+  const changeWorkScope = useCallback((scope: WorkScope) => {
+    setWorkScopeChoice(scope);
+    writeWorkScope(scope);
+  }, []);
+  const scopedInteractions = useMemo(
+    () => workScope === "sac"
+      ? (operationalData?.interactions ?? []).filter((interaction) => sacAccountIds.has(interaction.accountId))
+      : operationalData?.interactions ?? [],
+    [operationalData?.interactions, sacAccountIds, workScope],
+  );
   const inWindowPending = useMemo(
-    () => operationalData?.interactions.filter((interaction) => needsAction(interaction) && !isExpired(interaction, minuteTick)).length,
-    [operationalData, minuteTick],
+    () => operationalData ? scopedInteractions.filter((interaction) => needsAction(interaction) && !isExpired(interaction, minuteTick)).length : undefined,
+    [operationalData, scopedInteractions, minuteTick],
   );
   const navItems = useMemo(
     () =>
@@ -1066,7 +1088,16 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
-  async function refreshOperationalData() {
+  // Una sola carga completa a la vez: si ya hay una en curso (p. ej. el doble montaje de React en
+  // desarrollo o dos acciones seguidas), se espera esa en vez de descargar toda la bandeja otra vez.
+  function refreshOperationalData(): Promise<void> {
+    if (operationalLoadRef.current) return operationalLoadRef.current;
+    const run = loadOperationalDataOnce().finally(() => { operationalLoadRef.current = null; });
+    operationalLoadRef.current = run;
+    return run;
+  }
+
+  async function loadOperationalDataOnce() {
     setLoadingData(true);
     try {
       const revision = await loadInboxRevision().catch(() => null);
@@ -2232,8 +2263,11 @@ export function App({ onSignOut, sessionActor }: {
               canAdmin={canEditAutomations}
               canOperate={canRunAutomations}
               canSupervise={canReadMetrics}
-              accounts={operationalAccounts}
-              interactions={visibleData.interactions}
+              accounts={workScope === "sac" ? operationalAccounts.filter((account) => sacAccountIds.has(account.id)) : operationalAccounts}
+              interactions={scopedInteractions}
+              workScope={sacAccountIds.size ? workScope : undefined}
+              sacAccountCount={sacAccountIds.size}
+              onWorkScopeChange={changeWorkScope}
               isOperationalLoading={isLoadingData}
               onNavigate={(destination) => { if (canSeeView(destination)) setView(destination); }}
               canOpen={canSeeView}
@@ -2281,6 +2315,8 @@ export function App({ onSignOut, sessionActor }: {
             <InteractionsView
               interactions={visibleData.interactions}
               accounts={operationalAccounts}
+              workScope={workScope}
+              onWorkScopeChange={changeWorkScope}
               canWrite={canOperate}
               canSync={canSync}
               canExport={canExport}

@@ -492,7 +492,7 @@ function mapSystemStatus(
   };
 }
 
-function initials(value: string): string {
+export function initials(value: string): string {
   return value
     .split(/\s+/)
     .filter(Boolean)
@@ -509,7 +509,10 @@ function relativeTimeLabel(value: string): string {
   if (diffMinutes < 60) return `hace ${diffMinutes} min`;
   const diffHours = Math.round(diffMinutes / 60);
   if (diffHours < 48) return `hace ${diffHours} h`;
-  return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp));
+  // Hasta un mes, siempre relativo (igual en DMs y comentarios); después, la fecha.
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 31) return `hace ${diffDays} días`;
+  return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium" }).format(new Date(timestamp));
 }
 
 function mapRawStatus(
@@ -647,6 +650,7 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
       version: replyTarget?.version,
       contactKey: contact.contactKey,
       accountId: contact.accountId,
+      brandId: contact.brandId,
       brandName,
       brandInitials: initials(brandName),
       customerName: contact.customerName,
@@ -737,6 +741,7 @@ function mapInteractionDetail(
     contactKey: interaction.contactKey,
     externalId: interaction.externalId,
     accountId: interaction.accountId,
+    brandId: interaction.brandId,
     brandName,
     brandInitials: initials(brandName),
     customerName: interaction.customerName,
@@ -777,9 +782,6 @@ function mapInteractionDetail(
 }
 
 function mapKpis(stats: ApiStats): DashboardKpi[] {
-  const protocolCoverage = stats.automationScope
-    ? Math.round((stats.automationEvaluated / stats.automationScope) * 1000) / 10
-    : 0;
   return [
     {
       id: "interactions",
@@ -791,18 +793,20 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
     },
     {
       id: "pending",
-      label: "Pendientes de respuesta",
+      // Todo el historial: incluye lo que ya salió del plazo de Meta. El Inicio y la Bandeja
+      // cuentan solo lo que sigue en plazo, por eso las cifras se nombran distinto.
+      label: "Pendientes (todo el historial)",
       value: new Intl.NumberFormat("es-CL").format(stats.pending),
-      detail: `${stats.escalated} derivadas a revisión`,
+      detail: `Incluye los fuera de plazo · ${new Intl.NumberFormat("es-CL").format(stats.escalated)} en revisión humana`,
       change: "",
       trend: stats.pending ? "down" : "neutral",
     },
     {
       id: "automation",
-      label: "Cobertura del protocolo",
-      // Sin interacciones evaluables no hay cobertura que medir: 0% simularía una medición.
-      value: stats.automationScope ? `${protocolCoverage}%` : "Sin datos",
-      detail: `${stats.autoReplyCandidates} candidatas · ${stats.knowledgeBlocked} bloqueadas por conocimiento`,
+      // El envío automático está apagado: lo que se mide es cuánto respondió el equipo.
+      label: "Respondidas por el equipo",
+      value: stats.total ? `${stats.responseRate}%` : "Sin datos",
+      detail: "Mensajes con respuesta registrada sobre el total",
       change: "",
       trend: "neutral",
     },
@@ -814,7 +818,7 @@ function mapKpis(stats: ApiStats): DashboardKpi[] {
       value: formatMinutes(stats.medianResponseMinutes),
       detail: stats.medianResponseMinutes === null
         ? "Aún no hay casos respondidos"
-        : `${stats.responseRate}% respondidas · promedio ${formatMinutes(stats.averageResponseMinutes)}`,
+        : `Mediana · promedio ${formatMinutes(stats.averageResponseMinutes)}`,
       change: "",
       trend: "neutral",
     },
@@ -827,6 +831,7 @@ function mapBrandPerformance(brands: ApiBrand[], stats: ApiStats): BrandPerforma
     const account = brandById.get(brand.brandId)?.account;
     return {
       accountId: account?.id ?? brand.brandId,
+      brandId: brand.brandId,
       brandName: brand.brandName,
       handle: account?.handle ?? brand.brandId,
       initials: initials(brand.brandName),
@@ -872,15 +877,18 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: 
   return results;
 }
 
+/** Contactos por página al descargar la bandeja completa (máximo del API: 1000). */
+const CONTACTS_PAGE_SIZE = 1000;
+
 async function fetchAllInboxContacts(init?: RequestInit): Promise<ApiInboxContact[]> {
   const first = await fetchJson<{
     data: ApiInboxContact[];
     pagination: { page: number; pageSize: number; total: number; totalPages: number };
-  }>("/inbox/contacts?page=1&pageSize=200", init);
+  }>(`/inbox/contacts?page=1&pageSize=${CONTACTS_PAGE_SIZE}`, init);
   if (first.pagination.totalPages <= 1) return first.data;
   const pages = Array.from({ length: first.pagination.totalPages - 1 }, (_, index) => index + 2);
   const remaining = await mapWithConcurrency(pages, PAGE_FETCH_CONCURRENCY, (page) =>
-    fetchJson<{ data: ApiInboxContact[] }>(`/inbox/contacts?page=${page}&pageSize=200`, init));
+    fetchJson<{ data: ApiInboxContact[] }>(`/inbox/contacts?page=${page}&pageSize=${CONTACTS_PAGE_SIZE}`, init));
   return [first.data, ...remaining.map((response) => response.data)].flat();
 }
 

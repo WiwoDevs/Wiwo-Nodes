@@ -18,10 +18,11 @@ import {
   ShareNetwork,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { downloadExport, loadSacMonthlyReport } from "../lib/api";
+import { downloadExport, initials, loadSacMonthlyReport } from "../lib/api";
 import type { InboxSyncStatus, SacMonthlyReport, SacReportBrand } from "../types";
 import { ManualRecordsDialog, type ManualRecordsBrandOption } from "./ManualRecordsDialog";
 import { BusyOrb } from "./ThinkingOrb";
+import { ProfileAvatar } from "./ProfileAvatar";
 
 type ReportsViewProps = {
   canExport: boolean;
@@ -450,9 +451,14 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
                   {sortedBrands.map((brand) => (
                     <tr key={brand.brandId} className="data-table__row">
                       <td>
-                        <button className="reports-brand" type="button" onClick={() => setSelectedBrandId(brand.brandId)}>
-                          <strong>{brand.brandName}</strong>
-                          <small>{brand.accountHandle}</small>
+                        <button className="reports-brand reports-brand--with-avatar" type="button" onClick={() => setSelectedBrandId(brand.brandId)}>
+                          <span className="brand-avatar brand-avatar--small" aria-hidden="true">
+                            <ProfileAvatar url={`/api/media/brand-picture/${brand.brandId}`} initials={initials(brand.brandName)} />
+                          </span>
+                          <span className="reports-brand__copy">
+                            <strong>{brand.brandName}</strong>
+                            <small>{brand.accountHandle}</small>
+                          </span>
                         </button>
                       </td>
                       <td className="numeric"><strong>{formatCount(brand.figures.casosSac)}</strong></td>

@@ -32,6 +32,8 @@ import {
 } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
 import { BusyOrb } from "./ThinkingOrb";
+import type { WorkScope } from "../lib/work-scope";
+import { ProfileAvatar } from "./ProfileAvatar";
 
 type FilterValue<T extends string> = T | "all";
 /** `user:<userId>` filtra por responsable; solo Supervisor/Admin (canFilterByPerson). */
@@ -101,6 +103,9 @@ const PAGE_SIZE = 50;
 export interface InteractionsViewProps {
   interactions: Interaction[];
   accounts: BrandAccount[];
+  /** Alcance compartido con el Inicio: «sac» o «all» como filtro de cuenta por defecto. */
+  workScope?: WorkScope;
+  onWorkScopeChange?: (scope: WorkScope) => void;
   isRefreshing?: boolean;
   canWrite?: boolean;
   canSync?: boolean;
@@ -253,13 +258,22 @@ export function InteractionsView({
   onVisibleOrderChange,
   canTriage = false,
   onBulkTriage,
+  workScope,
+  onWorkScopeChange,
 }: InteractionsViewProps) {
   const [stored] = useState(readStoredFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState("");
   // La búsqueda filtra ~11.000 filas: se aplica cuando la persona deja de escribir.
   const [searchQuery, setSearchQuery] = useState("");
-  const [accountFilter, setAccountFilter] = useState(stored.account || "all");
+  // Una cuenta puntual recordada se respeta; si no, el filtro sigue el alcance del Inicio.
+  const [accountFilter, setAccountFilterState] = useState(
+    () => stored.account && stored.account !== "all" && stored.account !== "sac" ? stored.account : workScope ?? stored.account ?? "all",
+  );
+  const setAccountFilter = useCallback((value: string) => {
+    setAccountFilterState(value);
+    if ((value === "sac" || value === "all") && onWorkScopeChange) onWorkScopeChange(value);
+  }, [onWorkScopeChange]);
   const [platformFilter, setPlatformFilter] = useState<FilterValue<SocialPlatform>>((stored.platform as FilterValue<SocialPlatform>) || "all");
   const [kindFilter, setKindFilter] = useState<FilterValue<InteractionKind>>((stored.kind as FilterValue<InteractionKind>) || "all");
   const [statusFilter, setStatusFilter] = useState<FilterValue<InteractionStatus>>((stored.status as FilterValue<InteractionStatus>) || "all");
@@ -281,7 +295,7 @@ export function InteractionsView({
     if (assignment) {
       setQuery("");
       setSearchQuery("");
-      setAccountFilter("all");
+      setAccountFilterState("all");
       setPlatformFilter("all");
       setKindFilter("all");
       setStatusFilter("all");
@@ -327,7 +341,7 @@ export function InteractionsView({
   useEffect(() => {
     if (!accounts.length || accountFilter === "all") return;
     const known = accountFilter === "sac" ? sacAccountIds.size > 0 : accounts.some((account) => account.id === accountFilter);
-    if (!known) setAccountFilter("all");
+    if (!known) setAccountFilterState("all");
   }, [accountFilter, accounts, sacAccountIds]);
   const [selectedContactKeys, setSelectedContactKeys] = useState<Set<string>>(() => new Set());
   // Referencia de tiempo para los plazos; se renueva con cada actualización de la bandeja.
@@ -936,7 +950,13 @@ export function InteractionsView({
                         >
                           <span className="conversation-cell__contact">
                             <strong>{interaction.customerName}</strong>
-                            <small>{interaction.customerHandle}</small>
+                            {/* El usuario solo aporta si no es un ID numérico ni repite el nombre. */}
+                            {(() => {
+                              const handle = interaction.customerHandle.replace(/^@/, "");
+                              return handle && !/^\d+$/.test(handle) && handle.toLocaleLowerCase("es-CL") !== interaction.customerName.replace(/^@/, "").toLocaleLowerCase("es-CL")
+                                ? <small>@{handle}</small>
+                                : null;
+                            })()}
                             <small className="conversation-cell__count">
                               {interaction.conversationSummary?.messageCount ?? 1}{" "}
                               {(interaction.conversationSummary?.messageCount ?? 1) === 1 ? "mensaje" : "mensajes"}
@@ -966,7 +986,10 @@ export function InteractionsView({
                       <td>
                         <span className="brand-cell brand-cell--compact">
                           <span className="brand-avatar brand-avatar--small" aria-hidden="true">
-                            {interaction.brandInitials}
+                            <ProfileAvatar
+                              url={interaction.brandId ? `/api/media/brand-picture/${interaction.brandId}` : undefined}
+                              initials={interaction.brandInitials}
+                            />
                           </span>
                           <span className="brand-cell__copy">
                             <strong>{interaction.brandName}</strong>
@@ -992,7 +1015,7 @@ export function InteractionsView({
                         </span>
                       </td>
                       <td>
-                        <time dateTime={interaction.receivedAt} className="time-label">
+                        <time dateTime={interaction.receivedAt} className="time-label" title={new Date(interaction.receivedAt).toLocaleString("es-CL")}>
                           {interaction.receivedAtLabel}
                         </time>
                       </td>
