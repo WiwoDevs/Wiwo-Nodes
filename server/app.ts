@@ -106,6 +106,7 @@ import {
   downloadPostThumbnail,
   isCacheableThumbnailUrl,
   isDefaultProfilePicture,
+  largeProfilePictureUrl,
   registeredPostThumbnail,
   type StoredPostThumbnail,
   type ThumbnailFetcher,
@@ -4117,7 +4118,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       const map = new Map<string, string>();
       if (!userId || !metricoolClient?.listBrands) return map;
       for (const brand of normalizeDiscoveredBrands(await metricoolClient.listBrands(userId))) {
-        if (isCacheableThumbnailUrl(brand.pictureUrl)) map.set(brand.blogId, brand.pictureUrl);
+        if (isCacheableThumbnailUrl(brand.pictureUrl)) map.set(brand.blogId, largeProfilePictureUrl(brand.pictureUrl));
       }
       return map;
     })();

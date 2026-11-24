@@ -16,6 +16,7 @@ import {
   contactAvatarKey,
   downloadPostThumbnail,
   isDefaultProfilePicture,
+  largeProfilePictureUrl,
   sniffImageType,
   isCacheableThumbnailUrl,
   registerPostThumbnail,
@@ -68,7 +69,14 @@ describe("foto de quien escribe", () => {
   it("nunca guarda enlaces con credenciales ni de la Graph API", () => {
     expect(isCacheableThumbnailUrl("https://platform-lookaside.fbsbx.com/platform/profilepic/?psid=1&ext=1")).toBe(true);
     expect(isCacheableThumbnailUrl("https://graph.facebook.com/v24.0/123/picture?access_token=x&appsecret_proof=y")).toBe(false);
-    expect(isCacheableThumbnailUrl("https://graph.facebook.com/v24.0/123/picture")).toBe(false);
+    // La foto pública de una página sí (Metricool la usa en su catálogo de cuentas), sin token.
+    expect(isCacheableThumbnailUrl("https://graph.facebook.com/100999318401857/picture")).toBe(true);
+    expect(isCacheableThumbnailUrl("https://graph.facebook.com/v24.0/100999318401857/picture")).toBe(true);
+    expect(isCacheableThumbnailUrl("https://graph.facebook.com/v24.0/100999318401857/picture?access_token=x")).toBe(false);
+    expect(isCacheableThumbnailUrl("https://graph.facebook.com/me/accounts")).toBe(false);
+    expect(isCacheableThumbnailUrl("https://graph.facebook.com/100999318401857/feed")).toBe(false);
+    expect(largeProfilePictureUrl("https://graph.facebook.com/100999318401857/picture")).toBe("https://graph.facebook.com/100999318401857/picture?type=large");
+    expect(largeProfilePictureUrl(PICTURE)).toBe(PICTURE);
     expect(isCacheableThumbnailUrl(`${PICTURE}&access_token=x`)).toBe(false);
     expect(isCacheableThumbnailUrl("https://facebook.com.evil.example/picture")).toBe(false);
   });
