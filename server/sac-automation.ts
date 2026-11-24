@@ -106,6 +106,12 @@ export function conversationKey(interaction: Interaction): string {
   if (interaction.type === "dm" && interaction.metricoolRef?.conversationId) {
     return `${interaction.accountId}:dm:${interaction.metricoolRef.conversationId}`;
   }
+  // Comentarios: el hilo de Metricool (comentario raíz y sus respuestas). Las respuestas de la
+  // cuenta llegan con otro participante como «cliente» (Metricool no dice a quién responden), así
+  // que agrupar por usuario dejaba abiertos casos ya respondidos dentro del mismo hilo.
+  if (interaction.type === "comment" && interaction.metricoolRef?.postId && interaction.metricoolRef.threadId) {
+    return `${interaction.accountId}:comment:${interaction.metricoolRef.postId}:thread:${interaction.metricoolRef.threadId}`;
+  }
   if (interaction.type === "comment" && interaction.metricoolRef?.postId) {
     return `${interaction.accountId}:comment:${interaction.metricoolRef.postId}:${interaction.customerHandle}`;
   }
