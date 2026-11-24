@@ -279,6 +279,35 @@ describe("SAC automation protocol", () => {
     });
   });
 
+  it("marks a comment as answered when the account replies later in the same Metricool thread", () => {
+    const store = readyStore();
+    store.interactions = [];
+    const comment = (id: string, direction: Interaction["direction"], handle: string, threadId: string, createdAt: string): Interaction => ({
+      ...interaction(direction === "inbound" ? "¿Cuándo llega mi pedido?" : "Te escribimos por privado."),
+      id,
+      externalId: id,
+      type: "comment",
+      direction,
+      customerHandle: handle,
+      status: direction === "inbound" ? "pending" : "replied",
+      createdAt,
+      updatedAt: createdAt,
+      metricoolRef: { provider: "INSTAGRAM", postId: "post-1", threadId, commentId: id },
+    });
+    // La respuesta de la cuenta llega con otro participante como «cliente».
+    const answered = comment("c-answered", "inbound", "@ana", "thread-a", "2026-08-13T13:50:00.000Z");
+    const reply = comment("c-reply", "outbound", "@otra_persona", "thread-a", "2026-08-13T13:56:00.000Z");
+    // Otro hilo del mismo post: la respuesta de la cuenta no es para este caso.
+    const otherThread = comment("c-other", "inbound", "@ana", "thread-b", "2026-08-13T13:51:00.000Z");
+    store.interactions.push(answered, reply, otherThread);
+
+    expect(detectConversationResponses(store.interactions)).toEqual([{
+      interactionId: "c-answered",
+      outboundInteractionId: "c-reply",
+      respondedAt: reply.createdAt,
+    }]);
+  });
+
   it("keeps a new inbound DM pending when it arrives after the team response", () => {
     const store = readyStore();
     store.interactions = [];
