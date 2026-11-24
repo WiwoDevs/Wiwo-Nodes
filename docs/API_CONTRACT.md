@@ -1070,7 +1070,7 @@ Foto de perfil de quien escribe, con las mismas reglas que las miniaturas (abajo
 
 ### `GET /api/media/brand-picture/:brandId`
 
-Foto de perfil de la cuenta (Clientes): el campo `picture` del catálogo de marcas de Metricool (`/admin/simpleProfiles`, solo lectura, leído como mucho una vez cada 6 horas; si es la foto pública de una página de Facebook, `graph.facebook.com/<id>/picture`, se pide en tamaño `type=large`), guardada con las miniaturas y renovada cada 7 días; si la renovación falla se sirve la copia anterior. Requiere sesión y acceso a la marca. En modo demo, sin foto en Metricool o sin acceso responde `404 BRAND_PICTURE_NOT_FOUND` y la web muestra las iniciales. Respuesta: la imagen con `Cache-Control: private, max-age=86400` y `X-Content-Type-Options: nosniff`.
+Foto de perfil de la cuenta (Clientes): el campo `picture` del catálogo de marcas de Metricool (`/admin/simpleProfiles`, solo lectura, leído como mucho una vez cada 6 horas; si es la foto pública de una página de Facebook, `graph.facebook.com/<id>/picture`, se pide en tamaño `type=large`; si ese enlace ya no responde y la cuenta tiene página de Facebook conectada, se usa de respaldo la foto pública de esa página, `graph.facebook.com/<facebookPageId>/picture?type=large`), guardada con las miniaturas y renovada cada 7 días; si la renovación falla se sirve la copia anterior. Requiere sesión y acceso a la marca. En modo demo, sin foto en Metricool o sin acceso responde `404 BRAND_PICTURE_NOT_FOUND` y la web muestra las iniciales. Respuesta: la imagen con `Cache-Control: private, max-age=86400` y `X-Content-Type-Options: nosniff`.
 
 ### `GET /api/media/post-thumbnail/:key`
 

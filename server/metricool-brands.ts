@@ -19,6 +19,8 @@ export interface DiscoveredMetricoolBrand {
   /** Handle de Instagram, usado como handle por defecto de la cuenta local. */
   instagramHandle?: string;
   pictureUrl?: string;
+  /** ID de la página de Facebook conectada (solo dígitos), para pedir su foto pública. */
+  facebookPageId?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -90,6 +92,10 @@ export function normalizeDiscoveredBrands(payload: unknown): DiscoveredMetricool
       channels: channelsFromProfile(profile),
       instagramHandle,
       pictureUrl: stringValue(profile.picture),
+      ...(() => {
+        const page = stringValue(profile.facebookPageId) || stringValue(profile.facebook);
+        return page && /^\d{5,25}$/.test(page) ? { facebookPageId: page } : {};
+      })(),
     });
   }
 
