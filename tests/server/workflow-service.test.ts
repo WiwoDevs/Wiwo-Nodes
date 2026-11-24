@@ -692,3 +692,24 @@ describe("Metricool Inbox normalization", () => {
     });
   });
 });
+
+describe('foto de perfil de quien escribe', () => {
+  it('guarda solo enlaces de CDN sin credenciales', () => {
+    const conversation = (imageProfileUrl: string) => normalizeMetricoolConversations({
+      data: [{
+        id: 'conversation-picture',
+        self: 'profile-brand',
+        participants: [
+          { id: 'profile-brand', name: 'Marca' },
+          { id: 'profile-client', name: 'Cliente', imageProfileUrl },
+        ],
+        messages: [{ id: 'm-1', from: 'profile-client', to: 'profile-brand', text: 'Hola' }],
+      }],
+    }, brand, 'FACEBOOK')[0]?.metricoolRef?.customerPictureUrl;
+    const cdn = 'https://scontent.xx.fbcdn.net/v/t39/perfil.jpg?oe=6B097628&oh=abc';
+    expect(conversation(cdn)).toBe(cdn);
+    expect(conversation('https://graph.facebook.com/v24.0/123/picture?access_token=secreto&appsecret_proof=x')).toBeUndefined();
+    expect(conversation('http://scontent.xx.fbcdn.net/v/perfil.jpg')).toBeUndefined();
+  });
+});
+

@@ -37,6 +37,7 @@ import {
 } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
 import { PostThumbnail, safeThumbnailUrl } from "./PostThumbnail";
+import { ProfileAvatar } from "./ProfileAvatar";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb, BusyOrb } from "./ThinkingOrb";
 import { EmojiPicker } from "./EmojiPicker";
@@ -1047,7 +1048,10 @@ export function ManualManagementView({
                         {entry.postId ? (
                           <PostThumbnail url={postThumbnail} />
                         ) : (
-                          entry.target.customerName.slice(0, 2).toLocaleUpperCase("es-CL")
+                          <ProfileAvatar
+                            url={entry.target.customerAvatarUrl}
+                            initials={entry.target.customerName.slice(0, 2).toLocaleUpperCase("es-CL")}
+                          />
                         )}
                       </span>
                       <span className="manual-inbox-contact__body">
@@ -1116,7 +1120,12 @@ export function ManualManagementView({
                       <span className={`manual-inbox-conversation-header__avatar${isCommentSurface && selectedPostThumbnail ? " has-media" : ""}`} aria-hidden="true">
                         {isCommentSurface
                           ? <PostThumbnail url={selectedPostThumbnail} />
-                          : visibleDetail.customerName.slice(0, 2).toLocaleUpperCase("es-CL")}
+                          : (
+                            <ProfileAvatar
+                              url={visibleDetail.customerAvatarUrl ?? selectedEntry?.target.customerAvatarUrl}
+                              initials={visibleDetail.customerName.slice(0, 2).toLocaleUpperCase("es-CL")}
+                            />
+                          )}
                       </span>
                       {/* En comentarios el texto del post ya está en su tarjeta de la izquierda: aquí solo
                           cuántos quedan y en qué orden se atienden. */}
