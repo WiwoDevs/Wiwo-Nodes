@@ -1820,3 +1820,37 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 
 /* Miniatura de publicación (PostThumbnail): imagen o primer cuadro del video, recortada al recuadro. */
 .post-thumbnail { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+
+/* Configuración: «Confianza mínima» con su descripción debajo (el contenedor no era flex y el texto
+   quedaba pegado) y el control deslizante en los colores del tema, sin la barra blanca nativa. */
+.range-setting__label > span,
+.select-setting > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.range-setting strong,
+.select-setting strong,
+.switch-setting__copy strong { font-size: 12.5px; }
+.range-setting small,
+.select-setting small,
+.switch-setting__copy small { font-size: 11.5px; }
+.range-setting input[type="range"] {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--neo-blue) 0 var(--range-fill, 50%), var(--neo-hover) var(--range-fill, 50%) 100%);
+  cursor: pointer;
+  appearance: none;
+}
+.range-setting input[type="range"]::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--neo-card);
+  border-radius: 50%;
+  background: var(--neo-blue);
+  appearance: none;
+}
+.range-setting input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--neo-card);
+  border-radius: 50%;
+  background: var(--neo-blue);
+}
+.range-setting input[type="range"]:disabled { cursor: default; opacity: .6; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   ArrowClockwise,
   Brain,
@@ -107,10 +107,10 @@ export function SettingsView({
     <section className="app-view settings-view" aria-labelledby="settings-title">
       <header className="view-header">
         <div className="view-header__copy">
-          <p className="view-header__eyebrow">Configuración local</p>
-          <h1 id="settings-title" className="view-header__title">Integraciones y seguridad</h1>
+          <p className="view-header__eyebrow">Sistema</p>
+          <h1 id="settings-title" className="view-header__title">Configuración</h1>
           <p className="view-header__description">
-            Prepara las credenciales, el entorno y las reglas antes de activar datos reales.
+            Conexión con Metricool, estado del sistema y reglas de respuesta.
           </p>
         </div>
         <div className="view-header__actions">
@@ -119,10 +119,10 @@ export function SettingsView({
             type="button"
             onClick={onRunDiagnostics}
             disabled={isRunningDiagnostics || !canRunDiagnostics}
-            title={!canRunDiagnostics ? "Requiere rol agente o superior" : undefined}
+            title={!canRunDiagnostics ? "Requiere rol agente o superior" : "Lee Metricool ahora y actualiza el estado"}
           >
             {isRunningDiagnostics ? <BusyOrb /> : <ArrowClockwise className="button__icon" size={17} weight="bold" aria-hidden="true" />}
-            {isRunningDiagnostics ? "Comprobando" : "Comprobar entorno"}
+            {isRunningDiagnostics ? "Sincronizando" : "Sincronizar ahora"}
           </button>
         </div>
       </header>
@@ -133,11 +133,7 @@ export function SettingsView({
             <header className="panel__header">
               <div>
                 <h2 id="integrations-title" className="panel__title">Integraciones</h2>
-                <p className="panel__description">
-                  Los secretos se configuran en el backend y nunca se exponen en el navegador.
-                </p>
               </div>
-              <span className="environment-label">Entorno local</span>
             </header>
 
             <div className="integration-list">
@@ -159,20 +155,6 @@ export function SettingsView({
                   </div>
                   <div className="integration-row__actions">
                     <small>{integration.lastCheckedLabel}</small>
-                    <button
-                      className="row-action"
-                      type="button"
-                      onClick={() => onConfigureIntegration?.(integration)}
-                      disabled={!canConfigureIntegrations}
-                      title={!canConfigureIntegrations ? "Requiere rol administrador" : undefined}
-                    >
-                      {integration.status === "ready" ? (
-                        <SlidersHorizontal size={15} weight="bold" aria-hidden="true" />
-                      ) : (
-                        <Wrench size={15} weight="bold" aria-hidden="true" />
-                      )}
-                      {integration.status === "ready" ? "Revisar" : "Configurar"}
-                    </button>
                   </div>
                 </section>
               ))}
@@ -263,6 +245,7 @@ export function SettingsView({
                   value={settings.confidenceThreshold}
                   onChange={(event) => updateSetting("confidenceThreshold", Number(event.target.value))}
                   disabled={!canEditSettings}
+                  style={{ "--range-fill": `${((settings.confidenceThreshold - 50) / 50) * 100}%` } as CSSProperties}
                 />
               </label>
 
@@ -315,15 +298,14 @@ export function SettingsView({
               <li><strong>LinkedIn:</strong> comentarios y menciones, sin DMs.</li>
               <li><strong>Google Business:</strong> reseñas con aprobación humana.</li>
               <li><strong>Anuncios:</strong> sus comentarios no se responden desde el Inbox.</li>
-              <li><strong>Historial:</strong> Metricool no lo conserva permanentemente; SAC Flow persiste una copia.</li>
+              <li><strong>Historial:</strong> Metricool no lo conserva permanentemente; wiwo.sac guarda una copia.</li>
             </ul>
           </section>
 
           <section className="panel environment-panel" aria-labelledby="environment-title">
             <header className="panel__header">
               <div>
-                <h2 id="environment-title" className="panel__title">Estado del entorno</h2>
-                <p className="panel__description">Servicios requeridos para operar con datos reales.</p>
+                <h2 id="environment-title" className="panel__title">Estado del sistema</h2>
               </div>
             </header>
 
@@ -349,51 +331,6 @@ export function SettingsView({
             </dl>
           </section>
 
-          <section className="panel requirements-panel" aria-labelledby="requirements-title">
-            <header className="panel__header">
-              <div>
-                <h2 id="requirements-title" className="panel__title">Requisitos de activación</h2>
-                <p className="panel__description">
-                  {completeRequirements} de {requirements.length} listos para conectar producción.
-                </p>
-              </div>
-            </header>
-
-            <ol className="requirements-list">
-              {requirements.map((requirement) => (
-                <li className={`requirement-item${requirement.complete ? " requirement-item--complete" : ""}`} key={requirement.id}>
-                  <span className="requirement-item__status">
-                    {requirement.complete ? (
-                      <CheckCircle size={18} weight="fill" aria-label="Completo" />
-                    ) : (
-                      <Key size={18} weight="duotone" aria-label="Pendiente" />
-                    )}
-                  </span>
-                  <span className="requirement-item__copy">
-                    <strong>{requirement.label}</strong>
-                    <small>{requirement.description}</small>
-                  </span>
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => onOpenRequirement?.(requirement)}
-                  >
-                    {requirement.complete ? "Ver" : "Revisar"}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </section>
-
-          <section className="security-note" aria-label="Manejo seguro de credenciales">
-            <span className="security-note__icon"><Key size={20} weight="duotone" aria-hidden="true" /></span>
-            <div>
-              <strong>Credenciales fuera del frontend</strong>
-              <p>
-                Metricool y las demás credenciales se guardan cifradas en el servidor local.
-              </p>
-            </div>
-          </section>
         </aside>
       </div>
     </section>

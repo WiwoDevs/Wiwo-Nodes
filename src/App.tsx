@@ -234,7 +234,7 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
   },
   settings: {
     title: "Configuración",
-    description: "Integración, seguridad y políticas de respuesta",
+    description: "Conexión con Metricool, estado del sistema y reglas de respuesta",
   },
 };
 
