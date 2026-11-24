@@ -16,6 +16,7 @@ import {
   HelpRateLimiter,
   helpSystemPrompt,
   offlineHelpAnswer,
+  SAC_GUIDE,
   type HelpActor,
 } from "../../server/help-assistant.js";
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSION_KEYS } from "../../server/permissions.js";
@@ -53,6 +54,17 @@ describe("Guía y prompt del asistente", () => {
     expect(prompt).toContain("Ahora tiene abierta la sección: Gestión comentarios");
     expect(prompt).toContain("SOLO ORIENTA");
     expect(prompt).toContain("GUÍA DE USO DE WIWO.SAC");
+  });
+
+  it("no ofrece secciones retiradas del menú aunque la persona tenga esos permisos", () => {
+    const admin: HelpActor = { role: "admin", roleName: "Admin", permissions: [...PERMISSION_KEYS], masterAdmin: false };
+    const prompt = helpSystemPrompt(admin, "platform-home");
+    expect(prompt).toContain("Flujo SAC, Automatización, Plantillas y Credenciales ya no existen en el menú");
+    expect(prompt).toContain("- Publicar el flujo SAC: SÍ (sin sección en el menú");
+    expect(prompt).toContain("- Editar automatizaciones: SÍ (solo abre Ejecuciones");
+    expect(SAC_GUIDE).not.toMatch(/credenciales|ejecutar automatizaciones/i);
+    const offline = offlineHelpAnswer(HELP_SUGGESTIONS[0], admin) ?? "";
+    expect(offline).not.toMatch(/Flujo SAC|Automatización|Plantillas|Credenciales/);
   });
 
   it("sin IA, las preguntas sugeridas se responden según los permisos", () => {

@@ -2063,7 +2063,6 @@ export function App({ onSignOut, sessionActor }: {
           <span className="brand-mark" role="img" aria-label="wiwo.sac" />
           <span className="brand-copy">
             <span className="wiwo-logo brand-wordmark" role="img" aria-label="wiwo.sac" />
-            <small>{isLoadingData ? "Cargando espacio" : `MGC · ${operationalAccounts.length} marcas`}</small>
           </span>
           <button className="icon-button sidebar-toggle" onClick={toggleSidebar} aria-label="Contraer menú" title="Contraer menú" aria-expanded={!isSidebarCollapsed}>
             <SidebarSimple size={18} />
