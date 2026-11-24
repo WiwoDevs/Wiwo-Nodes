@@ -4105,7 +4105,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    */
   const BRAND_PICTURE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   const BRAND_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
-  let brandCatalog: { at: number; pictures: Promise<Map<string, string>> } | undefined;
+  let brandCatalog: { at: number; pictures: Promise<Map<string, string[]>> } | undefined;
   /** Enlaces que resultaron ser la silueta genérica: no se vuelven a descargar. */
   const defaultBrandPictures = new Set<string>();
   const brandCatalogPictures = () => {
@@ -4115,10 +4115,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       || config.metricool.fallbackAccount?.userId
       || Object.values(config.metricool.accounts)[0]?.userId;
     const pictures = (async () => {
-      const map = new Map<string, string>();
+      // Por cuenta, los enlaces a probar en orden: la foto del catálogo y, de respaldo, la foto
+      // pública de su página de Facebook (Metricool guarda a veces enlaces de Facebook ya vencidos).
+      const map = new Map<string, string[]>();
       if (!userId || !metricoolClient?.listBrands) return map;
       for (const brand of normalizeDiscoveredBrands(await metricoolClient.listBrands(userId))) {
-        if (isCacheableThumbnailUrl(brand.pictureUrl)) map.set(brand.blogId, largeProfilePictureUrl(brand.pictureUrl));
+        const candidates: string[] = [];
+        if (isCacheableThumbnailUrl(brand.pictureUrl)) candidates.push(largeProfilePictureUrl(brand.pictureUrl));
+        if (brand.facebookPageId) {
+          const page = largeProfilePictureUrl(`https://graph.facebook.com/${brand.facebookPageId}/picture`);
+          if (!candidates.includes(page)) candidates.push(page);
+        }
+        if (candidates.length) map.set(brand.blogId, candidates);
       }
       return map;
     })();
@@ -4145,13 +4153,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         const snapshot = await repository.snapshotCatalog();
         const brand = snapshot.brands.find((item) => item.id === brandId);
         const blogId = brand ? resolveMetricoolAccount(config, brand.account.id, brand.account.metricool)?.blogId : undefined;
-        const url = blogId ? (await brandCatalogPictures()).get(blogId) : undefined;
-        if (url && !defaultBrandPictures.has(url)) {
+        const candidates = blogId ? (await brandCatalogPictures()).get(blogId) ?? [] : [];
+        for (const url of candidates) {
+          if (defaultBrandPictures.has(url)) continue;
           refreshed = await downloadAndStore(key, brandId, url, request.log, (data) => {
             if (!isDefaultProfilePicture(data)) return true;
             defaultBrandPictures.add(url);
             return false;
           });
+          if (refreshed) break;
         }
       } catch (error) {
         request.log.warn({ err: error instanceof Error ? error.message : "desconocido" }, "No se pudo leer la foto de la cuenta.");

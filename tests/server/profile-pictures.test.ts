@@ -146,6 +146,32 @@ describe("GET /api/media/brand-picture/:brandId", () => {
     expect((await app.inject({ method: "GET", url: "/api/media/brand-picture/brand-inexistente", headers })).statusCode).toBe(404);
   });
 
+  it("si el enlace del catálogo murió, usa la foto pública de la página de Facebook", async () => {
+    const client = fakeMetricool([
+      { id: "1001", userId: "u-1", label: "Marca Real Uno", instagram: "marcarealuno", picture: PICTURE, facebook: "100999318401857", facebookPageId: "100999318401857" },
+    ]);
+    const requested: string[] = [];
+    const app = await makeApp({
+      METRICOOL_MODE: "live",
+      METRICOOL_API_TOKEN: "token-de-prueba-nunca-registrado",
+      METRICOOL_USER_ID: "u-1",
+      SAC_FLOW_API_KEY: API_KEY,
+    }, client, async (input) => {
+      const url = String(input);
+      requested.push(new URL(url).hostname);
+      return url.includes("graph.facebook.com")
+        ? new Response(new Uint8Array(PNG), { headers: { "content-type": "image/png" } })
+        : new Response(null, { status: 403 });
+    });
+    const headers = { "x-api-key": API_KEY };
+    await app.inject({ method: "POST", url: "/api/sync", headers: { ...headers, "idempotency-key": "fotos-sync-fb" }, payload: {} });
+    const brand = (await app.sacFlow.repository.snapshot()).brands.find((item) => item.name === "Marca Real Uno");
+    const response = await app.inject({ method: "GET", url: `/api/media/brand-picture/${brand!.id}`, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload.equals(PNG)).toBe(true);
+    expect(requested).toEqual(["scontent.xx.fbcdn.net", "graph.facebook.com"]);
+  });
+
   it("en modo demo no hay fotos: responde 404 y la web muestra las iniciales", async () => {
     const app = await makeApp({ METRICOOL_MODE: "demo", SAC_FLOW_TRUST_ACTOR_HEADERS: "true" });
     const response = await app.inject({
