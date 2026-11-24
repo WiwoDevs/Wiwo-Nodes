@@ -16,6 +16,8 @@ import {
 } from "@xyflow/react";
 import {
   ArrowRight,
+  CaretLeft,
+  CaretRight,
   ArrowsClockwise,
   ArrowSquareOut,
   BracketsCurly,
@@ -571,6 +573,8 @@ export function AutomationPlatform({
   const [isLoadingOperationalJobs, setLoadingOperationalJobs] = useState(false);
   const [hasLoadedOperationalJobs, setHasLoadedOperationalJobs] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  // Página de la cola priorizada del Inicio (de 5 en 5, con flechas, para que la página no se alargue).
+  const [queuePage, setQueuePage] = useState(0);
   const importInputRef = useRef<HTMLInputElement>(null);
   const operationalJobsRequestRef = useRef(0);
 
@@ -747,9 +751,15 @@ export function AutomationPlatform({
     const nextToTake = onTakeNext
       ? byDeadline(unassigned).find((interaction) => interaction.version !== undefined)
       : undefined;
-    const topQueue = (isAgentHome
+    const fullQueue = isAgentHome
       ? [...mine, ...byDeadline(attention.filter((interaction) => !mineIds.has(interaction.id)))]
-      : byDeadline(attention)).slice(0, 8);
+      : byDeadline(attention);
+    const QUEUE_PAGE_SIZE = 5;
+    const queuePages = Math.max(1, Math.ceil(fullQueue.length / QUEUE_PAGE_SIZE));
+    // Si la cola se achica (casos atendidos), la página se ajusta sola a la última que existe.
+    const currentQueuePage = Math.min(queuePage, queuePages - 1);
+    const queueStart = currentQueuePage * QUEUE_PAGE_SIZE;
+    const topQueue = fullQueue.slice(queueStart, queueStart + QUEUE_PAGE_SIZE);
     const dueSoonLabel = (count: number) => count === 1 ? "1 vence en menos de 24 h" : `${formatCount(count)} vencen en menos de 24 h`;
     return <div className="platform-page platform-home" aria-busy={isOperationalLoading}>
       <section className="sac-home-intro" aria-labelledby="sac-home-title">
@@ -790,7 +800,16 @@ export function AutomationPlatform({
 
       <div className="sac-home-operations">
         <section className="sac-home-panel sac-queue-panel">
-          <header><div><span className="panel-kicker">Cola priorizada</span><h3>{isAgentHome && mine.length ? "Tus casos primero" : "Conversaciones que requieren acción"}</h3><p>{isAgentHome && mine.length ? "Los asignados a ti y luego el resto, por lo que vence antes." : "En plazo, ordenadas por lo que vence antes."}</p></div><button className="text-button" onClick={() => onNavigate("interactions")}>Ver bandeja <ArrowRight /></button></header>
+          <header><div><span className="panel-kicker">Cola priorizada</span><h3>{isAgentHome && mine.length ? "Tus casos primero" : "Conversaciones que requieren acción"}</h3><p>{isAgentHome && mine.length ? "Los asignados a ti y luego el resto, por lo que vence antes." : "En plazo, ordenadas por lo que vence antes."}</p></div><div className="sac-queue-actions">
+            {fullQueue.length > QUEUE_PAGE_SIZE ? (
+              <div className="sac-queue-pager" role="group" aria-label="Páginas de la cola priorizada">
+                <span aria-live="polite">{formatCount(queueStart + 1)}–{formatCount(queueStart + topQueue.length)} de {formatCount(fullQueue.length)}</span>
+                <button type="button" className="icon-button" aria-label="Conversaciones anteriores" title="Anteriores" disabled={currentQueuePage === 0} onClick={() => setQueuePage(currentQueuePage - 1)}><CaretLeft weight="bold" /></button>
+                <button type="button" className="icon-button" aria-label="Conversaciones siguientes" title="Siguientes" disabled={currentQueuePage >= queuePages - 1} onClick={() => setQueuePage(currentQueuePage + 1)}><CaretRight weight="bold" /></button>
+              </div>
+            ) : null}
+            <button className="text-button" onClick={() => onNavigate("interactions")}>Ver bandeja <ArrowRight /></button>
+          </div></header>
           <div className="sac-queue-list">
             {topQueue.map((interaction) => <button key={interaction.id} onClick={() => onOpenInteraction(interaction)}>
               <span className="sac-queue-avatar">{interaction.brandInitials}</span>

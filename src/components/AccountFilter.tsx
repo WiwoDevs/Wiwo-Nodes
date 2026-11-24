@@ -16,9 +16,11 @@ type AccountFilterProps = {
   countLabel?: string;
   /** Texto de la opción que no filtra. */
   allLabel?: string;
+  /** Agrega «Solo cuentas En SAC» (valor "sac") cuando hay cuentas marcadas en Clientes. */
+  sacOption?: boolean;
 };
 
-type Option = { id: string; name: string; detail: string; count?: number };
+type Option = { id: string; name: string; detail: string; count?: number; group?: "sac" | "other" };
 
 function normalize(value: string): string {
   return value.toLocaleLowerCase("es-CL").normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -34,7 +36,7 @@ const PLATFORM_LABEL: Record<string, string> = {
   google_business: "Google",
 };
 
-export function AccountFilter({ accounts, value, onChange, inWindowCounts, countLabel = "Casos por atender en plazo", allLabel = "Todas las cuentas" }: AccountFilterProps) {
+export function AccountFilter({ accounts, value, onChange, inWindowCounts, countLabel = "Casos por atender en plazo", allLabel = "Todas las cuentas", sacOption = false }: AccountFilterProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -43,9 +45,19 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
   const listId = useId();
 
   const options = useMemo<Option[]>(() => {
-    const sorted = [...accounts].sort((left, right) => left.name.localeCompare(right.name, "es"));
+    // Con cuentas marcadas «En SAC» (Clientes), esas van primero en su propio grupo.
+    const grouped = accounts.some((account) => account.sacChannels?.length) && accounts.some((account) => !account.sacChannels?.length);
+    const sorted = [...accounts].sort((left, right) =>
+      (grouped ? Number(Boolean(right.sacChannels?.length)) - Number(Boolean(left.sacChannels?.length)) : 0)
+      || left.name.localeCompare(right.name, "es"));
     return [
       { id: "all", name: allLabel, detail: `${accounts.length} cuentas` },
+      ...(sacOption && grouped ? [{
+        id: "sac",
+        name: "Solo cuentas En SAC",
+        detail: `${accounts.filter((account) => account.sacChannels?.length).length} cuentas que el equipo atiende hoy`,
+        count: accounts.filter((account) => account.sacChannels?.length).reduce((sum, account) => sum + (inWindowCounts[account.id] ?? 0), 0),
+      }] : []),
       ...sorted.map((account) => {
         const handle = account.accountHandle || account.channels[0]?.username;
         const networks = [...new Set(account.channels.map((channel) => PLATFORM_LABEL[channel.platform] ?? channel.platform))].join(" · ");
@@ -54,15 +66,16 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
           name: account.name,
           detail: [handle ? `@${handle.replace(/^@/, "")}` : null, networks || null].filter(Boolean).join(" · "),
           count: inWindowCounts[account.id] ?? 0,
+          ...(grouped ? { group: account.sacChannels?.length ? "sac" as const : "other" as const } : {}),
         };
       }),
     ];
-  }, [accounts, allLabel, inWindowCounts]);
+  }, [accounts, allLabel, inWindowCounts, sacOption]);
 
   const visible = useMemo(() => {
     const term = normalize(query.trim());
     if (!term) return options;
-    return options.filter((option) => option.id === "all" || normalize(`${option.name} ${option.detail}`).includes(term));
+    return options.filter((option) => option.id === "all" || option.id === "sac" || normalize(`${option.name} ${option.detail}`).includes(term));
   }, [options, query]);
 
   const selected = options.find((option) => option.id === value) ?? options[0]!;
@@ -134,7 +147,14 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
             />
           </label>
           <ul id={listId} role="listbox" aria-label="Cuentas" className="account-filter__list">
-            {visible.map((option, index) => (
+            {visible.map((option, index) => [
+              option.group && option.group !== visible[index - 1]?.group ? (
+                <li key={`grupo-${option.group}`} role="presentation" className="account-filter__group">
+                  {option.group === "sac"
+                    ? `En SAC (${visible.filter((item) => item.group === "sac").length})`
+                    : `Otras cuentas (${visible.filter((item) => item.group === "other").length})`}
+                </li>
+              ) : null,
               <li
                 key={option.id}
                 id={`${listId}-${option.id}`}
@@ -149,8 +169,8 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
                   {option.detail ? <small>{option.detail}</small> : null}
                 </span>
                 {option.count ? <em className="account-filter__count" title={countLabel}>{option.count}</em> : null}
-              </li>
-            ))}
+              </li>,
+            ])}
             {visible.length === 1 && query ? <li className="account-filter__empty">Ninguna cuenta coincide.</li> : null}
           </ul>
         </div>

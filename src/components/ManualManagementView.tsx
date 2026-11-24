@@ -834,6 +834,16 @@ export function ManualManagementView({
   const accountOptions = [...accounts]
     .map((account) => ({ account, inWindow: pendingCounts?.[account.id]?.inWindow ?? 0, total: pendingCounts?.[account.id]?.total ?? 0 }))
     .sort((left, right) => right.inWindow - left.inWindow || right.total - left.total || left.account.name.localeCompare(right.account.name, "es"));
+  // Las cuentas que el equipo atiende hoy («En SAC», marcadas en Clientes) van en su propio grupo,
+  // antes que las demás. Sin cuentas marcadas, la lista queda como siempre.
+  const sacAccountOptions = accountOptions.filter(({ account }) => account.sacChannels?.length);
+  const otherAccountOptions = accountOptions.filter(({ account }) => !account.sacChannels?.length);
+  const renderAccountOption = ({ account, inWindow, total }: (typeof accountOptions)[number]) => (
+    <option key={account.id} value={account.id}>
+      {account.name} · {account.accountHandle || account.channels[0]?.username || account.id}
+      {pendingCounts ? ` — ${inWindow ? `${inWindow} en plazo` : "sin casos en plazo"}${total > inWindow ? ` (${total - inWindow} vencidos)` : ""}` : ""}
+    </option>
+  );
 
   return (
     <section className="manual-inbox-view" aria-labelledby="manual-inbox-title">
@@ -863,12 +873,14 @@ export function ManualManagementView({
             required
           >
             <option value="" disabled>Selecciona una cuenta</option>
-            {accountOptions.map(({ account, inWindow, total }) => (
-              <option key={account.id} value={account.id}>
-                {account.name} · {account.accountHandle || account.channels[0]?.username || account.id}
-                {pendingCounts ? ` — ${inWindow ? `${inWindow} en plazo` : "sin casos en plazo"}${total > inWindow ? ` (${total - inWindow} vencidos)` : ""}` : ""}
-              </option>
-            ))}
+            {sacAccountOptions.length ? (
+              <>
+                <optgroup label={`En SAC (${sacAccountOptions.length})`}>{sacAccountOptions.map(renderAccountOption)}</optgroup>
+                {otherAccountOptions.length ? (
+                  <optgroup label={`Otras cuentas (${otherAccountOptions.length})`}>{otherAccountOptions.map(renderAccountOption)}</optgroup>
+                ) : null}
+              </>
+            ) : accountOptions.map(renderAccountOption)}
           </select>
           {selectedAccount && onRefreshAccount && canRefresh ? (
             <button
