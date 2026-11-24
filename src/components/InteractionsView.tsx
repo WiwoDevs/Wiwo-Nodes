@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { deadlineLabel, isExpired, needsAction, replyDeadline } from "../lib/reply-window";
 import { AccountFilter } from "./AccountFilter";
 import { useMinuteTick } from "../lib/use-minute-tick";
@@ -316,12 +316,19 @@ export function InteractionsView({
     });
   }, [accountFilter, assignmentFilter, deadlineFilter, kindFilter, noiseFilter, platformFilter, statusFilter]);
 
+  // «Solo cuentas En SAC» (valor "sac"): las cuentas marcadas en Clientes.
+  const sacAccountIds = useMemo(
+    () => new Set(accounts.filter((account) => account.sacChannels?.length).map((account) => account.id)),
+    [accounts],
+  );
+  const matchesAccountFilter = useCallback((accountId: string) => accountFilter === "all"
+    || (accountFilter === "sac" ? sacAccountIds.has(accountId) : accountId === accountFilter), [accountFilter, sacAccountIds]);
   // Una cuenta recordada que ya no está (desactivada, sin acceso) vuelve a "todas".
   useEffect(() => {
-    if (accountFilter !== "all" && accounts.length && !accounts.some((account) => account.id === accountFilter)) {
-      setAccountFilter("all");
-    }
-  }, [accountFilter, accounts]);
+    if (!accounts.length || accountFilter === "all") return;
+    const known = accountFilter === "sac" ? sacAccountIds.size > 0 : accounts.some((account) => account.id === accountFilter);
+    if (!known) setAccountFilter("all");
+  }, [accountFilter, accounts, sacAccountIds]);
   const [selectedContactKeys, setSelectedContactKeys] = useState<Set<string>>(() => new Set());
   // Referencia de tiempo para los plazos; se renueva con cada actualización de la bandeja.
   // Los plazos vencen solos: se recalcula con cada cambio y cada minuto.
@@ -346,7 +353,7 @@ export function InteractionsView({
         normalize(
           `${interaction.brandName} ${interaction.customerName} ${interaction.customerHandle} ${interaction.preview} ${interaction.assignee ?? ""}`,
         ).includes(normalizedQuery);
-      const matchesAccount = accountFilter === "all" || interaction.accountId === accountFilter;
+      const matchesAccount = matchesAccountFilter(interaction.accountId);
       const matchesPlatform = platformFilter === "all" || interaction.platform === platformFilter;
       const matchesKind = kindFilter === "all" || includesKind(interaction, kindFilter);
       const matchesStatus = statusFilter === "all" || interaction.status === statusFilter;
@@ -380,7 +387,7 @@ export function InteractionsView({
         || left.deadline - right.deadline
         || left.index - right.index)
       .map(({ interaction }) => interaction);
-  }, [accountFilter, assignmentFilter, currentUserId, deadlineFilter, interactions, kindFilter, noiseFilter, now, platformFilter, searchQuery, statusFilter]);
+  }, [assignmentFilter, currentUserId, deadlineFilter, interactions, kindFilter, matchesAccountFilter, noiseFilter, now, platformFilter, searchQuery, statusFilter]);
 
   useEffect(() => {
     onVisibleOrderChange?.(filteredInteractions);
@@ -426,17 +433,17 @@ export function InteractionsView({
   // Casos fuera de plazo con los demás filtros aplicados (para el aviso y el archivado).
   const expiredInScope = useMemo(() => interactions.filter((interaction) =>
     isExpired(interaction, now)
-    && (accountFilter === "all" || interaction.accountId === accountFilter)
+    && matchesAccountFilter(interaction.accountId)
     && (kindFilter === "all" || includesKind(interaction, kindFilter))).length,
-  [accountFilter, interactions, kindFilter, now]);
+  [interactions, kindFilter, matchesAccountFilter, now]);
 
   // Conversaciones que son solo spam detectado por reglas, en el alcance de cuenta y tipo.
   const noiseInScope = useMemo(() => interactions.filter((interaction) =>
     interaction.noise?.origen === "reglas"
     && !isExpired(interaction, now)
-    && (accountFilter === "all" || interaction.accountId === accountFilter)
+    && matchesAccountFilter(interaction.accountId)
     && (kindFilter === "all" || includesKind(interaction, kindFilter))).length,
-  [accountFilter, interactions, kindFilter, now]);
+  [interactions, kindFilter, matchesAccountFilter, now]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInteractions.length / PAGE_SIZE));
   const visibleInteractions = filteredInteractions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -645,7 +652,7 @@ export function InteractionsView({
 
         <div className="filter-field">
           <span className="filter-field__label">Cuenta</span>
-          <AccountFilter accounts={accounts} value={accountFilter} onChange={setAccountFilter} inWindowCounts={inWindowCounts} />
+          <AccountFilter accounts={accounts} value={accountFilter} onChange={setAccountFilter} inWindowCounts={inWindowCounts} sacOption />
         </div>
 
         <label className="filter-field">
@@ -840,7 +847,7 @@ export function InteractionsView({
             {" "}Cada una dice por qué: texto repetido, el mismo texto desde varias cuentas, solo etiquetas, spam promocional o una sugerencia de la IA.
             {canDiscardNoise ? " Descartarlas las cierra como «Spam o contenido no válido» y no cuentan en el reporte; el comentario sigue publicado en la red, nunca se escribe en Metricool y los casos sensibles quedan para revisión humana." : ""}
           </span>
-          {canDiscardNoise && onDiscardNoise ? (
+          {canDiscardNoise && onDiscardNoise && accountFilter !== "sac" ? (
             <button
               className="button button--secondary"
               type="button"
@@ -862,7 +869,7 @@ export function InteractionsView({
             {" "}Meta ya no garantiza que se puedan responder; igual puedes abrir uno e intentarlo.
             {canArchiveExpired ? " Archivarlos los cierra como histórico en wiwo.sac (no borra nada en Metricool) y deja los casos sensibles para revisión humana." : ""}
           </span>
-          {canArchiveExpired && onArchiveExpired ? (
+          {canArchiveExpired && onArchiveExpired && accountFilter !== "sac" ? (
             <button
               className="button button--secondary"
               type="button"

@@ -919,8 +919,10 @@ export function App({ onSignOut, sessionActor }: {
     const current = manualAccountId && accounts.some((account) => account.id === manualAccountId);
     if (current && manualAccountSettled.current) return;
     // Por defecto, la cuenta con más casos en plazo de la superficie que se está viendo (DMs o
-    // comentarios), igual que el orden del selector; luego la de más pendientes.
+    // comentarios), igual que el orden del selector; luego la de más pendientes. Las cuentas
+    // «En SAC» van primero, como en el selector.
     const surface = view === "manual-comments" ? "comment" : "dm";
+    const inSac = (account: BrandAccount) => (account.sacChannels?.length ? 1 : 0);
     const score = (accountId: string) => {
       const counts = manualPendingCounts[surface][accountId];
       return [counts?.inWindow ?? 0, counts?.total ?? 0] as const;
@@ -928,7 +930,7 @@ export function App({ onSignOut, sessionActor }: {
     const best = [...accounts].sort((left, right) => {
       const [leftWindow, leftTotal] = score(left.id);
       const [rightWindow, rightTotal] = score(right.id);
-      return rightWindow - leftWindow || rightTotal - leftTotal;
+      return inSac(right) - inSac(left) || rightWindow - leftWindow || rightTotal - leftTotal;
     })[0]!;
     if (best.id !== manualAccountId) setManualAccountId(best.id);
     if (operationalData?.interactions.length) manualAccountSettled.current = true;
