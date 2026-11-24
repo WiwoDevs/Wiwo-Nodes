@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { conversationKey } from "./sac-automation.js";
-import { isCacheableThumbnailUrl, postThumbnailKey, registerPostThumbnail } from "./post-thumbnails.js";
+import { contactAvatarKey, isCacheableThumbnailUrl, postThumbnailKey, registerPostThumbnail } from "./post-thumbnails.js";
 import { detectNoise, type NoiseSignal } from "./noise-detection.js";
 import {
   isMetricoolContentUnavailable,
@@ -58,6 +58,8 @@ export interface InboxContactSummary {
   channel: Channel;
   customerName: string;
   customerHandle: string;
+  /** Foto de perfil de la persona, servida desde la copia de wiwo.sac (/api/media/image/:key). */
+  customerAvatarUrl?: string;
   replyTarget?: PublicInboxInteraction;
   /** Sin caso pendiente y con la cuenta como último en escribir: el último mensaje del cliente. */
   latestInboundId?: string;
@@ -350,8 +352,19 @@ export function groupInboxContacts(
     const display = ordered.find((interaction) => interaction.direction === "inbound") ?? latest;
     const assignmentSource = openInbound.length ? openInbound : ordered;
     const assignmentStates = new Set(assignmentSource.map((interaction) => interaction.assignedTo?.userId ?? "unassigned"));
+    const contactKey = contactKeyFor(latest);
+    // Foto de perfil: se registran los enlaces de todos sus mensajes; gana el que vence después.
+    const avatarKey = contactAvatarKey(latest.accountId, contactKey);
+    let hasAvatar = false;
+    for (const interaction of ordered) {
+      const url = interaction.metricoolRef?.customerPictureUrl;
+      if (!isCacheableThumbnailUrl(url)) continue;
+      registerPostThumbnail(avatarKey, interaction.brandId, url);
+      hasAvatar = true;
+    }
     return {
-      contactKey: contactKeyFor(latest),
+      contactKey,
+      ...(hasAvatar ? { customerAvatarUrl: `/api/media/image/${avatarKey}` } : {}),
       brandId: latest.brandId,
       accountId: latest.accountId,
       channel: latest.channel,

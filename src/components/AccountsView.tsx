@@ -1,3 +1,4 @@
+import { ProfileAvatar } from "./ProfileAvatar";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowClockwise,
@@ -628,7 +629,12 @@ export function AccountsView({
                           disabled={!canAdmin}
                           title={!canAdmin ? "Edición disponible para administradores" : undefined}
                         >
-                          <span className="brand-avatar" aria-hidden="true">{account.initials}</span>
+                          <span className="brand-avatar" aria-hidden="true">
+                            <ProfileAvatar
+                              url={`/api/media/brand-picture/${account.brandId ?? account.id}`}
+                              initials={account.initials}
+                            />
+                          </span>
                           <span className="brand-cell__copy">
                             <strong>{account.name}</strong>
                             <small>{account.category}</small>

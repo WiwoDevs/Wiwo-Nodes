@@ -554,6 +554,8 @@ export interface Interaction {
     actorId?: string;
     threadId?: string;
     parentCommentId?: string;
+    /** Foto de perfil de la persona (`imageProfileUrl` del participante en Metricool). */
+    customerPictureUrl?: string;
     contentContext?: InteractionContentContext;
     post?: {
       id: string;

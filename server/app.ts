@@ -102,7 +102,10 @@ import {
 } from "./schemas.js";
 import { buildSacReport, duplicateAccountGroups, esCasoSac, esMensajeGestionado, esTriajeManual, monthPeriod } from "./sac-report.js";
 import {
+  brandPictureKey,
   downloadPostThumbnail,
+  isCacheableThumbnailUrl,
+  isDefaultProfilePicture,
   registeredPostThumbnail,
   type StoredPostThumbnail,
   type ThumbnailFetcher,
@@ -4041,39 +4044,121 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    * hay copia ni enlace vigente responde 404 y la web muestra el ícono.
    */
   const thumbnailDownloads = new Map<string, Promise<StoredPostThumbnail | undefined>>();
-  app.get("/api/media/post-thumbnail/:key", async (request, reply) => {
+  /** Descarga (una sola vez a la vez por clave) y guarda la copia; undefined si no se pudo. */
+  const downloadAndStore = (
+    key: string,
+    brandId: string,
+    url: string,
+    log: { warn: (obj: object, msg: string) => void },
+    accept: (data: Buffer) => boolean = () => true,
+  ) => {
+    let pending = thumbnailDownloads.get(key);
+    if (!pending) {
+      pending = (async () => {
+        const downloaded = await downloadPostThumbnail(url, options.thumbnailFetcher);
+        if (!downloaded || !accept(downloaded.data)) return undefined;
+        const record: StoredPostThumbnail = { key, brandId, ...downloaded, fetchedAt: new Date().toISOString() };
+        try {
+          await repository.savePostThumbnail(record);
+        } catch (error) {
+          log.warn({ err: error instanceof Error ? error.message : "desconocido" }, "No se pudo guardar la imagen.");
+        }
+        return record;
+      })().finally(() => thumbnailDownloads.delete(key));
+      thumbnailDownloads.set(key, pending);
+    }
+    return pending;
+  };
+  const sendStoredImage = (reply: FastifyReply, stored: StoredPostThumbnail, maxAge = 604800) => reply
+    .header("Cache-Control", `private, max-age=${maxAge}`)
+    .header("X-Content-Type-Options", "nosniff")
+    .type(stored.contentType)
+    .send(stored.data);
+  /** Miniaturas de publicaciones y fotos de perfil de quien escribe: misma copia, mismas reglas. */
+  const serveRegisteredImage = async (request: FastifyRequest, reply: FastifyReply) => {
     const actor = requestActor(config, request);
     const key = String((request.params as { key?: unknown }).key ?? "");
-    const notFound = () => new ApiError(404, "THUMBNAIL_NOT_FOUND", "La miniatura de esta publicación no está disponible.");
+    const notFound = () => new ApiError(404, "THUMBNAIL_NOT_FOUND", "La imagen no está disponible.");
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(key)) throw notFound();
     let stored = await repository.getPostThumbnail(key);
     if (!stored) {
       const known = registeredPostThumbnail(key);
       if (!known || !canAccessBrand(actor, known.brandId)) throw notFound();
-      let pending = thumbnailDownloads.get(key);
-      if (!pending) {
-        pending = (async () => {
-          const downloaded = await downloadPostThumbnail(known.url, options.thumbnailFetcher);
-          if (!downloaded) return undefined;
-          const record: StoredPostThumbnail = { key, brandId: known.brandId, ...downloaded, fetchedAt: new Date().toISOString() };
-          try {
-            await repository.savePostThumbnail(record);
-          } catch (error) {
-            request.log.warn({ err: error instanceof Error ? error.message : "desconocido" }, "No se pudo guardar la miniatura.");
-          }
-          return record;
-        })().finally(() => thumbnailDownloads.delete(key));
-        thumbnailDownloads.set(key, pending);
-      }
-      stored = await pending;
+      stored = await downloadAndStore(key, known.brandId, known.url, request.log);
       if (!stored) throw notFound();
     }
     if (!canAccessBrand(actor, stored.brandId)) throw notFound();
-    return reply
-      .header("Cache-Control", "private, max-age=604800")
-      .header("X-Content-Type-Options", "nosniff")
-      .type(stored.contentType)
-      .send(stored.data);
+    return sendStoredImage(reply, stored);
+  };
+  app.get("/api/media/post-thumbnail/:key", serveRegisteredImage);
+  /**
+   * Foto de perfil de quien escribe (`imageProfileUrl` del participante en Metricool), con la
+   * clave por persona que entrega `customerAvatarUrl` en los contactos de la bandeja.
+   */
+  app.get("/api/media/image/:key", serveRegisteredImage);
+
+  /**
+   * Foto de perfil de la marca: el campo `picture` del catálogo de marcas de Metricool (lectura),
+   * guardada como las miniaturas y renovada cada 7 días. El catálogo se lee como mucho una vez
+   * cada 6 horas. Sin copia ni foto, 404 y la web muestra las iniciales.
+   */
+  const BRAND_PICTURE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+  const BRAND_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
+  let brandCatalog: { at: number; pictures: Promise<Map<string, string>> } | undefined;
+  /** Enlaces que resultaron ser la silueta genérica: no se vuelven a descargar. */
+  const defaultBrandPictures = new Set<string>();
+  const brandCatalogPictures = () => {
+    if (brandCatalog && Date.now() - brandCatalog.at < BRAND_CATALOG_TTL_MS) return brandCatalog.pictures;
+    defaultBrandPictures.clear();
+    const userId = config.metricool.userId
+      || config.metricool.fallbackAccount?.userId
+      || Object.values(config.metricool.accounts)[0]?.userId;
+    const pictures = (async () => {
+      const map = new Map<string, string>();
+      if (!userId || !metricoolClient?.listBrands) return map;
+      for (const brand of normalizeDiscoveredBrands(await metricoolClient.listBrands(userId))) {
+        if (isCacheableThumbnailUrl(brand.pictureUrl)) map.set(brand.blogId, brand.pictureUrl);
+      }
+      return map;
+    })();
+    const entry = { at: Date.now(), pictures };
+    brandCatalog = entry;
+    // Si la lectura falla no se guarda el error: se reintenta en la próxima petición.
+    pictures.catch(() => { if (brandCatalog === entry) brandCatalog = undefined; });
+    return pictures;
+  };
+  app.get("/api/media/brand-picture/:brandId", async (request, reply) => {
+    const actor = requestActor(config, request);
+    const brandId = String((request.params as { brandId?: unknown }).brandId ?? "");
+    const notFound = () => new ApiError(404, "BRAND_PICTURE_NOT_FOUND", "La foto de esta cuenta no está disponible.");
+    if (!brandId || brandId.length > 128 || !canAccessBrand(actor, brandId)) throw notFound();
+    const key = brandPictureKey(brandId);
+    const saved = await repository.getPostThumbnail(key);
+    // Una copia de la silueta genérica (guardada antes de reconocerla) no cuenta como foto.
+    const stored = saved && !isDefaultProfilePicture(saved.data) ? saved : undefined;
+    const fresh = stored && Date.now() - Date.parse(stored.fetchedAt) < BRAND_PICTURE_MAX_AGE_MS;
+    if (stored && fresh) return sendStoredImage(reply, stored, 86400);
+    let refreshed: StoredPostThumbnail | undefined;
+    if (!config.demoMode) {
+      try {
+        const snapshot = await repository.snapshotCatalog();
+        const brand = snapshot.brands.find((item) => item.id === brandId);
+        const blogId = brand ? resolveMetricoolAccount(config, brand.account.id, brand.account.metricool)?.blogId : undefined;
+        const url = blogId ? (await brandCatalogPictures()).get(blogId) : undefined;
+        if (url && !defaultBrandPictures.has(url)) {
+          refreshed = await downloadAndStore(key, brandId, url, request.log, (data) => {
+            if (!isDefaultProfilePicture(data)) return true;
+            defaultBrandPictures.add(url);
+            return false;
+          });
+        }
+      } catch (error) {
+        request.log.warn({ err: error instanceof Error ? error.message : "desconocido" }, "No se pudo leer la foto de la cuenta.");
+      }
+    }
+    const image = refreshed ?? stored;
+    if (!image) throw notFound();
+    return sendStoredImage(reply, image, 86400);
   });
 
   app.get("/api/stats/summary", async (request) => {

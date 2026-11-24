@@ -1064,6 +1064,14 @@ Recomendación de respuesta con IA para un mensaje entrante (permiso `inbox.repl
 
 Marca en lote, como caso o ruido, todos los mensajes entrantes de las conversaciones elegidas en la Bandeja: `{ contactKeys: string[] (1-200), esCasoSac: boolean }`, permiso `inbox.triage` y alcance de marcas del actor. Los mensajes que alguien ya marcó a mano no se cambian. Responde `{ data: { updated, contacts } }`.
 
+### `GET /api/media/image/:key`
+
+Foto de perfil de quien escribe, con las mismas reglas que las miniaturas (abajo). Metricool puede traer la foto de cada participante de una conversación (`imageProfileUrl`); solo se guarda en `metricoolRef.customerPictureUrl` si es un enlace HTTPS de una CDN permitida y sin credenciales (se descarta cualquier enlace con `access_token`, `appsecret_proof` u otro token, y `graph.facebook.com` nunca se acepta), y entonces cada contacto de `GET /api/inbox/contacts` entrega `customerAvatarUrl` (`/api/media/image/<key>`, clave opaca por cuenta + persona). Hoy (noviembre 2026) Metricool no trae foto de la persona en Instagram y en Facebook solo la entrega como enlace de la Graph API con el token de la página, que se descarta: en la práctica las personas se ven con iniciales hasta que Metricool entregue enlaces de CDN. El enlace de Meta nunca llega al navegador. Requiere sesión y acceso a la marca; `404 THUMBNAIL_NOT_FOUND` si no hay copia ni enlace vigente (la web muestra las iniciales).
+
+### `GET /api/media/brand-picture/:brandId`
+
+Foto de perfil de la cuenta (Clientes): el campo `picture` del catálogo de marcas de Metricool (`/admin/simpleProfiles`, solo lectura, leído como mucho una vez cada 6 horas), guardada con las miniaturas y renovada cada 7 días; si la renovación falla se sirve la copia anterior. Requiere sesión y acceso a la marca. En modo demo, sin foto en Metricool o sin acceso responde `404 BRAND_PICTURE_NOT_FOUND` y la web muestra las iniciales. Respuesta: la imagen con `Cache-Control: private, max-age=86400` y `X-Content-Type-Options: nosniff`.
+
 ### `GET /api/media/post-thumbnail/:key`
 
 Miniatura de una publicación comentada, desde la copia que guarda wiwo.sac. Meta firma los enlaces de imagen con vencimiento y Metricool solo trae uno nuevo cuando llegan comentarios, así que `postContext.thumbnailUrl` apunta a esta ruta (`/api/media/post-thumbnail/<key>`, clave opaca de cuenta + publicación) cuando la imagen viene de una CDN de redes sociales conocida (Instagram, Facebook, LinkedIn, YouTube, TikTok, X o Metricool). Los videos (reels) siguen llegando como enlace HTTPS directo.

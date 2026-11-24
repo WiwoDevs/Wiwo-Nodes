@@ -142,6 +142,8 @@ type ApiInboxContact = {
   channel: SocialPlatform;
   customerName: string;
   customerHandle: string;
+  /** Foto de perfil guardada por wiwo.sac (/api/media/image/:key), cuando Metricool la trae. */
+  customerAvatarUrl?: string;
   replyTarget?: ApiInteraction;
   /** Sin caso pendiente y con la cuenta como último en escribir: el último mensaje del cliente. */
   latestInboundId?: string;
@@ -649,6 +651,7 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
       brandInitials: initials(brandName),
       customerName: contact.customerName,
       customerHandle: contact.customerHandle,
+      ...(contact.customerAvatarUrl ? { customerAvatarUrl: contact.customerAvatarUrl } : {}),
       platform: contact.channel,
       kind: replyTarget?.type ?? contact.latest.type,
       direction: replyTarget?.direction ?? (followUpId ? "inbound" : contact.latest.direction),

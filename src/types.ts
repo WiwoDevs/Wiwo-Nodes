@@ -293,6 +293,8 @@ export interface Interaction {
   brandInitials: string;
   customerName: string;
   customerHandle: string;
+  /** Foto de perfil de quien escribe (copia de wiwo.sac); sin ella se muestran las iniciales. */
+  customerAvatarUrl?: string;
   platform: SocialPlatform;
   kind: InteractionKind;
   direction: "inbound" | "outbound";

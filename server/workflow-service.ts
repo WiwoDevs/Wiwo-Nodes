@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isVideoUrl } from "./post-thumbnails.js";
+import { isCacheableThumbnailUrl, isVideoUrl, signedExpiry } from "./post-thumbnails.js";
 import type {
   Brand,
   Channel,
@@ -176,6 +176,17 @@ export function mergeMissingMetricoolRef(
       changed = true;
     }
   }
+  // Foto de perfil: se completa si falta y se reemplaza solo cuando el enlace guardado ya venció
+  // (`oe=`) y llega uno que vence después. Reescribirla en cada lectura dispararía una escritura
+  // por caso en cada sincronización; la copia que sirve la API no depende del enlace.
+  if (incoming.customerPictureUrl && incoming.customerPictureUrl !== value.customerPictureUrl) {
+    const currentExpiry = value.customerPictureUrl ? signedExpiry(value.customerPictureUrl) : 0;
+    const expired = !value.customerPictureUrl || (currentExpiry > 0 && currentExpiry * 1000 < Date.now());
+    if (expired && (!value.customerPictureUrl || signedExpiry(incoming.customerPictureUrl) > currentExpiry)) {
+      value.customerPictureUrl = incoming.customerPictureUrl;
+      changed = true;
+    }
+  }
   if (incoming.contentContext) {
     if (incoming.contentContext.kind === "deleted") {
       if (value.contentContext?.kind !== "deleted"
@@ -264,6 +275,8 @@ interface MetricoolParticipant {
   name?: string;
   username?: string;
   isSelf?: boolean;
+  /** Foto de perfil (Metricool la entrega como `imageProfileUrl`); solo HTTPS. */
+  pictureUrl?: string;
 }
 
 function parseParticipants(value: unknown): MetricoolParticipant[] {
@@ -278,6 +291,12 @@ function parseParticipants(value: unknown): MetricoolParticipant[] {
       name: firstString(record, ["name", "displayName"]),
       username: firstString(record, ["username", "handle", "screenName"]),
       isSelf: record.self === true || record.isSelf === true || record.fromMe === true,
+      // Solo enlaces de CDN sin credenciales: en Facebook Metricool entrega la foto como enlace de
+      // graph.facebook.com con su access_token, que nunca se guarda.
+      pictureUrl: (() => {
+        const url = safeHttpUrl(firstString(record, ["imageProfileUrl", "picture", "profilePicture", "avatar"]));
+        return isCacheableThumbnailUrl(url) ? url : undefined;
+      })(),
     }];
   });
 }
@@ -285,13 +304,13 @@ function parseParticipants(value: unknown): MetricoolParticipant[] {
 function participantDetails(
   participants: MetricoolParticipant[],
   participantId: string | undefined,
-): { name: string; handle: string } {
+): { name: string; handle: string; pictureUrl?: string } {
   const participant = participantId
     ? participants.find((item) => item.id === participantId)
     : undefined;
   const name = participant?.name || participant?.username || participantId || "Usuario social";
   const handle = participant?.username || participant?.id || participantId || "@usuario";
-  return { name, handle };
+  return { name, handle, ...(participant?.pictureUrl ? { pictureUrl: participant.pictureUrl } : {}) };
 }
 
 function normalizedSocialHandle(value: string | undefined): string | undefined {
@@ -578,6 +597,7 @@ export function normalizeMetricoolConversations(
             conversationId,
             recipient,
             actorId: recipient,
+            ...(customer.pictureUrl ? { customerPictureUrl: customer.pictureUrl } : {}),
             contentContext: content.contentContext,
           },
         }));
@@ -656,6 +676,7 @@ export function normalizeMetricoolComments(
           commentId,
           postId,
           actorId: customerId,
+          ...(customer.pictureUrl ? { customerPictureUrl: customer.pictureUrl } : {}),
           threadId,
           parentCommentId: firstString(record, ["parentId", "parentCommentId"]),
           contentContext: content.contentContext,
