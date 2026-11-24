@@ -289,6 +289,8 @@ export interface Interaction {
   version?: number;
   contactKey?: string;
   accountId: string;
+  /** Marca (cliente), para la foto de la cuenta. */
+  brandId?: string;
   brandName: string;
   brandInitials: string;
   customerName: string;
@@ -458,6 +460,8 @@ export interface DashboardKpi {
 
 export interface BrandPerformance {
   accountId: string;
+  /** Marca (cliente), para pedir su foto de perfil. */
+  brandId: string;
   brandName: string;
   handle: string;
   initials: string;

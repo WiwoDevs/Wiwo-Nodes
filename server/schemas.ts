@@ -82,7 +82,12 @@ export const interactionListQuerySchema = interactionFiltersSchema.extend({
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-export const inboxContactListQuerySchema = interactionListQuerySchema;
+// La web descarga toda la bandeja para Inicio y Bandeja SAC: páginas de hasta 1000 contactos
+// para no hacer decenas de peticiones (cada una vuelve a leer el catálogo).
+export const inboxContactListQuerySchema = interactionFiltersSchema.extend({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(1000).default(50),
+});
 
 const queryBooleanSchema = z.union([
   z.boolean(),

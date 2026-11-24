@@ -148,6 +148,13 @@ function formatDateTime(value: string): string {
   }).format(parsed);
 }
 
+/** Usuario para mostrar bajo el nombre: no se muestra si es un ID numérico o repite el nombre. */
+function visibleHandle(handle: string, name: string): string | undefined {
+  const clean = handle.replace(/^@/, "");
+  if (!clean || /^\d+$/.test(clean)) return undefined;
+  return clean.toLocaleLowerCase("es-CL") === name.replace(/^@/, "").toLocaleLowerCase("es-CL") ? undefined : `@${clean}`;
+}
+
 function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -604,7 +611,7 @@ export function ManualManagementView({
   const selectedCommentIsOpen = !isCommentSurface
     || Boolean(visibleDetail && selectedPendingComments.some((comment) => comment.id === visibleDetail.id));
   const postOrderDetail = entries.some((entry) => entry.postSortSource === "latest_comment_at")
-    ? "fecha faltante: orden por actividad"
+    ? "ordenadas por último comentario"
     : "más nuevas primero";
   const timeline = useMemo(
     () => visibleDetail ? timelineFor(visibleDetail) : [],
@@ -841,8 +848,8 @@ export function ManualManagementView({
   const otherAccountOptions = accountOptions.filter(({ account }) => !account.sacChannels?.length);
   const renderAccountOption = ({ account, inWindow, total }: (typeof accountOptions)[number]) => (
     <option key={account.id} value={account.id}>
-      {account.name} · {account.accountHandle || account.channels[0]?.username || account.id}
-      {pendingCounts ? ` — ${inWindow ? `${inWindow} en plazo` : "sin casos en plazo"}${total > inWindow ? ` (${total - inWindow} vencidos)` : ""}` : ""}
+      {account.name}
+      {pendingCounts ? ` — ${inWindow ? `${inWindow} en plazo` : "sin casos en plazo"}${total > inWindow ? ` · ${total - inWindow} vencidos` : ""}` : ""}
     </option>
   );
 
@@ -1024,14 +1031,14 @@ export function ManualManagementView({
                     : entry.target.customerName;
                   const entrySubtitle = entry.postId
                     ? `${countLabel(entry.messageCount, "comentario", "comentarios")} · ${countLabel(entry.participantCount ?? new Set(entry.items.map((item) => item.customerHandle)).size, "persona", "personas")}`
-                    : entry.target.customerHandle;
+                    : visibleHandle(entry.target.customerHandle, entry.target.customerName);
                   const entryDateTime = entry.postId ? entry.postSortAt ?? entry.latest.receivedAt : entry.latest.receivedAt;
                   const entryDateLabel = entry.postId
                     ? `${entry.postSortSource === "published_at" ? "Publicado" : "Actividad"} ${formatDateTime(entryDateTime)}`
                     : entry.latest.receivedAtLabel;
                   return (
                     <button
-                      className={`manual-inbox-contact${selected ? " is-selected" : ""}`}
+                      className={`manual-inbox-contact${entry.postId ? " is-post-card" : ""}${selected ? " is-selected" : ""}`}
                       type="button"
                       key={entry.key}
                       onClick={() => requestEntryChange(entry)}
@@ -1059,7 +1066,7 @@ export function ManualManagementView({
                           <strong>{entryTitle}</strong>
                           <time dateTime={entryDateTime}>{entryDateLabel}</time>
                         </span>
-                        <small>{entrySubtitle}</small>
+                        {entrySubtitle ? <small>{entrySubtitle}</small> : null}
                         <p>
                           {entry.postId
                             ? <b>{entry.latest.customerName}: </b>
@@ -1075,7 +1082,7 @@ export function ManualManagementView({
                           {entry.postId ? null : <span>{countLabel(entry.messageCount, "mensaje", "mensajes")}</span>}
                           {entry.postId
                             ? <em>{entry.pendingCount} sin responder</em>
-                            : entry.pendingCount ? <em>{entry.pendingCount} pendientes</em> : null}
+                            : entry.pendingCount ? <em>{countLabel(entry.pendingCount, "pendiente", "pendientes")}</em> : null}
                           {entry.postSummary?.noisePendingCount ? (
                             <em className="manual-inbox-noise" title="Comentarios abiertos con texto repetido, el mismo texto desde varias cuentas, solo etiquetas o spam">
                               {entry.postSummary.noisePendingCount} posible spam
@@ -1137,7 +1144,7 @@ export function ManualManagementView({
                           : visibleDetail.customerName}</strong>
                         <small>{isCommentSurface
                           ? `${platformLabel(visibleDetail.platform)} · los más antiguos primero`
-                          : `${visibleDetail.customerHandle} · ${platformLabel(visibleDetail.platform)}`}</small>
+                          : [visibleHandle(visibleDetail.customerHandle, visibleDetail.customerName), platformLabel(visibleDetail.platform)].filter(Boolean).join(" · ")}</small>
                       </div>
                     </div>
                     <div className="manual-inbox-conversation-header__actions">
@@ -1357,6 +1364,9 @@ export function ManualManagementView({
                         <WarningCircle size={16} weight="duotone" aria-hidden="true" />
                         Fuera del plazo recomendado de Meta. Puedes intentar responder manualmente, pero la plataforma podría rechazar la entrega.
                       </p>
+                    ) : null}
+                    {!isDraftDirty && draftText.trim() && !detailIsClosed(visibleDetail) && draftText === (visibleDetail.responseText ?? "") ? (
+                      <p className="manual-inbox-saved-draft">Borrador guardado del caso: revísalo o reemplázalo antes de enviar.</p>
                     ) : null}
                     <div className="manual-inbox-composer__field">
                     <textarea

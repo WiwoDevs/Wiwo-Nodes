@@ -88,6 +88,8 @@ import { ContentContext } from "./ContentContext";
 import { greetingNameOf, salutationFor } from "../lib/greeting";
 import { deadlineLabel, isExpired, needsAction, replyDeadline } from "../lib/reply-window";
 import { confirmAction } from "../lib/confirm";
+import type { WorkScope } from "../lib/work-scope";
+import { ProfileAvatar } from "./ProfileAvatar";
 import { ThinkingOrb, OrbLoader, BusyOrb } from "./ThinkingOrb";
 
 export type AutomationSection = "home" | "workflows" | "executions" | "templates" | "credentials";
@@ -101,6 +103,10 @@ type AutomationPlatformProps = {
   canSupervise: boolean;
   accounts: BrandAccount[];
   interactions: Interaction[];
+  /** Alcance del Inicio: solo cuentas En SAC o todas (sin cuentas marcadas no se muestra). */
+  workScope?: WorkScope;
+  sacAccountCount?: number;
+  onWorkScopeChange?: (scope: WorkScope) => void;
   isOperationalLoading: boolean;
   onNavigate: (destination: AutomationHomeDestination) => void;
   /** Si la persona puede abrir esa sección; los accesos a las que no puede no se muestran. */
@@ -199,6 +205,17 @@ function StateBadge({ status }: { status?: AutomationExecution["status"] }) {
   const success = status === "success";
   const error = status === "error";
   return <span className={`platform-status ${success ? "success" : error ? "error" : "neutral"}`}>{success ? <CheckCircle weight="fill" /> : error ? <WarningCircle weight="fill" /> : <Clock weight="fill" />}{statusLabel(status)}</span>;
+}
+
+/** Cómo partió una ejecución, en palabras del equipo. */
+function executionModeLabel(mode: AutomationExecution["mode"]): string {
+  return ({
+    schedule: "Automática programada",
+    manual: "Iniciada a mano",
+    webhook: "Por aviso externo",
+    subworkflow: "Desde otro flujo",
+    retry: "Reintento",
+  } as const)[mode] ?? mode;
 }
 
 function EmptyPlatform({ title, copy, action }: { title: string; copy: string; action?: React.ReactNode }) {
@@ -541,6 +558,9 @@ export function AutomationPlatform({
   canSupervise,
   accounts,
   interactions,
+  workScope,
+  sacAccountCount = 0,
+  onWorkScopeChange,
   isOperationalLoading,
   onNavigate,
   canOpen = () => true,
@@ -770,6 +790,12 @@ export function AutomationPlatform({
             {salutationFor()}{greetingName ? <>, <span className="wiwo-accent-name">{greetingName}</span></> : null}
           </h2>
           <p className="sac-home-lead">Lo que necesita atención, primero.</p>
+          {workScope && onWorkScopeChange ? (
+            <div className="work-scope-toggle" role="group" aria-label="Cuentas que se cuentan en el Inicio">
+              <button type="button" aria-pressed={workScope === "sac"} onClick={() => onWorkScopeChange("sac")}>Cuentas En SAC ({sacAccountCount})</button>
+              <button type="button" aria-pressed={workScope === "all"} onClick={() => onWorkScopeChange("all")}>Todas las cuentas</button>
+            </div>
+          ) : null}
           <p>{isAgentHome ? "Toma el caso que vence antes, respóndelo y pasa al siguiente. Tus casos aparecen primero." : "Prioriza los DMs y comentarios que vencen antes y revisa las cuentas con alertas."}</p>
           <div className="sac-home-actions">
             {isAgentHome && onTakeNext ? <button className="button primary" onClick={() => { if (nextToTake) void onTakeNext(nextToTake); }} disabled={!nextToTake} title={nextToTake ? `Te asigna y abre ${nextToTake.customerName}${deadlineLabel(nextToTake, now) ? ` (${deadlineLabel(nextToTake, now)})` : ""}` : "No hay casos en plazo sin asignar"}><HandGrabbing weight="fill" /> Tomar siguiente</button> : null}
@@ -812,8 +838,8 @@ export function AutomationPlatform({
           </div></header>
           <div className="sac-queue-list">
             {topQueue.map((interaction) => <button key={interaction.id} onClick={() => onOpenInteraction(interaction)}>
-              <span className="sac-queue-avatar">{interaction.brandInitials}</span>
-              <span className="sac-queue-copy"><span><strong>{interaction.customerName}</strong><small>{interaction.brandName}</small></span><p><ContentContext text={interaction.preview} context={interaction.contentContext} compact /></p><small><SocialPlatformIcon platform={interaction.platform} weight="fill" />{interactionKindLabel(interaction.kind)}<i />{interaction.receivedAtLabel}</small></span>
+              <span className="sac-queue-avatar"><ProfileAvatar url={interaction.brandId ? `/api/media/brand-picture/${interaction.brandId}` : undefined} initials={interaction.brandInitials} /></span>
+              <span className="sac-queue-copy"><span><strong>{interaction.customerName}</strong><small>{interaction.brandName}</small></span><p>{interaction.conversationSummary?.latestDirection === "outbound" ? <strong className="sac-queue-team">Equipo: </strong> : null}<ContentContext text={interaction.preview} context={interaction.contentContext} compact /></p><small><SocialPlatformIcon platform={interaction.platform} weight="fill" />{interactionKindLabel(interaction.kind)}<i /><time dateTime={interaction.receivedAt} title={new Date(interaction.receivedAt).toLocaleString("es-CL")}>{interaction.receivedAtLabel}</time></small></span>
               <span className="sac-queue-state"><em className={`priority-${interaction.priority}`}>{interactionPriorityLabel(interaction.priority)}</em><small>{interactionStatusLabel(interaction.status)}</small>{deadlineLabel(interaction, now) ? <small className="sac-queue-deadline">{deadlineLabel(interaction, now)}</small> : null}</span>
               <ArrowRight className="sac-queue-arrow" />
             </button>)}
@@ -851,7 +877,7 @@ export function AutomationPlatform({
           {state.executions.map((execution) => (
             <button key={execution.id} className={selectedExecution?.id === execution.id ? "is-active" : ""} onClick={() => setSelectedExecutionId(execution.id)}>
               <StateBadge status={execution.status} />
-              <span><strong>{state.workflows.find((item) => item.id === execution.workflowId)?.name || execution.workflowId}</strong><small>{execution.mode} · v{execution.workflowVersion}</small></span>
+              <span><strong>{state.workflows.find((item) => item.id === execution.workflowId)?.name || execution.workflowId}</strong><small>{executionModeLabel(execution.mode)}</small></span>
               <time>{formatDate(execution.startedAt)}</time>
             </button>
           ))}
@@ -860,8 +886,9 @@ export function AutomationPlatform({
         {selectedExecution ? (
           <section className="execution-inspect">
             <header>
-              <div><StateBadge status={selectedExecution.status} /><h2>{state.workflows.find((item) => item.id === selectedExecution.workflowId)?.name}</h2><p>{selectedExecution.id}</p></div>
-              <button className="button secondary" onClick={async () => {
+              <div><StateBadge status={selectedExecution.status} /><h2>{state.workflows.find((item) => item.id === selectedExecution.workflowId)?.name}</h2><p title={`ID ${selectedExecution.id}`}>{executionModeLabel(selectedExecution.mode)} · versión {selectedExecution.workflowVersion}</p></div>
+              {/* Reintentar solo tiene sentido si la ejecución falló. */}
+              {selectedExecution.status === "error" ? <button className="button secondary" onClick={async () => {
                 try {
                   await retryPlatformExecution(selectedExecution.id);
                   await refresh();
@@ -869,25 +896,25 @@ export function AutomationPlatform({
                 } catch (error) {
                   onToast({ tone: "warning", title: "No se pudo reintentar", detail: error instanceof Error ? error.message : "Error desconocido." });
                 }
-              }} disabled={!canOperate}><ArrowsClockwise /> Reintentar</button>
+              }} disabled={!canOperate}><ArrowsClockwise /> Reintentar</button> : null}
             </header>
             <div className="execution-facts">
               <span><small>Inicio</small><strong>{formatDate(selectedExecution.startedAt)}</strong></span>
               <span><small>Duración</small><strong>{durationLabel(selectedExecution)}</strong></span>
-              <span><small>Modo</small><strong>{selectedExecution.mode}</strong></span>
-              <span><small>Salida</small><strong>{selectedExecution.output.length} items</strong></span>
+              <span><small>Cómo partió</small><strong>{executionModeLabel(selectedExecution.mode)}</strong></span>
+              <span><small>Resultado</small><strong>{selectedExecution.output.length} {selectedExecution.output.length === 1 ? "elemento" : "elementos"}</strong></span>
             </div>
-            <h3>Recorrido por nodos</h3>
+            <h3>Pasos</h3>
             <ol className="platform-run-log">
               {selectedExecution.nodeRuns.map((run, index) => (
                 <li key={`${run.nodeId}-${index}`} className={run.status}>
                   <span>{run.status === "success" ? <Check /> : <WarningCircle />}</span>
-                  <div><strong>{run.nodeName}</strong><small>{run.nodeType} · {run.itemsIn} entrada · {run.itemsOut} salida</small>{run.error ? <p>{run.error}</p> : null}</div>
+                  <div><strong>{run.nodeName}</strong><small title={run.nodeType}>{run.itemsIn} {run.itemsIn === 1 ? "entrada" : "entradas"} · {run.itemsOut} {run.itemsOut === 1 ? "salida" : "salidas"}</small>{run.error ? <p>{run.error}</p> : null}</div>
                   <time>{Math.max(0, Date.parse(run.finishedAt) - Date.parse(run.startedAt))} ms</time>
                 </li>
               ))}
             </ol>
-            <details className="execution-data"><summary>Ver datos de salida</summary><pre>{JSON.stringify(selectedExecution.output, null, 2)}</pre></details>
+            <details className="execution-data"><summary>Ver datos técnicos de salida</summary><pre>{JSON.stringify(selectedExecution.output, null, 2)}</pre></details>
           </section>
         ) : <EmptyPlatform title="Selecciona una ejecución" copy="Revisa el recorrido, tiempos, errores y datos de salida." />}
       </div>
