@@ -128,6 +128,8 @@ export interface SacFlowRepository {
    * un registro sin rol, ingreso, ajustes ni clientes ocultos se elimina.
    */
   setUserHiddenBrands(input: SetUserHiddenBrandsInput): Promise<UserAccessRecord | undefined>;
+  /** Activa o apaga WhatsApp para una persona (solo admin principal). Activado por defecto. */
+  setUserWhatsApp(input: SetUserWhatsAppInput): Promise<UserAccessRecord | undefined>;
   /** Registra un inicio de sesión exitoso (nombre y fecha). */
   recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void>;
   /** Ajustes de roles de base y roles propios guardados. */
@@ -153,6 +155,14 @@ export interface SetUserPermissionOverridesInput {
   name?: string | null;
   add: Permission[];
   remove: Permission[];
+  updatedBy: string;
+  at: string;
+}
+
+export interface SetUserWhatsAppInput {
+  email: string;
+  name?: string | null;
+  enabled: boolean;
   updatedBy: string;
   at: string;
 }

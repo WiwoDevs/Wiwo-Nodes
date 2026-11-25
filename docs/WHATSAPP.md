@@ -33,7 +33,7 @@ Teléfono de la marca ──(WhatsApp Web)── worker de WhatsApp ──(rutas
 - **Mensajes entrantes.** Se guardan como interacciones `channel: "whatsapp"`, `source: "whatsapp"`, `type: "dm"`, con `externalId` estable `wa:<lineId>:<messageId>` (un reenvío no duplica). Pasan por `insertInteractions` y el protocolo SAC, como los de Metricool, así que la bandeja en vivo los ve al instante. En `metricoolRef`, `conversationId`/`actorId`/`recipient` llevan la clave del chat, para que la bandeja agrupe por persona, y `whatsapp` guarda `{ lineId, chatId, messageId }`. Se ignoran grupos, estados, listas de difusión, canales, reacciones y mensajes técnicos.
 - **Respuestas desde el teléfono.** Un mensaje escrito en el teléfono de la marca entra como saliente y cierra el caso como "Respondido por el equipo".
 - **Responder.** Se usa `POST /api/interactions/:id/reply`, como cualquier DM. Para WhatsApp la API deja la entrega `pending` ("en cola") y responde `meta.delivery: "queued"`. Cuando el número está conectado y cumplió su pausa, el worker la reserva con un lease de 2 min, marca el chat como leído, muestra "escribiendo…", envía y confirma (`sent` con el id del mensaje). Si el envío falla antes de escribir en la conexión, queda `failed`. Si no se sabe si salió, queda `uncertain` y se concilia a mano, nunca se reenvía sola. El eco del mensaje enviado no vuelve como mensaje nuevo.
-- **Cortacorriente propio.** Los envíos por WhatsApp salen solo con `SAC_FLOW_WHATSAPP_SENDS_ENABLED=true` (apagado por defecto: solo borradores, `423 WHATSAPP_SENDS_DISABLED`). Para WhatsApp reemplaza a `SAC_FLOW_DISABLE_OUTBOUND_SENDS` y `SAC_FLOW_ENABLE_MANUAL_REPLIES`, que siguen gobernando solo Metricool; así se puede probar WhatsApp sin abrir respuestas a Metricool. En una emergencia hay que apagar los dos.
+- **Por persona, en la base.** Quién usa WhatsApp no es una variable de entorno: es un ajuste individual de cada persona (**Usuarios y roles → persona → WhatsApp**, `user_access.whatsapp_enabled`), **activado por defecto** para todas (migración `0025_user_whatsapp_enabled.sql`). Solo un admin principal lo apaga; apagado, la persona no ve Gestión WhatsApp y la API rechaza sus envíos (`403 WHATSAPP_DISABLED_FOR_USER`). `SAC_FLOW_DISABLE_OUTBOUND_SENDS` y `SAC_FLOW_ENABLE_MANUAL_REPLIES` siguen gobernando solo Metricool.
 - **Sin envío automático.** WhatsApp solo envía lo que aprobó una persona: la API rechaza `approvedByHuman: false` (`WHATSAPP_HUMAN_ONLY`), la cola automática salta WhatsApp y el protocolo SAC nunca recomienda `auto_reply` efectivo para este canal (`WHATSAPP_MANUAL_ONLY`).
 - **Una marca por número.** Cada número (`whatsapp_lines`) pertenece a una marca, y sus chats entran a la cuenta de esa marca. Un cliente oculto no recibe mensajes de WhatsApp.
 
@@ -72,11 +72,9 @@ Si un mensaje no cabe en el ritmo, espera su turno en la cola; nunca se descarta
 
 1. En `.env`:
    ```
-   SAC_FLOW_WHATSAPP_ENABLED=true
-   SAC_FLOW_WHATSAPP_WORKER_KEY=<32+ caracteres al azar>
-   # Para probar respuestas (sin abrir Metricool):
-   SAC_FLOW_WHATSAPP_SENDS_ENABLED=true
+   SAC_FLOW_WHATSAPP_WORKER_KEY=<32+ caracteres al azar>   # opcional: sin ella se deriva de SAC_FLOW_API_KEY
    ```
+   Con la clave, WhatsApp queda en vivo y cada persona lo tiene activado salvo que un admin principal se lo apague.
    Genera la clave con `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`.
 2. `npm run dev:all` en una terminal y `npm run dev:whatsapp` en otra. Si tu `.env` tiene `SAC_FLOW_INTERNAL_API_URL=http://api:8787` (la dirección dentro de Docker), arranca el worker con `SAC_FLOW_INTERNAL_API_URL=http://127.0.0.1:8787`.
 3. Entra como **admin principal** (`SAC_FLOW_AUTH_ADMIN_EMAILS`, o cualquier admin si no hay inicio de sesión) → **Gestión WhatsApp** → **Números de WhatsApp** → **Agregar número**. Elige la marca y "Escanear QR" (o "Código de 8 caracteres" con el número de la marca).
@@ -89,8 +87,8 @@ Con `METRICOOL_MODE=demo` no hay worker. Desde **Números de WhatsApp**, "Agrega
 
 ### Producción
 
-- En el `.env` del servidor: `SAC_FLOW_WHATSAPP_ENABLED=true` y `SAC_FLOW_WHATSAPP_WORKER_KEY`. La API y el worker leen la misma clave.
-- El servicio `whatsapp` de `docker-compose.production.yml` tiene `profiles: ["whatsapp"]` y no arranca solo. Se enciende con `docker compose -f docker-compose.production.yml --profile whatsapp up -d whatsapp`. Guarda las sesiones en el volumen `sac-flow-whatsapp-auth`.
+- No hace falta configurar nada en el servidor: si no se define `SAC_FLOW_WHATSAPP_WORKER_KEY`, la API y el worker derivan la misma clave de `SAC_FLOW_API_KEY` (HMAC de un solo sentido; no expone la clave del sitio ni sirve como ella). Quién puede usar WhatsApp se decide por persona en **Usuarios y roles** (activado por defecto).
+- El servicio `whatsapp` de `docker-compose.production.yml` arranca con el resto del stack; sin números vinculados no hace nada. Para detenerlo: `docker compose -f docker-compose.production.yml stop whatsapp`. Guarda las sesiones en el volumen `sac-flow-whatsapp-auth`.
 - Cambiar `docker-compose*.yml` hace que el deploy pida **aprobación manual en el servidor**.
 - Salud: `GET http://127.0.0.1:8789/health` dentro del contenedor (gateway, números, conectados, último error).
 - Respaldo: el volumen de sesiones **no** entra en el `pg_dump`. Perderlo solo obliga a volver a vincular, así que no se respalda: es preferible a tener copias de credenciales repartidas.

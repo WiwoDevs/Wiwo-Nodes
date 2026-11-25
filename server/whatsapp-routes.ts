@@ -37,7 +37,9 @@ export type WhatsAppMode = "demo" | "live" | "disabled";
 
 export function whatsappMode(config: AppConfig): WhatsAppMode {
   if (config.demoMode) return "demo";
-  return config.whatsapp.enabled && config.whatsapp.workerKey ? "live" : "disabled";
+  // Con la clave del worker configurada WhatsApp está en vivo; cada persona lo tiene activado o
+  // no según su ajuste en la base (Usuarios y roles).
+  return config.whatsapp.workerKey ? "live" : "disabled";
 }
 
 export interface WhatsAppRouteDeps {
@@ -177,7 +179,7 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
   app.post("/api/whatsapp/lines", async (request, reply) => {
     const actor = requireLineAdmin(request);
     if (whatsappMode(config) === "disabled") {
-      throw new ApiError(503, "WHATSAPP_DISABLED", "WhatsApp no está habilitado en este servidor (SAC_FLOW_WHATSAPP_ENABLED y SAC_FLOW_WHATSAPP_WORKER_KEY).");
+      throw new ApiError(503, "WHATSAPP_DISABLED", "WhatsApp no está habilitado en este servidor: falta SAC_FLOW_WHATSAPP_WORKER_KEY.");
     }
     const body = createLineBody.parse(request.body);
     await activeBrand(body.brandId);

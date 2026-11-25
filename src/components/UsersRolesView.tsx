@@ -23,7 +23,7 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
-import { createAccessRole, deleteAccessRole, listUserAccess, setUserAccessRole, setUserHiddenBrands, setUserPermissions, updateAccessRole } from "../lib/api";
+import { createAccessRole, deleteAccessRole, listUserAccess, setUserAccessRole, setUserHiddenBrands, setUserPermissions, setUserWhatsApp, updateAccessRole } from "../lib/api";
 import type { AccessControlListing, AccessRole, RoleView, UserAccessView } from "../types";
 import { confirmAction } from "../lib/confirm";
 import { BusyOrb } from "./ThinkingOrb";
@@ -189,6 +189,13 @@ export function UsersRolesView({ onToast, brands = [], brandsLoading = false }: 
               ? `${user.name || user.email} deja de ver ${brandIds.length} cliente${brandIds.length === 1 ? "" : "s"} en su siguiente acción.`
               : `${user.name || user.email} vuelve a ver todos los clientes en su siguiente acción.`,
           }))}
+          onSaveWhatsApp={(user, enabled) => run(`user:${user.email}`, () => setUserWhatsApp(user.email, enabled), () => ({
+            tone: "success",
+            title: enabled ? "WhatsApp activado" : "WhatsApp apagado",
+            detail: enabled
+              ? `${user.name || user.email} puede usar Gestión WhatsApp y enviar por WhatsApp.`
+              : `${user.name || user.email} deja de ver Gestión WhatsApp y no puede enviar por WhatsApp.`,
+          }))}
           onSavePermissions={(user, permissions) => run(`user:${user.email}`, () => setUserPermissions(user.email, permissions), () => ({
             tone: "success",
             title: permissions === null ? "Ajustes quitados" : "Permisos actualizados",
@@ -238,9 +245,10 @@ type PeopleTabProps = {
   brands: HideableBrand[];
   brandsLoading: boolean;
   onSaveHiddenBrands: (user: UserAccessView, brandIds: string[]) => Promise<unknown>;
+  onSaveWhatsApp: (user: UserAccessView, enabled: boolean) => Promise<unknown>;
 };
 
-function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, onSavePermissions, brands, brandsLoading, onSaveHiddenBrands }: PeopleTabProps) {
+function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, onSavePermissions, brands, brandsLoading, onSaveHiddenBrands, onSaveWhatsApp }: PeopleTabProps) {
   const [openEmail, setOpenEmail] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -339,6 +347,9 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
                     )}
                     {user.permissionsAdd.length || user.permissionsRemove.length ? (
                       <span className="users-roles-chip users-roles-chip--personal">Permisos ajustados</span>
+                    ) : null}
+                    {user.whatsappEnabled === false ? (
+                      <span className="users-roles-chip users-roles-chip--personal">Sin WhatsApp</span>
                     ) : null}
                     {user.hiddenBrandIds?.length ? (
                       <span className="users-roles-chip users-roles-chip--personal">{user.hiddenBrandIds.length} cliente{user.hiddenBrandIds.length === 1 ? "" : "s"} oculto{user.hiddenBrandIds.length === 1 ? "" : "s"}</span>
@@ -458,6 +469,7 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
             brands={brands}
             brandsLoading={brandsLoading}
             onSaveHiddenBrands={onSaveHiddenBrands}
+            onSaveWhatsApp={onSaveWhatsApp}
           />
         ) : null;
       })() : null}
@@ -477,10 +489,11 @@ type PersonDrawerProps = {
   brands: HideableBrand[];
   brandsLoading: boolean;
   onSaveHiddenBrands: (user: UserAccessView, brandIds: string[]) => Promise<unknown>;
+  onSaveWhatsApp: (user: UserAccessView, enabled: boolean) => Promise<unknown>;
 };
 
 /** Panel lateral de una persona: su rol, lo que puede hacer y los clientes que ve. */
-function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onApplyRole, onSavePermissions, brands, brandsLoading, onSaveHiddenBrands }: PersonDrawerProps) {
+function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onApplyRole, onSavePermissions, brands, brandsLoading, onSaveHiddenBrands, onSaveWhatsApp }: PersonDrawerProps) {
   const [draft, setDraft] = useState<string[]>(user.permissions);
   const savedHidden = useMemo(() => user.hiddenBrandIds ?? [], [user.hiddenBrandIds]);
   const [hiddenDraft, setHiddenDraft] = useState<string[]>(savedHidden);
@@ -677,6 +690,30 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
             <section className="users-roles-drawer__section">
               <h3>Clientes que ve</h3>
               <p className="users-roles-drawer__hint">Es admin principal: ve todos los clientes.</p>
+            </section>
+          ) : null}
+
+          {!revoked ? (
+            <section className="users-roles-drawer__section" aria-labelledby="users-roles-whatsapp-title">
+              <h3 id="users-roles-whatsapp-title">WhatsApp</h3>
+              <label className={`users-roles-brand users-roles-whatsapp${user.whatsappEnabled !== false ? " is-on" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={user.whatsappEnabled !== false}
+                  disabled={busy || !master}
+                  onChange={(event) => void onSaveWhatsApp(user, event.target.checked)}
+                />
+                <span>
+                  <strong>Puede usar WhatsApp</strong>
+                  <small>Ve Gestión WhatsApp y envía respuestas por WhatsApp.</small>
+                </span>
+              </label>
+              <p className="users-roles-drawer__hint">
+                {master
+                  ? "Activado por defecto para todas las personas. Apagado, no ve Gestión WhatsApp y la API rechaza sus envíos; sus casos no cambian."
+                  : "Solo un admin principal lo cambia."}
+                {user.whatsappEnabled === false && user.whatsappUpdatedBy ? ` Apagado por ${user.whatsappUpdatedBy}${when(user.whatsappUpdatedAt) ? ` (${when(user.whatsappUpdatedAt)})` : ""}.` : ""}
+              </p>
             </section>
           ) : null}
         </div>

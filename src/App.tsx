@@ -507,6 +507,8 @@ export function App({ onSignOut, sessionActor }: {
     if (!navActor) return destination === "platform-home";
     // Solo se abre lo que está en el menú (las secciones retiradas no tienen ruta).
     if (!navigation.some((item) => item.id === destination)) return false;
+    // WhatsApp se activa por persona en Usuarios y roles (también para admins).
+    if (destination === "manual-whatsapp" && navActor.whatsappEnabled === false) return false;
     if (navActor.role === "admin") return true;
     if (navigation.some((item) => item.id === destination && item.adminOnly)) return false;
     const required = VIEW_PERMISSIONS[destination];

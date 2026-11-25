@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type SacFlowApp } from "../../server/app.js";
-import { loadConfig } from "../../server/config.js";
+import { loadConfig, whatsappWorkerKey } from "../../server/config.js";
 import { JsonRepository } from "../../server/repository.js";
 import { normalizeBaileysMessage, personJid, phoneFromJid } from "../../server/whatsapp/messages.js";
 import { SendPacer, reconnectDelayMs } from "../../server/whatsapp/pacing.js";
@@ -177,7 +177,10 @@ describe("WhatsAppLineService en demo", () => {
   });
 });
 
-async function liveApp(extraEnv: Record<string, string> = {}) {
+async function liveApp(
+  extraEnv: Record<string, string> = {},
+  identityFor?: (config: ReturnType<typeof loadConfig>) => IdentityService,
+) {
   const directory = await tempDir();
   const config = loadConfig({
     METRICOOL_MODE: "live",
@@ -187,15 +190,13 @@ async function liveApp(extraEnv: Record<string, string> = {}) {
     SAC_FLOW_API_KEY: API_KEY,
     SAC_FLOW_DATA_FILE: path.join(directory, "store.json"),
     SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY: "test-credential-key-with-32-characters",
-    // Metricool queda cerrado: WhatsApp usa su propio cortacorriente.
+    // Metricool queda cerrado: WhatsApp se habilita por persona en la base, no con estas variables.
     SAC_FLOW_DISABLE_OUTBOUND_SENDS: "true",
     SAC_FLOW_ENABLE_MANUAL_REPLIES: "false",
-    SAC_FLOW_WHATSAPP_ENABLED: "true",
-    SAC_FLOW_WHATSAPP_SENDS_ENABLED: "true",
     SAC_FLOW_WHATSAPP_WORKER_KEY: WORKER_KEY,
     ...extraEnv,
   }, directory);
-  const app = await buildApp({ config });
+  const app = await buildApp({ config, ...(identityFor ? { identity: identityFor(config) } : {}) });
   apps.push(app);
   const person = { "x-api-key": API_KEY };
   const worker = { [WHATSAPP_WORKER_KEY_HEADER]: WORKER_KEY };
@@ -300,10 +301,19 @@ describe("WhatsApp por la API (worker simulado)", () => {
     expect(wrong.statusCode).toBe(401);
   });
 
-  it("no expone las rutas del worker si WhatsApp no está habilitado", async () => {
-    const { app, worker } = await liveApp({ SAC_FLOW_WHATSAPP_ENABLED: "false" });
-    const response = await app.inject({ method: "GET", url: "/api/internal/whatsapp/lines", headers: worker });
-    expect(response.statusCode).toBe(404);
+  it("sin clave propia, el worker usa una derivada de la clave del sitio (sin configurar nada más)", async () => {
+    const { app } = await liveApp({ SAC_FLOW_WHATSAPP_WORKER_KEY: "" });
+    const derived = whatsappWorkerKey({ SAC_FLOW_API_KEY: API_KEY })!;
+    expect(derived).toHaveLength(43);
+    expect(derived).not.toContain(API_KEY);
+    const ok = await app.inject({ method: "GET", url: "/api/internal/whatsapp/lines", headers: { [WHATSAPP_WORKER_KEY_HEADER]: derived } });
+    expect(ok.statusCode).toBe(200);
+    // La clave del sitio no abre las rutas del worker.
+    const site = await app.inject({ method: "GET", url: "/api/internal/whatsapp/lines", headers: { [WHATSAPP_WORKER_KEY_HEADER]: API_KEY } });
+    expect(site.statusCode).toBe(401);
+    // Una clave propia manda sobre la derivada; sin ninguna de las dos, WhatsApp queda apagado.
+    expect(whatsappWorkerKey({ SAC_FLOW_API_KEY: API_KEY, SAC_FLOW_WHATSAPP_WORKER_KEY: WORKER_KEY })).toBe(WORKER_KEY);
+    expect(whatsappWorkerKey({})).toBeUndefined();
   });
 
   it("guarda los mensajes como DMs de WhatsApp sin duplicarlos y deja la respuesta en cola para el worker", async () => {
@@ -397,28 +407,78 @@ describe("WhatsApp por la API (worker simulado)", () => {
     expect(echo.json().data).toMatchObject({ created: 0, ignored: 1 });
   });
 
-  it("WhatsApp tiene su propio cortacorriente, separado del de Metricool", async () => {
-    const { app, person, worker } = await liveApp({ SAC_FLOW_WHATSAPP_SENDS_ENABLED: "false" });
-    const lineId = await connectedLine(app, person, worker);
+  it("WhatsApp se activa por persona en la base: activado por defecto y un admin principal lo apaga", async () => {
+    const actors: Record<string, ActorContext> = {
+      principal: { userId: "g:1", displayName: "Principal", tenantId: "wiwo", role: "admin", brandIds: "all", source: "google", email: "principal@demo.test" },
+      agente: { userId: "g:3", displayName: "Agente", tenantId: "wiwo", role: "agent", brandIds: ["brand-01"], source: "google", email: "agente@demo.test" },
+    };
+    const { app, worker } = await liveApp({
+      SAC_FLOW_AUTH_MODE: "google",
+      GOOGLE_OAUTH_CLIENT_ID: "cliente-de-prueba.apps.googleusercontent.com",
+      GOOGLE_OAUTH_CLIENT_SECRET: "secreto-de-prueba",
+      SAC_FLOW_AUTH_ADMIN_EMAILS: "principal@demo.test",
+    }, (config) => ({
+      config: config.auth,
+      async resolveActor(cookie) {
+        const actor = actors[cookie];
+        if (!actor) throw new IdentityError(401, "SESSION_INVALID", "Sin sesión.");
+        return actor;
+      },
+    }));
+    const as = (who: string) => ({ cookie: `wiwo_nodes_session=${who}` });
+    await app.sacFlow.repository.recordUserSignIn({ email: "agente@demo.test", name: "Agente", at: new Date().toISOString() });
+    const lineId = await connectedLine(app, as("principal"), worker);
     await app.inject({
       method: "POST",
       url: `/api/internal/whatsapp/lines/${lineId}/messages`,
       headers: worker,
       payload: { messages: [inbound("WA-K1", "Hola")] },
     });
-    const list = await app.inject({ method: "GET", url: "/api/interactions?pageSize=200", headers: person });
-    const rows = list.json().data as Array<{ id: string; channel: string; version: number; direction: string; status: string }>;
+    const rows = (await app.inject({ method: "GET", url: "/api/interactions?pageSize=200", headers: as("agente") })).json().data as
+      Array<{ id: string; channel: string; version: number }>;
     const whatsapp = rows.find((item) => item.channel === "whatsapp")!;
-    const blocked = await app.inject({
+    const send = (key: string) => app.inject({
       method: "POST",
       url: `/api/interactions/${whatsapp.id}/reply`,
-      headers: { ...person, "idempotency-key": "wa-kill-1" },
+      headers: { ...as("agente"), "idempotency-key": key },
       payload: { text: "Hola, ¿en qué te ayudamos?", mode: "send", approvedByHuman: true, expectedVersion: whatsapp.version },
     });
-    expect(blocked.statusCode).toBe(423);
-    expect(blocked.json().error.code).toBe("WHATSAPP_SENDS_DISABLED");
 
-    // Con WhatsApp abierto, Metricool sigue cerrado por sus propios interruptores.
+    // Por defecto está activado.
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: as("agente") })).json().data.whatsappEnabled).toBe(true);
+    const listing = await app.inject({ method: "GET", url: "/api/admin/users", headers: as("principal") });
+    expect(listing.json().data.users.find((user: { email: string }) => user.email === "agente@demo.test").whatsappEnabled).toBe(true);
+
+    // Un admin principal lo apaga: la persona no puede enviar por WhatsApp.
+    const toggle = (enabled: boolean) => app.inject({
+      method: "PUT",
+      url: "/api/admin/users/whatsapp",
+      headers: as("principal"),
+      payload: { email: "agente@demo.test", enabled },
+    });
+    const off = await toggle(false);
+    expect(off.statusCode).toBe(200);
+    expect(off.json().data.user).toMatchObject({ whatsappEnabled: false, whatsappUpdatedBy: "Principal" });
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: as("agente") })).json().data.whatsappEnabled).toBe(false);
+    const blocked = await send("wa-user-1");
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json().error.code).toBe("WHATSAPP_DISABLED_FOR_USER");
+    // Solo un admin principal lo cambia.
+    const byAgent = await app.inject({
+      method: "PUT",
+      url: "/api/admin/users/whatsapp",
+      headers: as("agente"),
+      payload: { email: "agente@demo.test", enabled: true },
+    });
+    expect(byAgent.statusCode).toBe(403);
+
+    // Activado de nuevo, la respuesta queda en cola.
+    expect((await toggle(true)).json().data.user.whatsappEnabled).toBe(true);
+    const queued = await send("wa-user-2");
+    expect(queued.statusCode).toBe(200);
+    expect(queued.json().meta.delivery).toBe("queued");
+
+    // WhatsApp habilitado no abre Metricool: sigue cerrado por sus propios interruptores.
     const { app: open, person: openPerson } = await liveApp();
     const metricool = (await open.inject({ method: "GET", url: "/api/interactions?pageSize=200", headers: openPerson })).json().data
       .find((item: { channel: string; direction: string; status: string; brandId: string }) =>

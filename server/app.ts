@@ -58,6 +58,7 @@ import {
   brandVisibilitySchema,
   brandSacUsageSchema,
   userHiddenBrandsSchema,
+  userWhatsAppSchema,
   messageVolumeQuerySchema,
   brandWorkbookUpdateSchema,
   manualRecordsQuerySchema,
@@ -2036,6 +2037,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         actor = { ...actor, brandIds: base.filter((brandId) => !blocked.has(brandId)) };
       }
     }
+    // WhatsApp por persona (Usuarios y roles): activado salvo que un admin principal lo apague.
+    if (actor.email) {
+      const whatsappEnabled = (await accessDirectory.find(actor.email))?.whatsappEnabled !== false;
+      if (!whatsappEnabled) actor = { ...actor, whatsappEnabled: false };
+    }
     sessionActors.set(request, actor);
   });
 
@@ -2399,7 +2405,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       autoReplyDispatchMode: config.operations.autoReplyDispatchMode,
       autoReplyMaxPending: config.operations.autoReplyMaxPending,
       whatsapp: whatsappMode(config),
-      whatsappSendsEnabled: config.whatsapp.sendsEnabled,
     },
     security: {
       apiKeyRequired: config.security.requireApiKey,
@@ -2663,6 +2668,32 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return { data: { ...listing, user: listing.users.find((item) => item.email === body.email) }, meta: apiMeta(config) };
   });
 
+  /**
+   * Activa o apaga WhatsApp para una persona (solo admin principal). Apagado, no ve Gestión
+   * WhatsApp y la API rechaza sus envíos por WhatsApp; sus casos y el historial no cambian.
+   */
+  app.put("/api/admin/users/whatsapp", async (request) => {
+    const actor = requireRole(config, request, "admin");
+    if (!isMasterAdmin(identityConfig, actor.email)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede activar o apagar WhatsApp a una persona.");
+    }
+    const body = userWhatsAppSchema.parse(request.body);
+    const before = await listAccessControl(identityConfig, repository, actor.email);
+    if (!before.users.some((user) => user.email === body.email)) {
+      throw new ApiError(404, "USER_NOT_FOUND", "Esa persona no está en la lista. Asígnale un rol primero.");
+    }
+    await repository.setUserWhatsApp({
+      email: body.email,
+      enabled: body.enabled,
+      updatedBy: actor.displayName,
+      at: new Date().toISOString(),
+    });
+    accessDirectory.invalidate();
+    request.log.info({ event: "user_whatsapp_changed", enabled: body.enabled, by: actor.userId }, "WhatsApp de una persona actualizado.");
+    const listing = await listAccessControl(identityConfig, repository, actor.email);
+    return { data: { ...listing, user: listing.users.find((item) => item.email === body.email) }, meta: apiMeta(config) };
+  });
+
   /** Crea un rol propio a partir de un rol de base. */
   app.post("/api/admin/roles", async (request) => {
     const actor = requireRole(config, request, "admin");
@@ -2753,6 +2784,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         ...(actor.email ? { email: actor.email } : {}),
         // Admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS): el único que oculta o muestra clientes.
         masterAdmin: actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+        // Ajuste individual de WhatsApp (activado por defecto).
+        whatsappEnabled: actor.whatsappEnabled !== false,
       },
       meta: apiMeta(config),
     };
@@ -4742,11 +4775,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       // WhatsApp (live) tiene su propio cortacorriente: los de Metricool no lo abren ni lo
       // cierran, así se puede probar WhatsApp sin habilitar respuestas a Metricool.
       if (whatsappQueued) {
-        if (!config.whatsapp.sendsEnabled) {
+        // WhatsApp se habilita por persona en la base (Usuarios y roles), no por variable de entorno.
+        if (actor.whatsappEnabled === false) {
           throw new ApiError(
-            423,
-            "WHATSAPP_SENDS_DISABLED",
-            "Los envíos por WhatsApp están desactivados en este entorno (SAC_FLOW_WHATSAPP_SENDS_ENABLED); solo se pueden guardar borradores.",
+            403,
+            "WHATSAPP_DISABLED_FOR_USER",
+            "Un admin principal te desactivó WhatsApp; solo puedes guardar borradores.",
           );
         }
       } else if (config.operations.outboundSendsDisabled) {

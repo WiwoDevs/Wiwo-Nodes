@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { StoredPostThumbnail } from "./post-thumbnails.js";
 import { createDemoStore } from "./seed.js";
 import { createDemoAutomationState } from "./automation-seed.js";
-import type { SacFlowRepository, SetUserAccessRoleInput, SetUserHiddenBrandsInput, SetUserPermissionOverridesInput } from "./repository-contract.js";
+import type { SacFlowRepository, SetUserAccessRoleInput, SetUserHiddenBrandsInput, SetUserPermissionOverridesInput, SetUserWhatsAppInput } from "./repository-contract.js";
 import type {
   Brand,
   CatalogStore,
@@ -887,6 +887,31 @@ export class JsonRepository implements SacFlowRepository {
     });
   }
 
+  async setUserWhatsApp(input: SetUserWhatsAppInput): Promise<UserAccessRecord | undefined> {
+    return this.mutate((store) => {
+      const records = store.userAccess ?? [];
+      const index = records.findIndex((record) => record.email === input.email);
+      const current = index >= 0 ? records[index] : undefined;
+      const { whatsappEnabled: _enabled, whatsappUpdatedBy: _by, whatsappUpdatedAt: _at, ...rest } = current ?? { email: input.email, name: null };
+      // Ausente = activado: solo se guarda cuando alguien lo apaga.
+      const next: UserAccessRecord = {
+        ...rest,
+        email: input.email,
+        name: input.name ?? current?.name ?? null,
+        ...(input.enabled ? {} : { whatsappEnabled: false, whatsappUpdatedBy: input.updatedBy, whatsappUpdatedAt: input.at }),
+      };
+      const keep = keepUserAccess(next);
+      if (index >= 0) {
+        if (keep) records[index] = next;
+        else records.splice(index, 1);
+      } else if (keep) {
+        records.push(next);
+      }
+      store.userAccess = records;
+      return keep ? next : undefined;
+    });
+  }
+
   async recordUserSignIn(input: { email: string; name: string | null; at: string }): Promise<void> {
     await this.mutate((store) => {
       const records = store.userAccess ?? [];
@@ -1061,8 +1086,17 @@ export class JsonRepository implements SacFlowRepository {
 /** Ajustes personales de permisos de un registro, para conservarlos al cambiar su rol. */
 /** Clientes ocultos guardados de una persona, para conservarlos al cambiar otra cosa. */
 function hiddenBrandsOf(record: UserAccessRecord | undefined): Partial<UserAccessRecord> {
-  if (!record?.hiddenBrandIds?.length) return {};
+  // WhatsApp apagado también se conserva al cambiar el rol o los permisos.
+  const whatsapp: Partial<UserAccessRecord> = record?.whatsappEnabled === false
+    ? {
+      whatsappEnabled: false,
+      ...(record.whatsappUpdatedBy ? { whatsappUpdatedBy: record.whatsappUpdatedBy } : {}),
+      ...(record.whatsappUpdatedAt ? { whatsappUpdatedAt: record.whatsappUpdatedAt } : {}),
+    }
+    : {};
+  if (!record?.hiddenBrandIds?.length) return whatsapp;
   return {
+    ...whatsapp,
     hiddenBrandIds: record.hiddenBrandIds,
     ...(record.hiddenBrandsUpdatedBy ? { hiddenBrandsUpdatedBy: record.hiddenBrandsUpdatedBy } : {}),
     ...(record.hiddenBrandsUpdatedAt ? { hiddenBrandsUpdatedAt: record.hiddenBrandsUpdatedAt } : {}),
@@ -1082,5 +1116,5 @@ function overridesOf(record: UserAccessRecord | undefined): Partial<UserAccessRe
 
 /** Un registro se conserva mientras tenga rol asignado, ingreso, ajustes personales o clientes ocultos. */
 function keepUserAccess(record: UserAccessRecord): boolean {
-  return Boolean(record.role || record.lastSignInAt || record.permissionsAdd?.length || record.permissionsRemove?.length || record.hiddenBrandIds?.length);
+  return Boolean(record.role || record.lastSignInAt || record.permissionsAdd?.length || record.permissionsRemove?.length || record.hiddenBrandIds?.length || record.whatsappEnabled === false);
 }

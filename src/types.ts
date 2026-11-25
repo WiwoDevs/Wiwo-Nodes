@@ -28,6 +28,8 @@ export interface SessionActor {
   email?: string;
   /** Admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS): el único que oculta o muestra clientes. */
   masterAdmin?: boolean;
+  /** WhatsApp para esta persona (Usuarios y roles); false = no ve Gestión WhatsApp. */
+  whatsappEnabled?: boolean;
 }
 
 /** Rol asignable desde "Usuarios y roles": id de un rol (de base o propio) o "none" (sin acceso). */
@@ -80,6 +82,10 @@ export interface UserAccessView {
   hiddenBrandIds?: string[];
   hiddenBrandsUpdatedBy?: string;
   hiddenBrandsUpdatedAt?: string;
+  /** WhatsApp para esta persona (ajuste individual; activado por defecto). */
+  whatsappEnabled?: boolean;
+  whatsappUpdatedBy?: string;
+  whatsappUpdatedAt?: string;
 }
 
 export interface UserAccessPolicy {

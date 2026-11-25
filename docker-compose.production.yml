@@ -79,10 +79,8 @@ x-sac-flow-app: &sac-flow-app
     SAC_FLOW_AUTH_SESSION_TTL_MS: "${SAC_FLOW_AUTH_SESSION_TTL_MS:-432000000}"
     # Clave de solo lectura para /api/integrations/* (METRIQ). Vacia = rutas deshabilitadas.
     SAC_FLOW_SERVICE_API_KEY: "${SAC_FLOW_SERVICE_API_KEY:-}"
-    # WhatsApp por Baileys (no oficial; ver docs/WHATSAPP.md). Apagado por defecto. La API y el
-    # servicio whatsapp comparten la clave interna.
-    SAC_FLOW_WHATSAPP_ENABLED: "${SAC_FLOW_WHATSAPP_ENABLED:-false}"
-    SAC_FLOW_WHATSAPP_SENDS_ENABLED: "${SAC_FLOW_WHATSAPP_SENDS_ENABLED:-false}"
+    # WhatsApp por Baileys (no oficial; ver docs/WHATSAPP.md). La API y el servicio whatsapp
+    # comparten la clave interna; quien puede usarlo se activa por persona en la base (Usuarios y roles).
     SAC_FLOW_WHATSAPP_WORKER_KEY: "${SAC_FLOW_WHATSAPP_WORKER_KEY:-}"
     SAC_FLOW_WHATSAPP_MIN_GAP_MS: "${SAC_FLOW_WHATSAPP_MIN_GAP_MS:-4000}"
     SAC_FLOW_WHATSAPP_MAX_GAP_MS: "${SAC_FLOW_WHATSAPP_MAX_GAP_MS:-12000}"
@@ -153,12 +151,11 @@ services:
       start_period: 10s
       retries: 5
 
-  # Worker de WhatsApp (Baileys). Perfil aparte: solo arranca con
-  # `docker compose -f docker-compose.production.yml --profile whatsapp up -d whatsapp`.
-  # Un solo worker por servidor: dos procesos con la misma sesión se expulsan entre sí.
+  # Worker de WhatsApp (Baileys). Arranca con el resto; su clave con la API se deriva de
+  # SAC_FLOW_API_KEY si no se define SAC_FLOW_WHATSAPP_WORKER_KEY. Sin números vinculados no hace
+  # nada. Un solo worker por servidor: dos procesos con la misma sesión se expulsan entre sí.
   whatsapp:
     <<: *sac-flow-app
-    profiles: ["whatsapp"]
     command: ["npm", "run", "start:whatsapp"]
     restart: unless-stopped
     environment:

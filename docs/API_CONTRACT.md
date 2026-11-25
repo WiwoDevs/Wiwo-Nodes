@@ -550,6 +550,10 @@ Techlab debe exponer esta ruta solo detrás del gateway/red de observabilidad y 
 - Un rol propio lleva un `baseRole` que da el nivel nominal (`role` en `/api/me`); los permisos efectivos salen siempre del rol. `GET /api/me` agrega `roleId`, `roleName` y `permissions` (ausente para Admin, que los tiene todos).
 - Cada inicio de sesión exitoso (Google o `dev`) registra nombre y fecha en `user_access` (PostgreSQL, migración `0018_access_control.sql`, que también crea `access_roles` y guarda los ajustes personales en `user_access.permissions_add`/`permissions_remove`) o en `userAccess` del JSON local; un fallo al registrarlo no impide entrar. Los registros de la API anotan el cambio de rol sin el correo.
 
+### `PUT /api/admin/users/whatsapp`
+
+Solo admin principal (`403 MASTER_ADMIN_REQUIRED` para los demás). Body `{ email, enabled }`: activa o apaga WhatsApp para una persona de la lista (`404 USER_NOT_FOUND` si no está). Apagado, no ve Gestión WhatsApp y la API rechaza sus envíos por WhatsApp (`403 WHATSAPP_DISABLED_FOR_USER`); sus casos y el historial no cambian. Se guarda en `user_access.whatsapp_enabled` (migración `0025_user_whatsapp_enabled.sql`, `true` por defecto para todas las personas) con `whatsapp_updated_by/at`. Responde la lista de Usuarios con `user`; cada persona trae `whatsappEnabled` (y `whatsappUpdatedBy/At` cuando está apagado), y `GET /api/me` trae `whatsappEnabled` de quien inicia sesión.
+
 ### `GET /api/me`
 
 Devuelve el contexto seguro que la UI usa para ajustar acciones de solo lectura, coordinación y supervisión. Requiere identidad de nivel `viewer` o superior.
@@ -1246,7 +1250,7 @@ Comportamiento:
 - En live, un envío aprobado por una persona exige `SAC_FLOW_ENABLE_MANUAL_REPLIES=true` o que las mutaciones generales de Metricool estén habilitadas. Si no, responde `423 MANUAL_REPLIES_DISABLED`. La excepción manual no habilita nodos Metricool ni el dispatcher automático.
 - Un envío manual aprobado no se bloquea localmente por antigüedad: la API crea la entrega e intenta enviarla a Metricool. Metricool/Meta conservan la autoridad final y un rechazo inequívoco queda registrado como entrega `failed`. La auto-respuesta sí exige que el assessment mantenga una ventana elegible.
 
-- **WhatsApp** (`channel: "whatsapp"`, en live) tiene su propio cortacorriente: sin `SAC_FLOW_WHATSAPP_SENDS_ENABLED=true` responde `423 WHATSAPP_SENDS_DISABLED`, y `SAC_FLOW_DISABLE_OUTBOUND_SENDS` / `SAC_FLOW_ENABLE_MANUAL_REPLIES` no lo afectan (siguen gobernando solo Metricool). `/api/health` lo informa en `operations.whatsappSendsEnabled` (y el modo en `operations.whatsapp`).
+- **WhatsApp** (`channel: "whatsapp"`, en live) se habilita **por persona** en la base (`user_access.whatsapp_enabled`, activado por defecto; ver `PUT /api/admin/users/whatsapp`): a quien lo tenga apagado responde `403 WHATSAPP_DISABLED_FOR_USER`. `SAC_FLOW_DISABLE_OUTBOUND_SENDS` / `SAC_FLOW_ENABLE_MANUAL_REPLIES` no lo afectan (siguen gobernando solo Metricool). `/api/health` informa el modo en `operations.whatsapp`.
 - **WhatsApp** (`channel: "whatsapp"`, en live): `send` no contacta a Metricool. La API crea la entrega `pending` y responde `delivery: "queued"`; el worker de WhatsApp la envía cuando el número está conectado y cumplió su pausa (ver [WhatsApp](#whatsapp)). Solo con `approvedByHuman: true` de una persona (`409 WHATSAPP_HUMAN_ONLY`; nunca un actor de servicio). Además: `503 WHATSAPP_DISABLED` si el servidor no tiene WhatsApp habilitado, `422 WHATSAPP_LINE_NOT_FOUND`, `409 WHATSAPP_LINE_UNLINKED` y `409 WHATSAPP_REPEATED_TEXT` cuando el mismo texto exacto ya salió a `SAC_FLOW_WHATSAPP_REPEATED_TEXT_LIMIT` chats de la cuenta en 30 minutos. Una entrega incierta de WhatsApp no bloquea los envíos de Metricool de la misma cuenta, ni al revés. Repetir el `Idempotency-Key` mientras la entrega sigue en cola devuelve `queued` con el mismo `deliveryId`.
 
 Respuesta: `{ data: Interaction, meta: { demoMode, mode, delivery, deliveryId? } }`, donde `delivery` es `draft_saved`, `demo_simulated`, `sent` o `queued` (WhatsApp).
@@ -1267,7 +1271,7 @@ Errores específicos: `DELIVERY_IN_PROGRESS`, `DELIVERY_ALREADY_ACTIVE`, `DELIVE
 
 ### WhatsApp
 
-Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás del adaptador `WhatsAppGateway`. Arquitectura, riesgos y operación: [WHATSAPP.md](WHATSAPP.md). Modo (`meta.whatsappMode`): `demo` (simulado, sin worker), `live` (`SAC_FLOW_WHATSAPP_ENABLED=true` y `SAC_FLOW_WHATSAPP_WORKER_KEY`) o `disabled`.
+Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás del adaptador `WhatsAppGateway`. Arquitectura, riesgos y operación: [WHATSAPP.md](WHATSAPP.md). Modo (`meta.whatsappMode`): `demo` (simulado, sin worker), `live` (con `SAC_FLOW_WHATSAPP_WORKER_KEY` o, sin ella, la clave derivada de `SAC_FLOW_API_KEY`) o `disabled` (sin ninguna de las dos). Quién lo usa se activa por persona en la base (`PUT /api/admin/users/whatsapp`).
 
 **Números** (solo admins principales: `SAC_FLOW_AUTH_ADMIN_EMAILS`, o cualquier admin sin inicio de sesión propio; los demás reciben `403 MASTER_ADMIN_REQUIRED` o `403 FORBIDDEN`):
 
@@ -1286,7 +1290,7 @@ Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás d
 
 **Estado para la bandeja** (cualquier rol con sesión): `GET /api/whatsapp/status` → `{ mode, lines: [{ id, brandId, label, status, phoneNumber?, displayName? }] }`, solo de las marcas del actor y sin QR ni código.
 
-**Worker** (`/api/internal/whatsapp/*`): no usan la sesión ni `SAC_FLOW_API_KEY`. Exigen la cabecera `X-WhatsApp-Worker-Key` igual a `SAC_FLOW_WHATSAPP_WORKER_KEY` (`401 WORKER_KEY_REQUIRED`) y solo existen en modo `live` (si no, `404`). No cuentan para el límite de solicitudes.
+**Worker** (`/api/internal/whatsapp/*`): no usan la sesión ni `SAC_FLOW_API_KEY`. Exigen la cabecera `X-WhatsApp-Worker-Key` igual a `SAC_FLOW_WHATSAPP_WORKER_KEY` (o, sin ella, a la clave derivada de `SAC_FLOW_API_KEY` con HMAC-SHA256; la clave del sitio en sí no sirve) (`401 WORKER_KEY_REQUIRED`) y solo existen en modo `live` (si no, `404`). No cuentan para el límite de solicitudes.
 
 | Método | Ruta | Body | Resultado |
 |---|---|---|---|
