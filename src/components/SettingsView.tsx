@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowClockwise,
   Brain,
@@ -26,6 +26,7 @@ import type {
   ServiceStatus,
 } from "../types";
 import { BusyOrb } from "./ThinkingOrb";
+import { clarityRequirementFromThreshold, thresholdForClarityRequirement, type ClarityRequirement } from "../lib/topic-clarity";
 
 export interface SettingsViewProps {
   integrations: IntegrationStatus[];
@@ -228,25 +229,29 @@ export function SettingsView({
             </fieldset>
 
             <div className="settings-fields-grid">
-              <label className="range-setting">
-                <span className="range-setting__label">
-                  <span>
-                    <strong>Confianza mínima</strong>
-                    <small>Por debajo de este valor se solicita revisión.</small>
-                  </span>
-                  <output htmlFor="confidence-threshold">{settings.confidenceThreshold}%</output>
+              <label className="select-setting">
+                <span>
+                  <strong>Claridad del tema para enviar solo</strong>
+                  <small>
+                    {settings.automaticRepliesEnabled
+                      ? "Alta: el mensaje calza con una regla. Media: se usa la categoría que ya tenía. Lo demás queda como borrador para una persona."
+                      : "Solo aplica si activas las respuestas automáticas. Hoy todo lo responde una persona."}
+                  </small>
                 </span>
-                <input
-                  id="confidence-threshold"
-                  type="range"
-                  min="50"
-                  max="100"
-                  step="1"
-                  value={settings.confidenceThreshold}
-                  onChange={(event) => updateSetting("confidenceThreshold", Number(event.target.value))}
+                <select
+                  value={clarityRequirementFromThreshold(settings.confidenceThreshold)}
+                  onChange={(event) => {
+                    const requirement = event.target.value as ClarityRequirement;
+                    // Solo cambia el umbral si cambia la opción: así no se «baja» por error.
+                    if (requirement !== clarityRequirementFromThreshold(settings.confidenceThreshold)) {
+                      updateSetting("confidenceThreshold", thresholdForClarityRequirement(requirement));
+                    }
+                  }}
                   disabled={!canEditSettings}
-                  style={{ "--range-fill": `${((settings.confidenceThreshold - 50) / 50) * 100}%` } as CSSProperties}
-                />
+                >
+                  <option value="alta">Solo alta</option>
+                  <option value="alta_media">Alta o media</option>
+                </select>
               </label>
 
               <label className="select-setting">

@@ -1929,3 +1929,50 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 /* Reportes: foto de la cuenta junto al nombre. */
 .reports-brand--with-avatar { display: flex; align-items: center; gap: 10px; }
 .reports-brand__copy { display: grid; gap: 2px; min-width: 0; }
+
+/* Gestión DMs/comentarios: la vista previa de la lista se recorta a 2 líneas aunque el mensaje
+   traiga saltos de línea (antes ocupaba media pantalla con los saludos largos). */
+.manual-inbox-contact__body > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+.manual-inbox-contact__body > p .content-context { display: inline; }
+.manual-inbox-contact__body > p .content-context__text { white-space: normal; }
+
+/* Aviso cuando el campo de respuesta trae un borrador ya guardado (no lo escribió la persona ahora). */
+.manual-inbox-composer > .manual-inbox-saved-draft { margin: 0; color: var(--neo-muted-fg); font-size: 11.5px; line-height: 1.35; }
+
+/* Claridad del tema (antes «confianza») en el detalle del caso: nivel + motivo. */
+.topic-clarity { font-weight: 700; }
+.topic-clarity--alta { color: var(--neo-fg); }
+.topic-clarity--media { color: var(--neo-muted-fg); }
+.topic-clarity--baja { color: var(--amber); }
+.topic-clarity__reason { display: block; margin-top: 2px; color: var(--neo-muted-fg); font-size: 11px; font-weight: 400; line-height: 1.35; }
+
+/* Reportes: guía «Cómo leer este reporte» (se abre a pedido). */
+.reports-glossary {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--neo-border);
+  border-radius: 12px;
+  background: var(--neo-card);
+}
+.reports-glossary summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--neo-fg);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.reports-glossary dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px 18px;
+  margin: 12px 0 2px;
+}
+.reports-glossary dt { color: var(--neo-fg); font-size: 12.5px; font-weight: 700; }
+.reports-glossary dd { margin: 2px 0 0; color: var(--neo-muted-fg); font-size: 12px; line-height: 1.45; }

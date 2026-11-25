@@ -1,3 +1,4 @@
+import { topicClarity } from "../lib/topic-clarity";
 import { can } from "../lib/permissions";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -131,7 +132,7 @@ function automationReasonLabel(reasonCode: string) {
     AUTOMATION_POLICY_DISABLED: "Política automática desactivada",
     DELIVERY_OUTBOX_NOT_READY: "Cola de envíos no disponible",
     LIVE_SOURCE_REQUIRED: "Requiere una fuente de datos en vivo",
-    LOW_CLASSIFICATION_CONFIDENCE: "Confianza de clasificación baja",
+    LOW_CLASSIFICATION_CONFIDENCE: "Tema poco claro: lo revisa una persona",
     METRICOOL_MUTATIONS_DISABLED: "Cambios en Metricool desactivados",
     OUTBOUND_CIRCUIT_BREAKER: "Envíos detenidos por seguridad",
     OUTBOUND_INTERACTION: "Mensaje enviado por la cuenta",
@@ -523,8 +524,11 @@ export function InteractionDetailPanel({
                 <dd>{categoryLabel(detail.category)}</dd>
               </div>
               <div>
-                <dt>Confianza</dt>
-                <dd>{Math.round(detail.confidence * 100)}%</dd>
+                <dt>Claridad del tema</dt>
+                <dd title={topicClarity(detail.confidence).reason}>
+                  <span className={`topic-clarity topic-clarity--${topicClarity(detail.confidence).level}`}>{topicClarity(detail.confidence).label}</span>
+                  <small className="topic-clarity__reason">{topicClarity(detail.confidence).short}</small>
+                </dd>
               </div>
               <div>
                 <dt>Asignación</dt>

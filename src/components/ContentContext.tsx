@@ -78,6 +78,12 @@ function isSemanticPlaceholder(text: string, kind: InteractionContentKind): bool
   return false;
 }
 
+/**
+ * Vista previa de un adjunto. Sin `crossOrigin`: la CDN de mensajes de Instagram
+ * (lookaside.fbsbx.com/ig_messaging_cdn) no envía cabeceras CORS, y pedirla en modo CORS hacía
+ * fallar la imagen y mostrar «Vista previa no disponible» aunque el enlace funcionara. La web no
+ * lee los píxeles, solo los muestra, así que no necesita CORS.
+ */
 function MediaPreview({ url, index }: { url: string; index: number }) {
   const inferred = mediaType(url);
   const [mode, setMode] = useState<"image" | "video" | "audio" | "link">(
@@ -92,7 +98,6 @@ function MediaPreview({ url, index }: { url: string; index: number }) {
           src={url}
           alt={label}
           loading="lazy"
-          crossOrigin="anonymous"
           referrerPolicy="no-referrer"
           onError={() => setMode(inferred === "unknown" ? "video" : "link")}
         />
@@ -101,7 +106,6 @@ function MediaPreview({ url, index }: { url: string; index: number }) {
           src={url}
           controls
           preload="metadata"
-          crossOrigin="anonymous"
           aria-label={label}
           onError={() => setMode("link")}
         />
@@ -110,12 +114,11 @@ function MediaPreview({ url, index }: { url: string; index: number }) {
           src={url}
           controls
           preload="metadata"
-          crossOrigin="anonymous"
           aria-label={label}
           onError={() => setMode("link")}
         />
       ) : (
-        <small>Vista previa no disponible</small>
+        <small>Vista previa no disponible: el archivo pudo vencer en la red social.</small>
       )}
       <a href={url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
         Abrir archivo {index + 1}

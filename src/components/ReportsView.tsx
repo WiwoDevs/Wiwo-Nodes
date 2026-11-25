@@ -63,14 +63,14 @@ function clasificacionTexto(counts: { manual: number; ia: number; reglas: number
   const total = counts.manual + counts.ia + counts.reglas;
   if (!total) return "";
   const parts = [
-    counts.manual ? `${formatCount(counts.manual)} a mano` : null,
+    counts.reglas ? `${formatCount(counts.reglas)} por las reglas automáticas` : null,
+    counts.manual ? `${formatCount(counts.manual)} por una persona` : null,
     counts.ia ? `${formatCount(counts.ia)} con IA` : null,
-    counts.reglas ? `${formatCount(counts.reglas)} por reglas` : null,
   ].filter(Boolean);
   const spam = counts.spam
-    ? ` De los decididos por reglas, ${formatCount(counts.spam)} no cuentan por spam o ruido (texto repetido, el mismo texto desde varias cuentas, solo etiquetas o spam promocional).`
+    ? ` De esos, ${formatCount(counts.spam)} se apartaron como spam (el mismo texto repetido, desde varias cuentas, solo etiquetas o publicidad).`
     : "";
-  return `Caso o ruido: ${parts.join(", ")}.${spam} Corrige a mano desde el detalle de cada caso o en lote desde la Bandeja.`;
+  return `Quién decidió si cada mensaje es un caso o ruido: ${parts.join(", ")}.${spam} Si alguno quedó mal, márcalo a mano desde el caso o en lote desde la Bandeja; lo marcado a mano siempre manda.`;
 }
 
 type TipPosition = { top: number; left: number; above: boolean };
@@ -267,13 +267,14 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
       return direction * (a - b) || left.brandName.localeCompare(right.brandName, "es");
     });
   }, [sort, withCases]);
-  const sortHeader = (key: SortKey, text: string, numeric = false) => {
+  const sortHeader = (key: SortKey, text: string, numeric = false, tip?: string) => {
     const active = sort.key === key;
     return (
       <th scope="col" className={numeric ? "numeric" : undefined} aria-sort={active ? (sort.desc ? "descending" : "ascending") : "none"}>
         <button
           type="button"
           className={`reports-sort${active ? " is-active" : ""}`}
+          title={tip}
           onClick={() => setSort((current) => current.key === key ? { key, desc: !current.desc } : { key, desc: key !== "marca" })}
         >
           {text}
@@ -387,6 +388,19 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
         </div>
       ) : null}
 
+      <details className="reports-glossary">
+        <summary><Info size={15} weight="bold" aria-hidden="true" /> Cómo leer este reporte</summary>
+        <dl>
+          <div><dt>Mensajes recibidos</dt><dd>Todo lo que llegó en el mes: DMs y comentarios, incluido lo que no requiere respuesta.</dd></div>
+          <div><dt>Caso SAC</dt><dd>Un mensaje que el equipo tenía que gestionar: una pregunta, un pedido, un reclamo o una solicitud.</dd></div>
+          <div><dt>Ruido</dt><dd>Lo que llegó pero no es un caso: saludos o textos de menos de cuatro palabras, emojis sueltos, reacciones, menciones en historias, mensajes ilegibles y spam (el mismo texto repetido o publicidad). No se borra; solo no cuenta como caso.</dd></div>
+          <div><dt>Respondidos y cobertura</dt><dd>Respondidos son los casos con respuesta del equipo. Cobertura es respondidos ÷ casos: bajo 30 % se marca en rojo y bajo 60 % en ámbar.</dd></div>
+          <div><dt>Quién decide caso o ruido</dt><dd>Primero, reglas automáticas por el contenido del mensaje. Una persona puede corregirlo desde el caso o en lote desde la Bandeja, y lo marcado a mano siempre manda.</dd></div>
+          <div><dt>Volumen gestionado o bruto</dt><dd>Para motivos, tono y canales: gestionado cuenta solo los casos; bruto cuenta todo lo recibido.</dd></div>
+          <div><dt>Avisos</dt><dd>Datos que conviene revisar antes de presentar, por ejemplo una sincronización atrasada o mensajes sin texto.</dd></div>
+        </dl>
+      </details>
+
       {!selected && report && totals.reglas ? (
         <p className="reports-info" role="note">
           <Info size={16} weight="fill" aria-hidden="true" />
@@ -409,7 +423,7 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
               <div className="kpi-card__topline"><span className="kpi-card__icon"><ShareNetwork size={21} weight="duotone" aria-hidden="true" /></span></div>
               <p className="kpi-card__value">{loading && !report ? "—" : formatCount(totals.recibidos)}</p>
               <h2 className="kpi-card__label">Mensajes recibidos</h2>
-              <p className="kpi-card__detail">{formatCount(Math.max(0, totals.recibidos - totals.casos))} descontados como ruido</p>
+              <p className="kpi-card__detail">{formatCount(Math.max(0, totals.recibidos - totals.casos))} no son casos (ruido)</p>
             </article>
             <article className="kpi-card">
               <div className="kpi-card__topline"><span className="kpi-card__icon"><CheckCircle size={21} weight="duotone" aria-hidden="true" /></span></div>
@@ -437,12 +451,12 @@ export function ReportsView({ canExport, canImportRecords = false, importBrands 
                 <thead>
                   <tr>
                     {sortHeader("marca", "Marca")}
-                    {sortHeader("casos", "Casos SAC", true)}
-                    {sortHeader("recibidos", "Recibidos", true)}
-                    {sortHeader("respondidos", "Respondidos", true)}
-                    {sortHeader("cobertura", "Cobertura", true)}
-                    {sortHeader("variacion", "vs. mes anterior")}
-                    {sortHeader("avisos", "Avisos")}
+                    {sortHeader("casos", "Casos SAC", true, "Mensajes que el equipo debía gestionar: preguntas, pedidos, reclamos…")}
+                    {sortHeader("recibidos", "Recibidos", true, "Todo lo que llegó en el mes (DMs y comentarios); debajo, cuánto fue ruido")}
+                    {sortHeader("respondidos", "Respondidos", true, "Casos que el equipo respondió")}
+                    {sortHeader("cobertura", "Cobertura", true, "Respondidos ÷ casos SAC")}
+                    {sortHeader("variacion", "vs. mes anterior", false, "Cambio en casos SAC respecto del mes anterior")}
+                    {sortHeader("avisos", "Avisos", false, "Datos que conviene revisar antes de presentar")}
                   </tr>
                 </thead>
                 <tbody>
@@ -539,7 +553,7 @@ function BrandDetail({ brand, label, volumen, onBack }: { brand: SacReportBrand;
         <article className="kpi-card">
           <p className="kpi-card__value">{formatCount(figures.volumenBruto)}</p>
           <h3 className="kpi-card__label">Mensajes recibidos</h3>
-          <p className="kpi-card__detail">{formatCount(Math.max(0, figures.volumenBruto - figures.casosSac))} descontados como ruido{figures.ilegibles ? ` · ${formatCount(figures.ilegibles)} ilegibles` : ""}</p>
+          <p className="kpi-card__detail">{formatCount(Math.max(0, figures.volumenBruto - figures.casosSac))} no son casos (ruido){figures.ilegibles ? ` · ${formatCount(figures.ilegibles)} ilegibles` : ""}</p>
         </article>
         <article className="kpi-card">
           <p className={`kpi-card__value reports-coverage${coverageTone(figures.coberturaPct)}`}>{formatPct(figures.coberturaPct)}</p>

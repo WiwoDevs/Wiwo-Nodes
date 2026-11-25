@@ -45,7 +45,7 @@ Explicación sin tecnicismos, para el equipo: [docs/GUIA_COMENTARIOS_Y_MENCIONES
 | **Ejecuciones** (grupo Sistema) | Trabajos de sincronización y envío, y su historial. | Admin |
 | **Usuarios** | Personas, roles y permisos. Un **admin principal** puede además ocultarle clientes a una persona (**Clientes que ve**): deja de verlos en toda la web, sin borrar nada. | Admin |
 | **Asistente** (orbe flotante abajo a la derecha) | Responde cómo se usa wiwo.sac y qué permite el rol de cada persona, con preguntas sugeridas y la sección abierta como contexto. Solo orienta: no ejecuta acciones ni ve casos. Con la IA apagada responde las preguntas sugeridas con la guía. | Todos |
-| **Configuración** | Estado de la conexión con Metricool y la exportación Excel, estado del servidor y la base de datos, reglas de respuesta (envío automático, revisión humana, confianza mínima, frecuencia de sincronización), los límites de cada red y **Sincronizar ahora**. | Supervisor, Admin |
+| **Configuración** | Estado de la conexión con Metricool y la exportación Excel, estado del servidor y la base de datos, reglas de respuesta (envío automático, revisión humana, claridad del tema para enviar solo, frecuencia de sincronización), los límites de cada red y **Sincronizar ahora**. | Supervisor, Admin |
 
 El menú y los botones se muestran según los **permisos** de cada persona, no según el nombre de su rol. Si un Admin le da a alguien un permiso extra, la sección correspondiente le aparece. El servidor vuelve a validar cada acción.
 

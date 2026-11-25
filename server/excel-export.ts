@@ -52,7 +52,7 @@ export async function buildInteractionsWorkbook(
     { header: "Mensaje", key: "text", width: 55 },
     { header: "Categoría", key: "category", width: 18 },
     { header: "Sentimiento", key: "sentiment", width: 15 },
-    { header: "Confianza", key: "confidence", width: 12 },
+    { header: "Claridad del tema (%)", key: "confidence", width: 18 },
     { header: "Estado", key: "status", width: 14 },
     { header: "Responsable", key: "assignee", width: 22 },
     { header: "Notas internas", key: "internalNoteCount", width: 15 },
