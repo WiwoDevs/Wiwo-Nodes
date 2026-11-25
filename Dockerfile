@@ -45,7 +45,9 @@ COPY --from=build /app/dist-api ./dist-api
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/db ./db
 
-RUN mkdir -p /app/data && chown -R node:node /app/data
+# whatsapp-auth: sesiones del worker de WhatsApp (credenciales). Existe en la imagen con dueño
+# node y 0700 para que un volumen nuevo montado ahí herede esos permisos.
+RUN mkdir -p /app/data/whatsapp-auth && chown -R node:node /app/data && chmod 700 /app/data/whatsapp-auth
 
 USER node
 EXPOSE 8787

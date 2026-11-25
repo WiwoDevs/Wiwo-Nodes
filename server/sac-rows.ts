@@ -11,6 +11,7 @@
  * no la respuesta del equipo. Las respuestas viajan aparte, en la observación.
  */
 import type { Brand, Channel, Interaction, InteractionStatus, Sentiment } from "./types.js";
+import { isImportedHistory } from "./types.js";
 import { esCasoSac, etiquetaMotivo } from "./sac-report.js";
 
 /** Fila SAC, con los mismos nombres de campo que usa METRIQ. */
@@ -46,6 +47,7 @@ const PLATAFORMA: Record<Channel, string> = {
   youtube: "YouTube",
   linkedin: "LinkedIn",
   google_business: "Google Business",
+  whatsapp: "WhatsApp",
 };
 
 const TONALIDAD: Record<Sentiment, string> = {
@@ -142,6 +144,8 @@ export function buildSacRows(
   for (const interaction of interactions) {
     if (interaction.brandId !== brand.id) continue;
     if (interaction.direction !== "inbound") continue;
+    // Historial antiguo de WhatsApp: contexto de la conversación, no un caso.
+    if (isImportedHistory(interaction)) continue;
 
     const fecha = fechaIso(interaction.createdAt);
     if (!fecha) {

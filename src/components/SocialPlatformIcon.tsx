@@ -4,14 +4,16 @@ import {
   InstagramLogo,
   LinkedinLogo,
   TiktokLogo,
+  WhatsappLogo,
   XLogo,
   YoutubeLogo,
   type IconProps,
 } from "@phosphor-icons/react";
-import type { InteractionKind, SocialPlatform } from "../types";
+import type { InteractionKind, MetricoolPlatform, SocialPlatform } from "../types";
 
+/** Redes que se conectan por Metricool (las que se marcan en una cuenta). */
 export const SOCIAL_PLATFORM_OPTIONS: ReadonlyArray<{
-  id: SocialPlatform;
+  id: MetricoolPlatform;
   label: string;
   inbox: string;
 }> = [
@@ -24,6 +26,16 @@ export const SOCIAL_PLATFORM_OPTIONS: ReadonlyArray<{
   { id: "google_business", label: "Google Business", inbox: "Reseñas" },
 ];
 
+/** Todas las redes de la bandeja: las de Metricool más WhatsApp (números vinculados). */
+export const ALL_PLATFORM_OPTIONS: ReadonlyArray<{
+  id: SocialPlatform;
+  label: string;
+  inbox: string;
+}> = [
+  ...SOCIAL_PLATFORM_OPTIONS,
+  { id: "whatsapp", label: "WhatsApp", inbox: "Mensajes" },
+];
+
 const ICONS = {
   instagram: InstagramLogo,
   facebook: FacebookLogo,
@@ -32,10 +44,11 @@ const ICONS = {
   youtube: YoutubeLogo,
   linkedin: LinkedinLogo,
   google_business: GoogleLogo,
+  whatsapp: WhatsappLogo,
 } satisfies Record<SocialPlatform, typeof InstagramLogo>;
 
 export function platformLabel(platform: SocialPlatform): string {
-  return SOCIAL_PLATFORM_OPTIONS.find((option) => option.id === platform)?.label ?? platform;
+  return ALL_PLATFORM_OPTIONS.find((option) => option.id === platform)?.label ?? platform;
 }
 
 export function interactionKindLabel(kind: InteractionKind): string {

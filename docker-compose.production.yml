@@ -79,6 +79,16 @@ x-sac-flow-app: &sac-flow-app
     SAC_FLOW_AUTH_SESSION_TTL_MS: "${SAC_FLOW_AUTH_SESSION_TTL_MS:-432000000}"
     # Clave de solo lectura para /api/integrations/* (METRIQ). Vacia = rutas deshabilitadas.
     SAC_FLOW_SERVICE_API_KEY: "${SAC_FLOW_SERVICE_API_KEY:-}"
+    # WhatsApp por Baileys (no oficial; ver docs/WHATSAPP.md). Apagado por defecto. La API y el
+    # servicio whatsapp comparten la clave interna.
+    SAC_FLOW_WHATSAPP_ENABLED: "${SAC_FLOW_WHATSAPP_ENABLED:-false}"
+    SAC_FLOW_WHATSAPP_SENDS_ENABLED: "${SAC_FLOW_WHATSAPP_SENDS_ENABLED:-false}"
+    SAC_FLOW_WHATSAPP_WORKER_KEY: "${SAC_FLOW_WHATSAPP_WORKER_KEY:-}"
+    SAC_FLOW_WHATSAPP_MIN_GAP_MS: "${SAC_FLOW_WHATSAPP_MIN_GAP_MS:-4000}"
+    SAC_FLOW_WHATSAPP_MAX_GAP_MS: "${SAC_FLOW_WHATSAPP_MAX_GAP_MS:-12000}"
+    SAC_FLOW_WHATSAPP_MAX_PER_MINUTE: "${SAC_FLOW_WHATSAPP_MAX_PER_MINUTE:-6}"
+    SAC_FLOW_WHATSAPP_MAX_PER_HOUR: "${SAC_FLOW_WHATSAPP_MAX_PER_HOUR:-60}"
+    SAC_FLOW_WHATSAPP_REPEATED_TEXT_LIMIT: "${SAC_FLOW_WHATSAPP_REPEATED_TEXT_LIMIT:-5}"
 
 services:
   postgres:
@@ -143,6 +153,34 @@ services:
       start_period: 10s
       retries: 5
 
+  # Worker de WhatsApp (Baileys). Perfil aparte: solo arranca con
+  # `docker compose -f docker-compose.production.yml --profile whatsapp up -d whatsapp`.
+  # Un solo worker por servidor: dos procesos con la misma sesión se expulsan entre sí.
+  whatsapp:
+    <<: *sac-flow-app
+    profiles: ["whatsapp"]
+    command: ["npm", "run", "start:whatsapp"]
+    restart: unless-stopped
+    environment:
+      <<: *sac-flow-environment
+      SAC_FLOW_INTERNAL_API_URL: http://api:8787
+      SAC_FLOW_WHATSAPP_WORKER_HEALTH_PORT: 8789
+      SAC_FLOW_WHATSAPP_AUTH_DIR: /app/data/whatsapp-auth
+      SERVE_FRONTEND: "false"
+    volumes:
+      # Credenciales de cada número (acceso a todos sus chats). No se respaldan: perderlas solo
+      # obliga a volver a vincular.
+      - sac-flow-whatsapp-auth:/app/data/whatsapp-auth
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8789/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
   # Respaldo diario de la base (pg_dump) fuera del volumen de Docker, con retención.
   # Ver docs/OPERATIONS_RUNBOOK.md, "Respaldos de la base".
   backup:
@@ -180,3 +218,5 @@ services:
 volumes:
   sac-flow-postgres:
     name: sac-flow-postgres
+  sac-flow-whatsapp-auth:
+    name: sac-flow-whatsapp-auth

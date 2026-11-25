@@ -34,7 +34,7 @@ import type {
 } from "./types.js";
 import type { AutomationState } from "./automation-types.js";
 import { CHANNELS } from "./types.js";
-import type { AccessRole, UserAccessRecord } from "./types.js";
+import type { AccessRole, UserAccessRecord, WhatsAppLine, WhatsAppLineStatus } from "./types.js";
 import { normalizePermissions, type AccessRoleRecord, type BaseRole, type Permission } from "./permissions.js";
 import { ensureMetricoolInboxCoverage } from "./workflow-coverage.js";
 import { mergeMissingMetricoolRef } from "./workflow-service.js";
@@ -2002,6 +2002,75 @@ export class PostgresRepository implements SacFlowRepository {
     }, { write: true });
   }
 
+  async listWhatsAppLines(): Promise<WhatsAppLine[]> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<WhatsAppLineRow>(
+        `SELECT ${WHATSAPP_LINE_COLUMNS} FROM whatsapp_lines
+         WHERE organization_id = $1 ORDER BY created_at, line_id`,
+        [organizationId],
+      );
+      return result.rows.map(whatsappLineFromRow);
+    });
+  }
+
+  async saveWhatsAppLine(line: WhatsAppLine): Promise<WhatsAppLine> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<WhatsAppLineRow>(
+        `INSERT INTO whatsapp_lines (
+           organization_id, line_id, brand_key, label, desired_state, generation, pairing_phone, status,
+           phone_number, display_name, linked_at, last_connected_at, last_error, created_by, created_at, updated_at,
+           import_history)
+         VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::timestamptz, $13, $14,
+           $15::timestamptz, $16::timestamptz, $17)
+         ON CONFLICT (organization_id, line_id) DO UPDATE SET
+           brand_key = EXCLUDED.brand_key,
+           label = EXCLUDED.label,
+           desired_state = EXCLUDED.desired_state,
+           generation = EXCLUDED.generation,
+           pairing_phone = EXCLUDED.pairing_phone,
+           import_history = EXCLUDED.import_history,
+           status = EXCLUDED.status,
+           phone_number = EXCLUDED.phone_number,
+           display_name = EXCLUDED.display_name,
+           linked_at = EXCLUDED.linked_at,
+           last_connected_at = EXCLUDED.last_connected_at,
+           last_error = EXCLUDED.last_error,
+           updated_at = EXCLUDED.updated_at
+         RETURNING ${WHATSAPP_LINE_COLUMNS}`,
+        [
+          organizationId,
+          line.id,
+          line.brandId,
+          line.label,
+          line.desiredState,
+          line.generation,
+          line.pairingPhone ?? null,
+          line.status,
+          line.phoneNumber ?? null,
+          line.displayName ?? null,
+          line.linkedAt ?? null,
+          line.lastConnectedAt ?? null,
+          line.lastError ?? null,
+          line.createdBy,
+          line.createdAt,
+          line.updatedAt,
+          line.importHistory === true,
+        ],
+      );
+      return whatsappLineFromRow(result.rows[0]!);
+    }, { write: true });
+  }
+
+  async deleteWhatsAppLine(id: string): Promise<boolean> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query(
+        "DELETE FROM whatsapp_lines WHERE organization_id = $1 AND line_id = $2::uuid",
+        [organizationId, id],
+      );
+      return (result.rowCount ?? 0) > 0;
+    }, { write: true });
+  }
+
   async stats(filters: InteractionFilters = {}): Promise<InteractionStats> {
     const store = await this.readBrandsAndInteractions();
     const items = fromActiveBrands(store.interactions, store)
@@ -3331,6 +3400,52 @@ function userAccessFromRow(row: UserAccessRow): UserAccessRecord {
         ...(permissionsUpdatedAt ? { permissionsUpdatedAt } : {}),
       }
       : {}),
+  };
+}
+
+const WHATSAPP_LINE_COLUMNS = `line_id::text AS line_id, brand_key, label, desired_state, generation, pairing_phone,
+  import_history, status, phone_number, display_name, linked_at, last_connected_at, last_error, created_by,
+  created_at, updated_at`;
+
+interface WhatsAppLineRow extends QueryResultRow {
+  line_id: string;
+  brand_key: string;
+  label: string;
+  desired_state: "linked" | "unlinked";
+  generation: number;
+  pairing_phone: string | null;
+  import_history: boolean;
+  status: WhatsAppLineStatus;
+  phone_number: string | null;
+  display_name: string | null;
+  linked_at: Date | string | null;
+  last_connected_at: Date | string | null;
+  last_error: string | null;
+  created_by: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+function whatsappLineFromRow(row: WhatsAppLineRow): WhatsAppLine {
+  const linkedAt = isoOrUndefined(row.linked_at);
+  const lastConnectedAt = isoOrUndefined(row.last_connected_at);
+  return {
+    id: row.line_id,
+    brandId: row.brand_key,
+    label: row.label,
+    desiredState: row.desired_state,
+    generation: Number(row.generation),
+    ...(row.pairing_phone ? { pairingPhone: row.pairing_phone } : {}),
+    ...(row.import_history ? { importHistory: true } : {}),
+    status: row.status,
+    ...(row.phone_number ? { phoneNumber: row.phone_number } : {}),
+    ...(row.display_name ? { displayName: row.display_name } : {}),
+    ...(linkedAt ? { linkedAt } : {}),
+    ...(lastConnectedAt ? { lastConnectedAt } : {}),
+    ...(row.last_error ? { lastError: row.last_error } : {}),
+    createdBy: row.created_by,
+    createdAt: isoOrUndefined(row.created_at) ?? new Date(0).toISOString(),
+    updatedAt: isoOrUndefined(row.updated_at) ?? new Date(0).toISOString(),
   };
 }
 

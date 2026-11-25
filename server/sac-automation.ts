@@ -545,7 +545,11 @@ export function evaluateSacInteraction(
   }
 
   let effectiveRoute = recommendedRoute;
-  if (recommendedRoute === "auto_reply" && options.outboundSendsDisabled) {
+  if (recommendedRoute === "auto_reply" && interaction.channel === "whatsapp") {
+    // WhatsApp (Baileys) nunca responde solo: cada envío lo aprueba una persona.
+    effectiveRoute = "draft";
+    reasonCodes.push("WHATSAPP_MANUAL_ONLY");
+  } else if (recommendedRoute === "auto_reply" && options.outboundSendsDisabled) {
     effectiveRoute = "draft";
     reasonCodes.push("OUTBOUND_CIRCUIT_BREAKER");
   } else if (recommendedRoute === "auto_reply" && options.metricoolMutationsDisabled) {

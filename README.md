@@ -26,6 +26,7 @@ Todo llega a través de **Metricool**. Para que una red aparezca, basta con cone
 
 - Lo que llega se ve en la **Bandeja SAC**, en **Gestión DMs / Gestión comentarios** (una pestaña por red), en **Reportes**, en el **Excel** y en **MetriQ**.
 - Los **DMs de TikTok y LinkedIn** no los ofrece Metricool: se suben a mano con el Excel de la planilla (**Reportes → Cargar TikTok/LinkedIn**).
+- **WhatsApp** no pasa por Metricool: cada número de marca se vincula una vez con un QR o un código, como WhatsApp Web, y sus chats llegan a **Gestión WhatsApp**. Es una conexión **no oficial** (Baileys), así que WhatsApp puede bloquear el número. Está apagada por defecto. Ver [docs/WHATSAPP.md](docs/WHATSAPP.md).
 - **Menciones y etiquetas en fotos** (quién menciona a la marca en un comentario o la etiqueta en una publicación): **por ahora no**. Metricool no las entrega; solo se pueden obtener conectando wiwo.sac directamente con Meta, un proceso más largo que requiere la aprobación de Meta y la autorización de cada marca.
 
 Explicación sin tecnicismos, para el equipo: [docs/GUIA_COMENTARIOS_Y_MENCIONES.md](docs/GUIA_COMENTARIOS_Y_MENCIONES.md).
@@ -39,6 +40,7 @@ Explicación sin tecnicismos, para el equipo: [docs/GUIA_COMENTARIOS_Y_MENCIONES
 | **Inicio** | Lo que necesita atención primero: tarjetas de conteo en plazo y la cola priorizada a todo el ancho. El Agente ve *sus* casos primero y **Tomar siguiente**. La carga por persona está en la Bandeja (filtro **Asignación → Responsable**) y el estado de sincronizaciones y trabajos en **Ejecuciones**. | Todos |
 | **Bandeja SAC** | Una fila por persona y cuenta, ordenada por lo que vence antes. Tiene filtros que se recuerdan, buscador de cuentas, **Mis casos**, filtro por responsable para Supervisor y Admin, plazo *Por atender en plazo*, **Tomar siguiente**, atajos `J`/`K`/`R`/`E`, archivado de casos vencidos y exportación a Excel. El filtro **Spam** oculta por defecto lo que las reglas detectan como spam o ruido (el mismo texto repetido por una cuenta, el mismo texto desde varias cuentas, comentarios que solo etiquetan, spam promocional o de estafas); lo que solo sugiere la IA queda visible con su aviso, y Supervisor y Admin pueden **Descartar spam** en lote tras confirmar (nunca toca Metricool ni casos sensibles). Al abrir un caso, el detalle se abre a la derecha con el resto de la pantalla difuminado; un clic fuera lo cierra (si hay una respuesta sin guardar, primero pregunta). | Todos |
 | **Gestión DMs** / **Gestión comentarios** | Trabajo por cuenta, como un chat: cola y conversación lado a lado, actualizadas en vivo. Muestra **quién tiene a cargo** el chat o el post abierto ("A cargo: …", o "Tú"), y el campo de respuesta tiene un **botón de emojis**. Los comentarios se agrupan por publicación, con una pestaña por red (Instagram, Facebook, TikTok, LinkedIn y YouTube); cada publicación dice cuántos comentarios parecen spam, esos van al final de la fila con su aviso, y Supervisor y Admin pueden descartarlos de una vez. | Todos |
+| **Gestión WhatsApp** | Igual que Gestión DMs, pero solo con los chats de los números de WhatsApp vinculados (Gestión DMs no los muestra). Al **Enviar**, la respuesta queda en cola y sale en unos segundos: marca el chat como leído, muestra "escribiendo…" y respeta pausas y topes por número para no parecer un bot. No hay envío automático, y el mismo texto exacto a muchos chats se bloquea. El **admin principal** ve **Números de WhatsApp**, donde agrega un número por marca, lo vincula (QR o código de 8 caracteres, opcionalmente trayendo el historial del teléfono) y lo desvincula. **Cargar anteriores** pide al teléfono los mensajes previos de un chat. El historial antiguo se ve en la conversación, pero no cuenta en Reportes, Clientes ni METRIQ. | Todos (números: admin principal) |
 | **Resumen SAC** | Totales y rendimiento por marca. | Supervisor, Admin |
 | **Reportes** | Cifras del **informe SAC mensual** por marca: casos, respondidos, cobertura, variación contra el mes anterior, motivos, tono y canales. Muestra avisos de datos antes de presentar y descarga el Excel del mes. **Cargar TikTok/LinkedIn** sube el Excel BD SAC con lo que Metricool no trae de esas redes, como sus DMs (permiso *Cargar registros manuales*). | Supervisor, Admin |
 | **Clientes** (antes Cuentas) | Tablero de **mensajes recibidos** (por defecto el mes en curso; también por día o por un período de hasta un año) con el desglose por cliente y por red, filtros **En SAC / Todas** y **Cuenta de Metricool**, y debajo el estado de marcas y cuentas con su centro documental. Cuenta los mensajes entrantes sincronizados desde Metricool, por día UTC como Reportes, sin los registros cargados a mano (`source: "planilla"`); incluye spam (los casos SAC están en Reportes). **En SAC** marca qué redes de cada cuenta atiende hoy el equipo: solo etiqueta y filtra, no oculta ni deja de sincronizar; la edita el **admin principal** y se precargó una vez desde la lista del equipo (por nombre y red). Solo Admin puede crear, editar o conectar marcas con Metricool. Solo el **admin principal** puede **ocultar** un cliente (deja de sincronizar y desaparece de la bandeja, Reportes y MetriQ, sin borrar nada) y volver a mostrarlo desde el filtro **Ocultos**. | Supervisor (lectura), Admin |
@@ -163,7 +165,7 @@ Abre http://localhost:5173. Vite reenvía `/api` a Fastify en el puerto 8787.
 
 ## Despliegue
 
-- **Producción** (`docker-compose.production.yml`): PostgreSQL, migraciones (`migrate`), API, worker y respaldo diario de la base (`backup`). La API sirve la web compilada en el puerto 8787 y responde 404 real para `/api/*` desconocidas.
+- **Producción** (`docker-compose.production.yml`): PostgreSQL, migraciones (`migrate`), API, worker y respaldo diario de la base (`backup`). El worker de WhatsApp (`whatsapp`) está en el perfil `whatsapp` y solo arranca con `--profile whatsapp`. La API sirve la web compilada en el puerto 8787 y responde 404 real para `/api/*` desconocidas.
 - **Respaldos:** `pg_dump` diario en `/var/backups/sac-flow` (fuera del volumen de Docker), con 14 días de retención y restauración en una sola transacción. Ver [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md#respaldos-de-la-base).
 - **Deploy:** el workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) se ejecuta en cada push a `main` y despliega por SSH. Los cambios en los archivos de Docker Compose requieren aprobación manual en el servidor antes de aplicarse.
 - **Variables:** se documentan en [`.env.example`](.env.example). Las principales:
@@ -193,6 +195,7 @@ Configuración: [docs/METRICOOL_SETUP.md](docs/METRICOOL_SETUP.md).
 - Las credenciales del módulo de automatización se guardan cifradas (AES-256-GCM) y nunca vuelven al navegador.
 - La web aplica CSP estricta (sin estilos ni scripts en línea) y cookies de sesión `HttpOnly`.
 - No se versionan datos reales: correos, teléfonos, DMs, comentarios ni IDs de Metricool. La demo usa solo datos ficticios.
+- Las sesiones de WhatsApp (credenciales de cada número, con acceso a todos sus chats) viven solo en la carpeta del worker (`SAC_FLOW_WHATSAPP_AUTH_DIR`, `data/whatsapp-auth/` ignorada por git, o el volumen `sac-flow-whatsapp-auth`). El QR y el código de vinculación solo existen en memoria y solo los ve el admin principal.
 
 Más detalle: [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -208,6 +211,7 @@ Más detalle: [docs/SECURITY.md](docs/SECURITY.md).
 | `npm run verify` | `check` + `build:all` + `test` + auditoría de dependencias |
 | `npm run migrate` | Aplica migraciones de PostgreSQL |
 | `npm run start:worker` | Worker de sincronización y envíos (requiere PostgreSQL) |
+| `npm run dev:whatsapp` / `npm run start:whatsapp` | Worker de WhatsApp (Baileys): sesiones, mensajes y envíos con ritmo humano. Requiere `SAC_FLOW_WHATSAPP_ENABLED=true` y `SAC_FLOW_WHATSAPP_WORKER_KEY` |
 | `npm start` | API compilada (requiere `build:all`) |
 
 La lista completa está en `scripts` de [`package.json`](package.json). En `scripts/` hay además herramientas de línea de comandos para importaciones, clasificación y planillas.
@@ -219,6 +223,7 @@ Antes de entregar un cambio: `npm run check`, `npm run build:all`, `npm test` y,
 | Documento | Contenido |
 | --- | --- |
 | [GUIA_COMENTARIOS_Y_MENCIONES.md](docs/GUIA_COMENTARIOS_Y_MENCIONES.md) | Para el equipo, sin tecnicismos: qué redes llegan, qué conectar en Metricool y por qué aún no hay menciones ni etiquetas |
+| [WHATSAPP.md](docs/WHATSAPP.md) | WhatsApp por Baileys: riesgos, comparación con la API oficial, arquitectura, resguardos antispam, puesta en marcha y operación |
 | [IA_GASTO_Y_USOS.md](docs/IA_GASTO_Y_USOS.md) | Para el equipo: qué hace la IA (DeepSeek vía BytePlus), qué no hace y cuánto cuesta al mes |
 | [PROPUESTA_IA.md](docs/PROPUESTA_IA.md) | Propuesta técnica de IA por fases: casos de uso, datos personales, permisos y estado de implementación |
 | [PUESTA_EN_MARCHA_REAL.md](docs/PUESTA_EN_MARCHA_REAL.md) | Inicio de sesión, roles, menú por permiso, Reportes, paso a live |

@@ -22,6 +22,7 @@ import type {
   Workflow,
   WorkflowRun,
   WorkflowJob,
+  WhatsAppLine,
 } from "./types.js";
 import type { AutomationState } from "./automation-types.js";
 import type { AccessRoleRecord, Permission } from "./permissions.js";
@@ -139,6 +140,12 @@ export interface SacFlowRepository {
   saveAccessRole(record: AccessRoleRecord): Promise<AccessRoleRecord>;
   /** Elimina un rol guardado (un rol propio o el ajuste de un rol de base). */
   deleteAccessRole(id: string): Promise<boolean>;
+  /** Números de WhatsApp configurados, del más antiguo al más nuevo. */
+  listWhatsAppLines(): Promise<WhatsAppLine[]>;
+  /** Crea o reemplaza un número de WhatsApp. */
+  saveWhatsAppLine(line: WhatsAppLine): Promise<WhatsAppLine>;
+  /** Quita un número (sus mensajes quedan en la bandeja). */
+  deleteWhatsAppLine(id: string): Promise<boolean>;
 }
 
 export interface SetUserPermissionOverridesInput {

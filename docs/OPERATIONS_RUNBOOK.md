@@ -69,6 +69,18 @@ El polling visible solo ejecuta lecturas GET y no activa `/sync`, el protocolo S
 - Cuando no hay nada pendiente, el chat se abre en el último mensaje del cliente, no en la última respuesta de la cuenta. Si el cliente escribe de nuevo con el chat abierto, el chat pasa a su mensaje nuevo (salvo que haya texto sin enviar), y las respuestas del chatbot de la marca aparecen solas.
 - Sigue cerrado: un caso **resuelto** (se reabre con **Reabrir caso**), los comentarios (una respuesta pública por comentario) y cualquier caso con una entrega en curso o incierta.
 
+## WhatsApp (Baileys, no oficial)
+
+Detalle completo, riesgos y tabla de síntomas: [WHATSAPP.md](WHATSAPP.md#operación).
+
+1. Salud: el worker de WhatsApp es un proceso aparte (`npm run start:whatsapp`, servicio `whatsapp` con `--profile whatsapp`). `GET http://127.0.0.1:8789/health` dentro del contenedor muestra el gateway, cuántos números sigue y cuántos están conectados, sin datos de clientes. En la web, **Gestión WhatsApp → Números de WhatsApp** (admin principal) avisa si el worker no responde.
+2. Un número **desconectado** no pierde respuestas: quedan en cola (`pending`) y salen cuando vuelve. **Desvinculado desde el teléfono** o **Requiere atención** necesitan que un admin principal vuelva a vincularlo desde el teléfono de la marca. Si WhatsApp rechazó la conexión (posible bloqueo), no vincules en bucle: revisa el teléfono primero.
+3. Las entregas de WhatsApp siguen el outbox de siempre: `pending` (en cola), `sending` (lease de 2 min), `sent`, `failed` o `uncertain`. Una entrega `uncertain` se verifica en el teléfono y se concilia; nunca se reenvía sola. Una incierta de WhatsApp no frena los envíos de Metricool de la misma cuenta.
+4. Los envíos por WhatsApp tienen su propio cortacorriente, `SAC_FLOW_WHATSAPP_SENDS_ENABLED` (apagado por defecto). Cortar `SAC_FLOW_DISABLE_OUTBOUND_SENDS` **no** detiene WhatsApp: en una emergencia apaga los dos. No hay envío automático por WhatsApp. `WHATSAPP_REPEATED_TEXT` significa que el mismo texto exacto ya salió a varios chats en 30 minutos: hay que personalizarlo, no subir el límite para pasar una campaña.
+5. **Historial antiguo:** solo al vincular con "Traer el historial del teléfono" o con **Cargar anteriores** en cada chat, y con el teléfono conectado. Llega como historial resuelto que no cuenta en Reportes, Clientes ni METRIQ; si no aparece, WhatsApp no lo entregó (no reintentar en bucle: hay una espera de 20 s por chat).
+6. Debe correr **un solo** worker de WhatsApp por servidor. "Otra conexión de wiwo.sac tomó este número" indica dos procesos con la misma sesión.
+7. **Desvincular** borra las credenciales del número. Perder el volumen `sac-flow-whatsapp-auth` solo obliga a volver a vincular: no se respalda a propósito, para no multiplicar copias de credenciales.
+
 ## Casos cerrados por la cuenta y "Reabrir caso"
 
 - Cuando la cuenta manda un mensaje después del del cliente, wiwo.sac marca el caso **Respondido por el equipo** y bloquea la respuesta para no contestar dos veces. Los saludos automáticos de Meta (respuesta instantánea, mensaje de ausencia, bots) no cuentan: un texto que la cuenta mandó igual en 3 o más conversaciones dentro de los 60 s del mensaje del cliente se ignora y el caso sigue pendiente.

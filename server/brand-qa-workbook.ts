@@ -87,6 +87,7 @@ function qaScope(value: string): { channels?: Channel[]; interactionTypes?: Inte
     linkedin: "linkedin",
     google_business: "google_business",
     google_business_profile: "google_business",
+    whatsapp: "whatsapp",
   } as Record<string, Channel>)[normalized];
   if (channel) return { channels: [channel] };
   if (normalized === "dm" || normalized === "mensaje_directo") return { interactionTypes: ["dm"] };

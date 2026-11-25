@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowClockwise,
   ArrowCounterClockwise,
@@ -77,6 +77,15 @@ export interface ManualManagementViewProps {
    * es público y se agrupa por publicación. Sin valor, la vista muestra ambas.
    */
   surfaceKind?: "dm" | "comment";
+  /** Título y bajada propios (Gestión WhatsApp usa la misma vista que Gestión DMs). */
+  heading?: { title: string; description: string };
+  /** Controles extra junto al selector de cuenta (p. ej. Números de WhatsApp). */
+  headerActions?: ReactNode;
+  /** Mensaje cuando no hay ninguna cuenta para elegir. */
+  emptyAccounts?: { title: string; detail: string };
+  /** WhatsApp: pedir al teléfono los mensajes anteriores del chat abierto. */
+  onLoadOlderMessages?: (detail: InteractionDetail) => void | Promise<void>;
+  isLoadingOlderMessages?: boolean;
   accounts: BrandAccount[];
   /** Casos por atender de esta superficie por cuenta (en plazo y total), para el selector. */
   pendingCounts?: Record<string, { inWindow: number; total: number }>;
@@ -171,7 +180,7 @@ function safeHttpsUrl(value?: string): string | undefined {
 
 function surfaceKinds(platform: SocialPlatform): InteractionKind[] {
   if (platform === "instagram" || platform === "facebook") return ["dm", "comment"];
-  if (platform === "x") return ["dm"];
+  if (platform === "x" || platform === "whatsapp") return ["dm"];
   if (platform === "google_business") return ["review"];
   return ["comment"];
 }
@@ -444,6 +453,11 @@ export function ManualManagementView({
   canDiscardNoise = false,
   onDiscardNoise,
   surfaceKind,
+  heading,
+  headerActions,
+  emptyAccounts,
+  onLoadOlderMessages,
+  isLoadingOlderMessages = false,
 }: ManualManagementViewProps) {
   const [activeSurfaceId, setActiveSurfaceId] = useState<ManualSurfaceId>("all");
   const [query, setQuery] = useState("");
@@ -859,16 +873,16 @@ export function ManualManagementView({
         <div className="manual-inbox-header__copy">
           <p>Operación humana por cuenta</p>
           <h1 id="manual-inbox-title">
-            {surfaceKind === "dm" ? "Gestión de DMs"
+            {heading?.title ?? (surfaceKind === "dm" ? "Gestión de DMs"
               : surfaceKind === "comment" ? "Gestión de comentarios"
-                : "Gestión manual"}
+                : "Gestión manual")}
           </h1>
           <span>
-            {surfaceKind === "dm"
+            {heading?.description ?? (surfaceKind === "dm"
               ? "Conversaciones privadas agrupadas por contacto, con su historial completo."
               : surfaceKind === "comment"
                 ? "Comentarios y reseñas agrupados por publicación, con el contexto del post."
-                : "Revisa el contexto completo y confirma cada respuesta antes de enviarla."}
+                : "Revisa el contexto completo y confirma cada respuesta antes de enviarla.")}
           </span>
         </div>
         <div className="manual-inbox-account-picker">
@@ -911,14 +925,17 @@ export function ManualManagementView({
             ) : lastUpdatedAt ? <small>Vista actualizada: {formatDateTime(lastUpdatedAt)}</small> : null}
             {refreshIssue ? <small className="is-warning"><WarningCircle size={14} weight="fill" aria-hidden="true" />{refreshIssue}</small> : null}
           </div>
+          {headerActions}
         </div>
       </header>
 
       {!selectedAccount ? (
         <div className="manual-inbox-required-state">
           <Buildings size={34} weight="duotone" aria-hidden="true" />
-          <strong>Selecciona una cuenta para comenzar</strong>
-          <p>La separación por cuenta evita mezclar conversaciones, marcas y destinos de respuesta.</p>
+          <strong>{accounts.length === 0 && emptyAccounts ? emptyAccounts.title : "Selecciona una cuenta para comenzar"}</strong>
+          <p>{accounts.length === 0 && emptyAccounts
+            ? emptyAccounts.detail
+            : "La separación por cuenta evita mezclar conversaciones, marcas y destinos de respuesta."}</p>
         </div>
       ) : (
         <>
@@ -1295,7 +1312,21 @@ export function ManualManagementView({
                         <ChatCenteredText size={18} weight="duotone" aria-hidden="true" />
                         <strong>Historial del chat</strong>
                       </div>
-                      <small title={`Caso ${visibleDetail.id}`}>{timeline.length} mensajes</small>
+                      <span className="manual-inbox-timeline__meta">
+                        {onLoadOlderMessages && visibleDetail.platform === "whatsapp" ? (
+                          <button
+                            className="manual-inbox-load-older"
+                            type="button"
+                            onClick={() => void onLoadOlderMessages(visibleDetail)}
+                            disabled={isLoadingOlderMessages}
+                            title="Pide al teléfono los mensajes anteriores de este chat. Llegan como historial: no cuentan como casos."
+                          >
+                            {isLoadingOlderMessages ? <BusyOrb size="xs" /> : <ArrowCounterClockwise size={14} weight="bold" aria-hidden="true" />}
+                            Cargar anteriores
+                          </button>
+                        ) : null}
+                        <small title={`Caso ${visibleDetail.id}`}>{timeline.length} mensajes</small>
+                      </span>
                     </header>
                     <ol ref={timelineListRef}>
                       {timeline.map((message) => (

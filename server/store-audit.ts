@@ -289,7 +289,8 @@ export function auditDataStore(candidate: unknown, rawText?: string): StoreAudit
     else invalidEnumValues += 1;
     if (interaction.source === "metricool") metricoolSource += 1;
     else if (interaction.source === "demo") demoSource += 1;
-    else invalidEnumValues += 1;
+    // Registros cargados a mano y mensajes de WhatsApp: orígenes válidos fuera de Metricool.
+    else if (interaction.source !== "planilla" && interaction.source !== "whatsapp") invalidEnumValues += 1;
 
     if (!validDate(interaction.createdAt)) invalidDates += 1;
     if (!validDate(interaction.updatedAt)) invalidDates += 1;

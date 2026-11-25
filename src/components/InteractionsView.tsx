@@ -27,7 +27,7 @@ import type {
 import {
   interactionKindLabel,
   platformLabel,
-  SOCIAL_PLATFORM_OPTIONS,
+  ALL_PLATFORM_OPTIONS,
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
 import { ContentContext } from "./ContentContext";
@@ -333,7 +333,7 @@ export function InteractionsView({
       ...accounts.flatMap((account) => account.channels.map((channel) => channel.platform)),
       ...interactions.map((interaction) => interaction.platform),
     ]);
-    return SOCIAL_PLATFORM_OPTIONS.filter((option) => connected.has(option.id));
+    return ALL_PLATFORM_OPTIONS.filter((option) => connected.has(option.id));
   }, [accounts, interactions]);
 
   const filteredInteractions = useMemo(() => {

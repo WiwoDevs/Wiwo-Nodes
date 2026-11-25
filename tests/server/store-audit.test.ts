@@ -24,6 +24,7 @@ describe("store audit", () => {
       youtube: 0,
       linkedin: 0,
       google_business: 0,
+      whatsapp: 0,
     });
     expect(report.interactions.byType).toEqual({ dm: 40, comment: 20, review: 0 });
     expect(report.metricool).toMatchObject({ configuredAccounts: 0, unconfiguredAccounts: 20 });

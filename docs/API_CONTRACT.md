@@ -236,7 +236,7 @@ type Interaction = {
   externalId: string;
   brandId: string;
   accountId: string;
-  channel: "instagram" | "facebook" | "x" | "tiktok" | "youtube" | "linkedin" | "google_business";
+  channel: "instagram" | "facebook" | "x" | "tiktok" | "youtube" | "linkedin" | "google_business" | "whatsapp";
   type: "dm" | "comment" | "review";
   direction: "inbound" | "outbound";
   customerName: string;
@@ -246,7 +246,7 @@ type Interaction = {
   sentiment: "positive" | "neutral" | "negative";
   confidence: number;
   status: "new" | "pending" | "drafted" | "replied" | "escalated" | "resolved";
-  source: "demo" | "metricool";
+  source: "demo" | "metricool" | "planilla" | "whatsapp";
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -1246,7 +1246,10 @@ Comportamiento:
 - En live, un envío aprobado por una persona exige `SAC_FLOW_ENABLE_MANUAL_REPLIES=true` o que las mutaciones generales de Metricool estén habilitadas. Si no, responde `423 MANUAL_REPLIES_DISABLED`. La excepción manual no habilita nodos Metricool ni el dispatcher automático.
 - Un envío manual aprobado no se bloquea localmente por antigüedad: la API crea la entrega e intenta enviarla a Metricool. Metricool/Meta conservan la autoridad final y un rechazo inequívoco queda registrado como entrega `failed`. La auto-respuesta sí exige que el assessment mantenga una ventana elegible.
 
-Respuesta: `{ data: Interaction, meta: { demoMode, mode, delivery, deliveryId? } }`, donde `delivery` es `draft_saved`, `demo_simulated` o `sent`.
+- **WhatsApp** (`channel: "whatsapp"`, en live) tiene su propio cortacorriente: sin `SAC_FLOW_WHATSAPP_SENDS_ENABLED=true` responde `423 WHATSAPP_SENDS_DISABLED`, y `SAC_FLOW_DISABLE_OUTBOUND_SENDS` / `SAC_FLOW_ENABLE_MANUAL_REPLIES` no lo afectan (siguen gobernando solo Metricool). `/api/health` lo informa en `operations.whatsappSendsEnabled` (y el modo en `operations.whatsapp`).
+- **WhatsApp** (`channel: "whatsapp"`, en live): `send` no contacta a Metricool. La API crea la entrega `pending` y responde `delivery: "queued"`; el worker de WhatsApp la envía cuando el número está conectado y cumplió su pausa (ver [WhatsApp](#whatsapp)). Solo con `approvedByHuman: true` de una persona (`409 WHATSAPP_HUMAN_ONLY`; nunca un actor de servicio). Además: `503 WHATSAPP_DISABLED` si el servidor no tiene WhatsApp habilitado, `422 WHATSAPP_LINE_NOT_FOUND`, `409 WHATSAPP_LINE_UNLINKED` y `409 WHATSAPP_REPEATED_TEXT` cuando el mismo texto exacto ya salió a `SAC_FLOW_WHATSAPP_REPEATED_TEXT_LIMIT` chats de la cuenta en 30 minutos. Una entrega incierta de WhatsApp no bloquea los envíos de Metricool de la misma cuenta, ni al revés. Repetir el `Idempotency-Key` mientras la entrega sigue en cola devuelve `queued` con el mismo `deliveryId`.
+
+Respuesta: `{ data: Interaction, meta: { demoMode, mode, delivery, deliveryId? } }`, donde `delivery` es `draft_saved`, `demo_simulated`, `sent` o `queued` (WhatsApp).
 
 El assessment automático usa `createdAt` del item normalizado para decidir si deriva a revisión humana. En un envío manual, Metricool conserva la autoridad final y puede rechazar la operación por antigüedad, políticas o estado externo.
 
@@ -1261,6 +1264,38 @@ El assessment automático usa `createdAt` del item normalizado para decidir si d
 Estados: `pending`, `sending`, `sent`, `failed`, `uncertain`, `cancelled`, `demo_simulated`. Una entrega `pending` puede incluir `nextAttemptAt`: significa que Metricool respondió `429` de forma explícita y no puede volver a reservarse antes de esa fecha. El worker usa ese valor como cooldown para toda la cuenta sin detener otras marcas. Solo puede existir una entrega `sending` por cuenta; una entrega `uncertain` activa un breaker durable que bloquea nuevos envíos de esa cuenta hasta que un supervisor la concilie. La conciliación recibe `{ outcome: "sent" | "failed" | "cancelled", expectedVersion, note }`; `note` exige 10–2000 caracteres. Confirmar `sent` actualiza el caso como respondido. Las otras salidas conservan el caso sin afirmar que Metricool recibió el mensaje. Toda conciliación agrega auditoría `delivery_reconciled`.
 
 Errores específicos: `DELIVERY_IN_PROGRESS`, `DELIVERY_ALREADY_ACTIVE`, `DELIVERY_DEFERRED`, `DELIVERY_UNCERTAIN`, `DELIVERY_RECONCILIATION_REQUIRED`, `ACCOUNT_DELIVERY_RECONCILIATION_REQUIRED`, `DELIVERY_NOT_RETRYABLE`, `DELIVERY_NOT_RECONCILABLE` y `DELIVERY_RECONCILE_CONFLICT`.
+
+### WhatsApp
+
+Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás del adaptador `WhatsAppGateway`. Arquitectura, riesgos y operación: [WHATSAPP.md](WHATSAPP.md). Modo (`meta.whatsappMode`): `demo` (simulado, sin worker), `live` (`SAC_FLOW_WHATSAPP_ENABLED=true` y `SAC_FLOW_WHATSAPP_WORKER_KEY`) o `disabled`.
+
+**Números** (solo admins principales: `SAC_FLOW_AUTH_ADMIN_EMAILS`, o cualquier admin sin inicio de sesión propio; los demás reciben `403 MASTER_ADMIN_REQUIRED` o `403 FORBIDDEN`):
+
+| Método | Ruta | Body | Resultado |
+|---|---|---|---|
+| `GET` | `/api/whatsapp/lines` | — | `{ lines: WhatsAppAdminLine[], worker: { mode, online, lastSeenAt? } }` |
+| `POST` | `/api/whatsapp/lines` | `{ brandId, label, method: "qr" \| "code", phoneNumber?, importHistory? }` | `201`; crea el número y pide vincularlo. `meta.lineId`. `importHistory: true` pide al teléfono su historial completo al vincular |
+| `POST` | `/api/whatsapp/lines/:id/link` | `{ method, phoneNumber?, importHistory? }` | Pide un QR o código nuevo (borra la sesión anterior). `409 WHATSAPP_ALREADY_LINKED` si ya está conectado |
+| `POST` | `/api/whatsapp/lines/:id/unlink` | — | El worker cierra la sesión en WhatsApp y borra las credenciales; los chats se conservan |
+| `DELETE` | `/api/whatsapp/lines/:id` | — | Quita un número ya desvinculado (`409 WHATSAPP_LINE_ACTIVE` si no) |
+| `POST` | `/api/whatsapp/lines/:id/demo-message` | `{ text? }` | Solo demo: mensaje ficticio por el mismo camino que uno real |
+
+`WhatsAppAdminLine`: `id`, `brandId`, `brandName`, `label`, `desiredState` (`linked`/`unlinked`), `generation`, `status` (`pending_link`, `connecting`, `connected`, `disconnected`, `logged_out`, `unlinked`, `error`), `linkMethod`, `phoneNumber?` (el de la marca), `displayName?`, `linkedAt?`, `lastConnectedAt?`, `lastError?`, `createdAt`, `updatedAt`, y mientras vencen `qrDataUrl?` (PNG, 60 s) o `pairingCode?` (3 min). El QR y el código solo viven en memoria de la API; nunca se guardan. `phoneNumber` con `method: "code"` exige 8 a 15 dígitos con código de país (`422 WHATSAPP_PHONE_INVALID`). Sin WhatsApp habilitado, crear o vincular responde `503 WHATSAPP_DISABLED`.
+
+**Historial de un chat** (cualquier rol con acceso a la marca): `POST /api/whatsapp/history` con `{ interactionId }` pide al teléfono hasta 50 mensajes anteriores al más antiguo que wiwo.sac tiene de ese chat → `{ requested: true, before }`. Llegan en segundos por la bandeja en vivo, si WhatsApp los entrega. Errores: `422 NOT_WHATSAPP`, `409 WHATSAPP_NOT_CONNECTED`, `429 HISTORY_RECENTLY_REQUESTED` (20 s por chat). En demo responde `{ requested: false, reason: "demo" }`. El historial importado (`metricoolRef.whatsapp.history: true`) llega `resolved` con motivo `whatsapp_history`, no pasa por el protocolo SAC y no cuenta en `GET /api/reports/sac`, `GET /api/stats/messages` ni en las filas de `/api/integrations/*`. Al vincular, el último mensaje de cliente de cada chat de los últimos 7 días queda como caso normal.
+
+**Estado para la bandeja** (cualquier rol con sesión): `GET /api/whatsapp/status` → `{ mode, lines: [{ id, brandId, label, status, phoneNumber?, displayName? }] }`, solo de las marcas del actor y sin QR ni código.
+
+**Worker** (`/api/internal/whatsapp/*`): no usan la sesión ni `SAC_FLOW_API_KEY`. Exigen la cabecera `X-WhatsApp-Worker-Key` igual a `SAC_FLOW_WHATSAPP_WORKER_KEY` (`401 WORKER_KEY_REQUIRED`) y solo existen en modo `live` (si no, `404`). No cuentan para el límite de solicitudes.
+
+| Método | Ruta | Body | Resultado |
+|---|---|---|---|
+| `GET` | `lines` | — | `[{ id, brandId, desiredState, generation, status, importHistory, pairingPhone? }]`; cuenta como señal de vida del worker |
+| `GET` | `history-requests` | — | Pedidos de "Cargar anteriores" `[{ lineId, chatId, anchor: { messageId, fromMe, timestamp }, count }]`; cada uno se entrega una sola vez |
+| `POST` | `lines/:id/state` | `{ generation, status, qr?, pairingCode?, phoneNumber?, displayName?, error? }` | `{ accepted }`; un informe de otra generación se ignora |
+| `POST` | `lines/:id/messages` | `{ messages: [{ messageId, chatId, phoneNumber?, fromMe, timestamp, pushName?, text, kind }] (1–200), history?: "link" \| "on_demand" }` | `{ created, duplicates, ignored, history? }`. Con `history`, el lote se guarda como historial (ver arriba). Interacciones `whatsapp` con `externalId` `wa:<lineId>:<messageId>`; el eco de lo que envió wiwo.sac (`providerResponseRef` `whatsapp:<messageId>`) se ignora; un cliente oculto o un número desvinculado no guarda nada |
+| `POST` | `deliveries/claim` | `{ lineIds }` | La entrega `pending` más antigua, aprobada por una persona, de un número conectado: `{ deliveryId, lineId, chatId, text, replyToMessageId, leaseExpiresAt }` (lease de 2 min), o `null` |
+| `POST` | `deliveries/:id/result` | `{ status: "sent" \| "failed" \| "uncertain", messageId?, errorCode? }` | Cierra la entrega (`sent` exige `messageId`); `409 DELIVERY_NOT_IN_PROGRESS` si no estaba en envío |
 
 ### `PATCH /api/interactions/:id/status`
 

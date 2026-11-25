@@ -2,7 +2,8 @@ import type { AccessRoleRecord, Permission } from "./permissions.js";
 
 import type { AutomationState } from "./automation-types.js";
 
-export const CHANNELS = [
+/** Redes que llegan por Metricool: son las únicas que una cuenta puede declarar como conectadas. */
+export const METRICOOL_CHANNELS = [
   "instagram",
   "facebook",
   "x",
@@ -11,6 +12,12 @@ export const CHANNELS = [
   "linkedin",
   "google_business",
 ] as const;
+export type MetricoolChannel = (typeof METRICOOL_CHANNELS)[number];
+/**
+ * Todos los canales de una interacción. `whatsapp` no pasa por Metricool: lo trae el worker de
+ * WhatsApp (server/whatsapp-worker.ts) detrás de su propio adaptador.
+ */
+export const CHANNELS = [...METRICOOL_CHANNELS, "whatsapp"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
 export const METRICOOL_INSTAGRAM_PROVIDERS = ["INSTAGRAMBUSINESS", "INSTAGRAM"] as const;
@@ -269,6 +276,7 @@ export function channelForMetricoolProvider(provider: MetricoolInboxProvider): C
 }
 
 export function metricoolInboxSurfacesForChannel(channel: Channel): MetricoolInboxSurface[] {
+  if (channel === "whatsapp") return [];
   if (channel === "instagram" || channel === "facebook") return ["conversations", "comments"];
   if (channel === "x") return ["conversations"];
   if (channel === "google_business") return ["reviews"];
@@ -533,8 +541,11 @@ export interface Interaction {
   sentiment: Sentiment;
   confidence: number;
   status: InteractionStatus;
-  /** `planilla`: cargado desde la bitácora manual del equipo, no desde el inbox de Metricool. */
-  source: "demo" | "metricool" | "planilla";
+  /**
+   * `planilla`: cargado desde la bitácora manual del equipo, no desde el inbox de Metricool.
+   * `whatsapp`: recibido por un número de WhatsApp vinculado (worker de WhatsApp).
+   */
+  source: "demo" | "metricool" | "planilla" | "whatsapp";
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -544,8 +555,14 @@ export interface Interaction {
   automation?: SacAutomationAssessment;
   responseText?: string;
   respondedAt?: string;
+  /**
+   * Referencia del proveedor. Para WhatsApp, `conversationId`, `recipient` y `actorId` llevan la
+   * clave del chat (así la bandeja agrupa por persona igual que con Metricool) y `whatsapp` dice
+   * por qué número entró o salió.
+   */
   metricoolRef?: {
     provider?: MetricoolInboxProvider;
+    whatsapp?: WhatsAppMessageRef;
     conversationId?: string;
     recipient?: string;
     objectId?: string;
@@ -570,6 +587,68 @@ export interface Interaction {
   sacTriage?: SacTriage;
   /** Clasificación de IA en sombra (no cuenta en Reportes; ver `AiTriage`). */
   aiTriage?: AiTriage;
+}
+
+/** Mensaje de WhatsApp: número (línea) por el que entró y su id en WhatsApp. */
+export interface WhatsAppMessageRef {
+  lineId: string;
+  /** Chat al que se responde (JID de la persona). */
+  chatId: string;
+  messageId: string;
+  /**
+   * Mensaje antiguo importado del teléfono (historial al vincular o "Cargar anteriores"). Se ve
+   * en la conversación, pero no es un caso: no cuenta en Reportes, Clientes ni METRIQ.
+   */
+  history?: true;
+}
+
+/** Historial antiguo de WhatsApp importado: contexto de la conversación, nunca un caso. */
+export function isImportedHistory(interaction: Pick<Interaction, "metricoolRef">): boolean {
+  return interaction.metricoolRef?.whatsapp?.history === true;
+}
+
+export const WHATSAPP_LINE_STATUSES = [
+  "pending_link",
+  "connecting",
+  "connected",
+  "disconnected",
+  "logged_out",
+  "unlinked",
+  "error",
+] as const;
+export type WhatsAppLineStatus = (typeof WHATSAPP_LINE_STATUSES)[number];
+
+/**
+ * Número de WhatsApp asociado a una marca. Se guarda solo la configuración y el último estado
+ * conocido: la sesión (credenciales de WhatsApp Web) vive en el worker, fuera del repo, y el QR
+ * o código de vinculación solo en la memoria de la API.
+ */
+export interface WhatsAppLine {
+  id: string;
+  brandId: string;
+  label: string;
+  /** Lo que pidió un admin principal: que el número esté vinculado o desvinculado. */
+  desiredState: "linked" | "unlinked";
+  /** Sube con cada pedido de vincular o desvincular, para que el worker actúe una sola vez. */
+  generation: number;
+  /** Número para vincular con código en vez de QR (solo dígitos, con código de país). */
+  pairingPhone?: string;
+  /**
+   * Al vincular, pedirle al teléfono su historial completo e importarlo como historial (no como
+   * casos). WhatsApp solo lo entrega al vincular: cambiarlo exige volver a vincular.
+   */
+  importHistory?: boolean;
+  status: WhatsAppLineStatus;
+  /** Número vinculado, en formato internacional (+56…), informado por WhatsApp. */
+  phoneNumber?: string;
+  /** Nombre del perfil en WhatsApp. */
+  displayName?: string;
+  linkedAt?: string;
+  lastConnectedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
 }
 
 export interface ConversationMessage {
@@ -732,6 +811,8 @@ export interface DataStore {
   userAccess?: UserAccessRecord[];
   /** Solo JSON local; en PostgreSQL vive en la tabla `access_roles`. */
   accessRoles?: AccessRoleRecord[];
+  /** Solo JSON local; en PostgreSQL vive en la tabla `whatsapp_lines`. */
+  whatsappLines?: WhatsAppLine[];
 }
 
 /**

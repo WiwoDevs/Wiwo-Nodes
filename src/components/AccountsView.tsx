@@ -27,6 +27,7 @@ import type {
   BrandAdminInput,
   BrandAccount,
   ChannelConnection,
+  MetricoolPlatform,
   SocialPlatform,
   BrandResourceKind,
   MetricoolInstagramProvider,
@@ -62,7 +63,7 @@ type BrandFormState = {
   color: string;
   active: boolean;
   accountActive: boolean;
-} & Record<SocialPlatform, boolean>;
+} & Record<MetricoolPlatform, boolean>;
 
 const emptyBrandForm: BrandFormState = {
   brandId: "",

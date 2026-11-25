@@ -202,6 +202,7 @@ function mappedValue(field: BrandWorkbookField, interaction: Interaction): strin
     youtube: "YouTube",
     linkedin: "LinkedIn",
     google_business: "Google Business",
+    whatsapp: "WhatsApp",
   })[interaction.channel];
   if (field === "type") return interaction.type === "dm"
     ? "DM"
