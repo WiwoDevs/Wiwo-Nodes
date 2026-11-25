@@ -111,7 +111,7 @@ import {
   type StoredPostThumbnail,
   type ThumbnailFetcher,
 } from "./post-thumbnails.js";
-import { applySacUsagePlan, messageVolumeRows, planSacUsageSeed, shouldSeedSacUsage, type SacUsageSeedPlan } from "./sac-usage.js";
+import { applySacUsagePlan, messageVolumeRows, planSacUsageForNewAccounts, planSacUsageSeed, shouldSeedSacUsage, type SacUsageSeedPlan } from "./sac-usage.js";
 import { buildAiAgreement } from "./ai-shadow-triage.js";
 import { detectNoise, isDiscardableNoise } from "./noise-detection.js";
 import {
@@ -152,6 +152,7 @@ import type {
   WorkflowVersion,
 } from "./types.js";
 import {
+  CHANNELS,
   metricoolInboxSurfacesForChannel,
   metricoolProviderForChannel,
   metricoolProviderForSurface,
@@ -1207,6 +1208,7 @@ async function autoLinkMetricoolCatalog(
   const duplicates = skipped.filter((item) => item.reason === "DUPLICATE_INSTAGRAM").length;
 
   const retired = await retireDemoSeedBrands(config, repository, current);
+  if (created.length) await markNewSacAccounts(repository);
 
   const audit: RunAuditStep[] = [
     auditStep(
@@ -1234,7 +1236,10 @@ async function autoLinkMetricoolCatalog(
  */
 async function seedSacUsage(repository: SacFlowRepository): Promise<SacUsageSeedPlan | undefined> {
   const catalog = await repository.snapshotCatalog();
-  if (!shouldSeedSacUsage(catalog)) return undefined;
+  if (!shouldSeedSacUsage(catalog)) {
+    await markNewSacAccounts(repository, catalog);
+    return undefined;
+  }
   const plan = planSacUsageSeed(catalog.brands);
   if (!plan.matches.length) return undefined;
   await repository.mutateCatalog((store) => {
@@ -1242,6 +1247,17 @@ async function seedSacUsage(repository: SacFlowRepository): Promise<SacUsageSeed
     applySacUsagePlan(store, plan);
   });
   return plan;
+}
+
+/** Marca «En SAC» las cuentas de la lista que se vincularon después de la precarga. */
+async function markNewSacAccounts(repository: SacFlowRepository, current?: CatalogStore): Promise<number> {
+  const catalog = current ?? await repository.snapshotCatalog();
+  const matches = planSacUsageForNewAccounts(catalog.brands);
+  if (!matches.length) return 0;
+  return repository.mutateCatalog((store) => {
+    const fresh = planSacUsageForNewAccounts(store.brands);
+    return applySacUsagePlan(store, { matches: fresh, unmatched: [] });
+  });
 }
 
 export async function retireDemoSeedBrands(
@@ -2953,8 +2969,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       if (body.accountHandle !== undefined) brand.account.handle = body.accountHandle;
       if (body.channels !== undefined) {
         brand.account.channels = [...new Set(body.channels)];
-        // La marca «En SAC» solo vale para redes conectadas.
-        if (brand.account.sacChannels) brand.account.sacChannels = brand.account.sacChannels.filter((channel) => brand.account.channels.includes(channel));
       }
       if (body.accountActive !== undefined) brand.account.active = body.accountActive;
       store.workflow.updatedAt = new Date().toISOString();
@@ -3016,11 +3030,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const updated = await repository.mutateCatalog((store) => {
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
-      const unknown = body.channels.filter((channel) => !brand.account.channels.includes(channel));
-      if (unknown.length) {
-        throw new ApiError(422, "CHANNEL_NOT_CONNECTED", `La cuenta no tiene conectada: ${unknown.join(", ")}.`, { channels: unknown });
-      }
-      brand.account.sacChannels = brand.account.channels.filter((channel) => body.channels.includes(channel));
+      // Se puede marcar una red aún no conectada en Metricool: queda pendiente y vale sola al conectarse.
+      brand.account.sacChannels = CHANNELS.filter((channel) => body.channels.includes(channel));
       return brand;
     });
     return {

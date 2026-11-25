@@ -17,7 +17,8 @@ export const SAC_USAGE_SEED: ReadonlyArray<{
   cliente: string;
   cuentas: ReadonlyArray<{ nombres: readonly string[]; redes: readonly Channel[]; nota?: string }>;
 }> = [
-  { cliente: "Pichara", cuentas: [{ nombres: ["pichara"], redes: ["tiktok"] }] },
+  // En Metricool es «picharaoficial» y hoy no tiene redes conectadas: se marca sola apenas se vincule.
+  { cliente: "Pichara", cuentas: [{ nombres: ["pichara", "picharaoficial", "pichara oficial"], redes: ["tiktok"] }] },
   {
     cliente: "Colbún",
     cuentas: [
@@ -49,7 +50,10 @@ export function normalizeAccountName(value: string): string {
 }
 
 export interface SacUsageSeedPlan {
-  /** Cuentas a marcar y las redes que quedan marcadas (solo las que la cuenta tiene conectadas). */
+  /**
+   * Cuentas a marcar y sus redes. Incluye redes aún no conectadas en Metricool (quedan «pendientes»
+   * y valen solas cuando se conecten; p. ej. el TikTok de Truecaller, por pedido del usuario).
+   */
   matches: Array<{ brandId: string; accountName: string; cliente: string; channels: Channel[] }>;
   /** Lo que no calzó: cliente sin cuenta, o red que la cuenta no tiene conectada en Metricool. */
   unmatched: Array<{ cliente: string; redes: Channel[]; motivo: "sin_cuenta" | "red_no_conectada" }>;
@@ -73,9 +77,8 @@ export function planSacUsageSeed(brands: Brand[]): SacUsageSeedPlan {
       }
       const missing = new Set(cuenta.redes);
       for (const brand of found) {
-        const channels = cuenta.redes.filter((red) => brand.account.channels.includes(red));
-        channels.forEach((red) => missing.delete(red));
-        if (!channels.length) continue;
+        cuenta.redes.filter((red) => brand.account.channels.includes(red)).forEach((red) => missing.delete(red));
+        const channels = [...cuenta.redes];
         const current = matches.get(brand.id);
         matches.set(brand.id, {
           brandId: brand.id,
@@ -103,10 +106,20 @@ export function applySacUsagePlan(store: Pick<CatalogStore, "brands">, plan: Sac
   for (const match of plan.matches) {
     const brand = store.brands.find((item) => item.id === match.brandId);
     if (!brand) continue;
-    brand.account.sacChannels = match.channels.filter((channel) => brand.account.channels.includes(channel));
+    brand.account.sacChannels = [...match.channels];
     marked += 1;
   }
   return marked;
+}
+
+/**
+ * Cuentas de la lista que aparecen después de la precarga (p. ej. Pichara, cuando conecte una red y
+ * se vincule): se marcan solas si nadie les definió la marca todavía. Lo que un admin principal ya
+ * editó en Clientes (aunque sea vacío) no se toca.
+ */
+export function planSacUsageForNewAccounts(brands: Brand[]): SacUsageSeedPlan["matches"] {
+  return planSacUsageSeed(brands).matches.filter((match) =>
+    brands.find((brand) => brand.id === match.brandId)?.account.sacChannels === undefined);
 }
 
 export interface MessageVolumeRow {

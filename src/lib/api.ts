@@ -622,7 +622,8 @@ function mapAccounts(
       workbook: brand.workbook,
       qaWorkbook: brand.qaWorkbook,
       resources: brand.resources ?? [],
-      sacChannels: brand.account.sacChannels?.filter((channel) => brand.account.channels.includes(channel)),
+      // Incluye redes marcadas que aún no están conectadas (se muestran como pendientes).
+      sacChannels: brand.account.sacChannels,
       channels: brand.account.channels.map((channel) => ({
         platform: channel,
         username: brand.account.handle,

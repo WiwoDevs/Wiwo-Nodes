@@ -40,6 +40,9 @@ import {
   SocialPlatformIcon,
 } from "./SocialPlatformIcon";
 import { confirmAction } from "../lib/confirm";
+
+/** Redes que se pueden marcar «En SAC» (también antes de conectarlas en Metricool). */
+const SAC_PLATFORMS: SocialPlatform[] = ["instagram", "facebook", "tiktok", "linkedin", "x", "youtube"];
 import { AccountFilter } from "./AccountFilter";
 import { ClientsDashboard, type UsageScope } from "./ClientsDashboard";
 
@@ -645,11 +648,18 @@ export function AccountsView({
                         <div className="sac-usage-cell">
                           {account.sacChannels?.length ? (
                             <span className="sac-usage-cell__networks" aria-label={`Se usa en SAC: ${account.sacChannels.map(platformLabel).join(", ")}`}>
-                              {account.sacChannels.map((platform) => (
-                                <span key={platform} className="sac-usage-chip" title={platformLabel(platform)}>
+                              {account.sacChannels.map((platform) => {
+                                const pending = !account.channels.some((channel) => channel.platform === platform);
+                                return (
+                                <span
+                                  key={platform}
+                                  className={`sac-usage-chip${pending ? " is-pending" : ""}`}
+                                  title={pending ? `${platformLabel(platform)}: aún no conectada en Metricool (pendiente)` : platformLabel(platform)}
+                                >
                                   <SocialPlatformIcon platform={platform} size={14} weight="fill" aria-hidden="true" />
                                 </span>
-                              ))}
+                                );
+                              })}
                             </span>
                           ) : (
                             <span className="sac-usage-cell__none">No se usa</span>
@@ -1065,6 +1075,26 @@ export function AccountsView({
                 </label>
               ))}
             </fieldset>
+            {/* Redes aún no conectadas en Metricool: se pueden dejar marcadas y valen solas al conectarse. */}
+            {SAC_PLATFORMS.some((platform) => !usageAccount.channels.some((channel) => channel.platform === platform)) ? (
+              <fieldset className="brand-admin-options">
+                <legend>Aún no conectadas (quedan pendientes)</legend>
+                {SAC_PLATFORMS.filter((platform) => !usageAccount.channels.some((channel) => channel.platform === platform)).map((platform) => (
+                  <label key={platform}>
+                    <input
+                      type="checkbox"
+                      checked={usageDraft.includes(platform)}
+                      onChange={(event) => setUsageDraft((current) => event.target.checked
+                        ? [...new Set([...current, platform])]
+                        : current.filter((item) => item !== platform))}
+                      disabled={isSavingUsage}
+                    />
+                    <SocialPlatformIcon platform={platform} size={16} weight="fill" aria-hidden="true" />
+                    <span>{platformLabel(platform)}<small>Se atenderá cuando se conecte en Metricool</small></span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
             <footer>
               <button className="button button--secondary" type="button" onClick={closeUsageDialog} disabled={isSavingUsage}>
                 Cancelar
