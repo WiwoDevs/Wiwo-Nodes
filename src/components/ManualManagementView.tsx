@@ -38,6 +38,7 @@ import {
 import { ContentContext } from "./ContentContext";
 import { PostThumbnail, safeThumbnailUrl } from "./PostThumbnail";
 import { ProfileAvatar } from "./ProfileAvatar";
+import { AccountFilter } from "./AccountFilter";
 import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb, BusyOrb } from "./ThinkingOrb";
 import { EmojiPicker } from "./EmojiPicker";
@@ -856,16 +857,14 @@ export function ManualManagementView({
   const accountOptions = [...accounts]
     .map((account) => ({ account, inWindow: pendingCounts?.[account.id]?.inWindow ?? 0, total: pendingCounts?.[account.id]?.total ?? 0 }))
     .sort((left, right) => right.inWindow - left.inWindow || right.total - left.total || left.account.name.localeCompare(right.account.name, "es"));
-  // Las cuentas que el equipo atiende hoy («En SAC», marcadas en Clientes) van en su propio grupo,
-  // antes que las demás. Sin cuentas marcadas, la lista queda como siempre.
-  const sacAccountOptions = accountOptions.filter(({ account }) => account.sacChannels?.length);
-  const otherAccountOptions = accountOptions.filter(({ account }) => !account.sacChannels?.length);
-  const renderAccountOption = ({ account, inWindow, total }: (typeof accountOptions)[number]) => (
-    <option key={account.id} value={account.id}>
-      {account.name}
-      {pendingCounts ? ` — ${inWindow ? `${inWindow} en plazo` : "sin casos en plazo"}${total > inWindow ? ` · ${total - inWindow} vencidos` : ""}` : ""}
-    </option>
-  );
+  // Selector con búsqueda, como el de la Bandeja SAC: número verde = casos en plazo; debajo, los vencidos.
+  const accountInWindowCounts = Object.fromEntries(accountOptions.map(({ account, inWindow }) => [account.id, inWindow]));
+  const accountExtraDetail = Object.fromEntries(accountOptions.map(({ account, inWindow, total }) => [
+    account.id,
+    pendingCounts
+      ? [inWindow ? null : "sin casos en plazo", total > inWindow ? `${total - inWindow} vencidos` : null].filter(Boolean).join(" · ")
+      : "",
+  ]));
 
   return (
     <section className="manual-inbox-view" aria-labelledby="manual-inbox-title">
@@ -886,24 +885,18 @@ export function ManualManagementView({
           </span>
         </div>
         <div className="manual-inbox-account-picker">
-          <label htmlFor="manual-inbox-account">Cuenta obligatoria</label>
-          <select
-            id="manual-inbox-account"
+          <AccountFilter
+            accounts={accounts}
             value={selectedAccountId ?? ""}
-            onChange={(event) => requestAccountChange(event.target.value)}
+            onChange={(id) => requestAccountChange(id)}
+            inWindowCounts={accountInWindowCounts}
+            extraDetail={accountExtraDetail}
+            countLabel="Casos en plazo"
+            hideAll
+            sortByCount
             disabled={accounts.length === 0 || isSaving}
-            required
-          >
-            <option value="" disabled>Selecciona una cuenta</option>
-            {sacAccountOptions.length ? (
-              <>
-                <optgroup label={`En SAC (${sacAccountOptions.length})`}>{sacAccountOptions.map(renderAccountOption)}</optgroup>
-                {otherAccountOptions.length ? (
-                  <optgroup label={`Otras cuentas (${otherAccountOptions.length})`}>{otherAccountOptions.map(renderAccountOption)}</optgroup>
-                ) : null}
-              </>
-            ) : accountOptions.map(renderAccountOption)}
-          </select>
+            label="Cuenta"
+          />
           {selectedAccount && onRefreshAccount && canRefresh ? (
             <button
               className="manual-inbox-refresh"

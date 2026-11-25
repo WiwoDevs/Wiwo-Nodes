@@ -18,6 +18,17 @@ type AccountFilterProps = {
   allLabel?: string;
   /** Agrega «Solo cuentas En SAC» (valor "sac") cuando hay cuentas marcadas en Clientes. */
   sacOption?: boolean;
+  /** Sin la opción «Todas las cuentas» (Gestión DMs/comentarios, que siempre trabaja una cuenta). */
+  hideAll?: boolean;
+  /** Ordena cada grupo por el número (más casos primero) en vez de por nombre. */
+  sortByCount?: boolean;
+  /** Texto extra por cuenta bajo el nombre (p. ej. «12 vencidos»). */
+  extraDetail?: Record<string, string>;
+  /** Texto del botón cuando no hay cuenta elegida. */
+  placeholder?: string;
+  disabled?: boolean;
+  /** Nombre accesible del botón. */
+  label?: string;
 };
 
 type Option = { id: string; name: string; detail: string; count?: number; group?: "sac" | "other" };
@@ -36,7 +47,7 @@ const PLATFORM_LABEL: Record<string, string> = {
   google_business: "Google",
 };
 
-export function AccountFilter({ accounts, value, onChange, inWindowCounts, countLabel = "Casos por atender en plazo", allLabel = "Todas las cuentas", sacOption = false }: AccountFilterProps) {
+export function AccountFilter({ accounts, value, onChange, inWindowCounts, countLabel = "Casos por atender en plazo", allLabel = "Todas las cuentas", sacOption = false, hideAll = false, sortByCount = false, extraDetail, placeholder = "Selecciona una cuenta", disabled = false, label }: AccountFilterProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -49,9 +60,10 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
     const grouped = accounts.some((account) => account.sacChannels?.length) && accounts.some((account) => !account.sacChannels?.length);
     const sorted = [...accounts].sort((left, right) =>
       (grouped ? Number(Boolean(right.sacChannels?.length)) - Number(Boolean(left.sacChannels?.length)) : 0)
+      || (sortByCount ? (inWindowCounts[right.id] ?? 0) - (inWindowCounts[left.id] ?? 0) : 0)
       || left.name.localeCompare(right.name, "es"));
     return [
-      { id: "all", name: allLabel, detail: `${accounts.length} cuentas` },
+      ...(hideAll ? [] : [{ id: "all", name: allLabel, detail: `${accounts.length} cuentas` }]),
       ...(sacOption && grouped ? [{
         id: "sac",
         name: "Solo cuentas En SAC",
@@ -64,13 +76,13 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
         return {
           id: account.id,
           name: account.name,
-          detail: [handle ? `@${handle.replace(/^@/, "")}` : null, networks || null].filter(Boolean).join(" · "),
+          detail: [handle ? `@${handle.replace(/^@/, "")}` : null, networks || null, extraDetail?.[account.id] || null].filter(Boolean).join(" · "),
           count: inWindowCounts[account.id] ?? 0,
           ...(grouped ? { group: account.sacChannels?.length ? "sac" as const : "other" as const } : {}),
         };
       }),
     ];
-  }, [accounts, allLabel, inWindowCounts, sacOption]);
+  }, [accounts, allLabel, extraDetail, hideAll, inWindowCounts, sacOption, sortByCount]);
 
   const visible = useMemo(() => {
     const term = normalize(query.trim());
@@ -78,7 +90,7 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
     return options.filter((option) => option.id === "all" || option.id === "sac" || normalize(`${option.name} ${option.detail}`).includes(term));
   }, [options, query]);
 
-  const selected = options.find((option) => option.id === value) ?? options[0]!;
+  const selected = options.find((option) => option.id === value) ?? (hideAll ? { id: "", name: placeholder, detail: "" } : options[0]!);
 
   useEffect(() => {
     if (!open) return;
@@ -123,6 +135,8 @@ export function AccountFilter({ accounts, value, onChange, inWindowCounts, count
         className="account-filter__trigger"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={label ? `${label}: ${selected.name}` : undefined}
+        disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         title={selected.id === "all" ? allLabel : `${selected.name} · ${selected.detail}`}
       >
