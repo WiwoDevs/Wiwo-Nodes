@@ -2008,3 +2008,10 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 
 /* Red marcada En SAC que aún no está conectada en Metricool: atenuada y con borde punteado. */
 .sac-usage-chip.is-pending { opacity: .55; outline: 1px dashed var(--neo-border); outline-offset: -1px; }
+
+/* Contadores del selector de cuentas (Clientes, Bandeja SAC): pastilla verde WiWO con tinta oscura,
+   como las acciones principales, en vez del azul (pedido del usuario, noviembre 2026). */
+.account-filter__count {
+  color: #1a1a1a;
+  background: var(--neo-green);
+}
