@@ -1976,3 +1976,32 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 }
 .reports-glossary dt { color: var(--neo-fg); font-size: 12.5px; font-weight: 700; }
 .reports-glossary dd { margin: 2px 0 0; color: var(--neo-muted-fg); font-size: 12px; line-height: 1.45; }
+
+/* «Qué detectó wiwo.sac en este mensaje» (antes «Protocolo de respuesta SAC»): tarjeta neutra,
+   frase principal y datos en palabras simples que no se cortan. */
+.case-automation-card {
+  border-color: var(--neo-border);
+  background: var(--neo-card);
+  box-shadow: none;
+}
+.case-automation-card header strong { font-size: 13px; }
+.case-automation-card header small { color: var(--neo-muted-fg); font-size: 11.5px; }
+.case-automation-card__icon { color: var(--neo-fg); background: var(--neo-hover); }
+.case-automation-card__summary {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--neo-hover);
+}
+.case-automation-card__summary strong { color: var(--neo-fg); font-size: 13px; }
+.case-automation-card__summary span { color: var(--neo-muted-fg); font-size: 12px; line-height: 1.4; }
+.case-automation-card dl div { border-color: var(--neo-border); background: transparent; }
+.case-automation-card dt { color: var(--neo-muted-fg); font-size: 10.5px; letter-spacing: .02em; }
+.case-automation-card dd { color: var(--neo-fg); font-size: 12px; font-weight: 600; line-height: 1.35; white-space: normal; overflow: visible; }
+.case-automation-card__wide { grid-column: 1 / -1; }
+.case-automation-card__why { margin-top: 10px; }
+.case-automation-card__why > span { color: var(--neo-muted-fg); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
+.case-automation-card__why ul { margin: 4px 0 0; padding-left: 18px; color: var(--neo-fg); font-size: 12px; line-height: 1.45; }
+.case-automation-card > p { color: var(--neo-muted-fg); font-size: 12px; }

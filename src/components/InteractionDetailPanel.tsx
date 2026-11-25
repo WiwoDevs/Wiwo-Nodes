@@ -38,6 +38,7 @@ import { confirmAction } from "../lib/confirm";
 import { ThinkingOrb } from "./ThinkingOrb";
 import { AiReplySuggestion } from "./AiReplySuggestion";
 import { categoryLabel } from "../lib/category-label";
+import { knowledgeExplain, reasonLines, riskLabel, routeSummary, topicLabel } from "../lib/protocol-explain";
 
 export interface InteractionDetailPanelProps {
   detail: InteractionDetail | null;
@@ -105,44 +106,6 @@ function deliveryStatusLabel(status: ReplyDelivery["status"]) {
   if (status === "uncertain") return "Requiere conciliación";
   if (status === "cancelled") return "Cancelada";
   return "Simulada";
-}
-
-function routeLabel(route: NonNullable<InteractionDetail["automation"]>["effectiveRoute"]) {
-  if (route === "auto_reply") return "Auto-respuesta elegible";
-  if (route === "draft") return "Borrador seguro";
-  if (route === "human_review") return "Revisión humana";
-  if (route === "quarantine") return "Cuarentena";
-  return "Sin acción";
-}
-
-function knowledgeLabel(status: NonNullable<InteractionDetail["automation"]>["knowledge"]["status"]) {
-  if (status === "approved") return "Respuesta aprobada";
-  if (status === "not_required") return "No requiere hechos";
-  if (status === "live_source_required") return "Requiere fuente en vivo";
-  return "Falta conocimiento aprobado";
-}
-
-function automationReasonLabel(reasonCode: string) {
-  const labels: Record<string, string> = {
-    ACCOUNT_NOT_ALLOWLISTED: "Cuenta fuera de la lista de auto-respuesta",
-    APPROVED_KNOWLEDGE_MISSING: "Falta conocimiento aprobado",
-    AUTO_REPLY_DISABLED: "Auto-respuesta desactivada",
-    AUTO_REPLY_ELIGIBLE: "Elegible para auto-respuesta",
-    AUTO_REPLY_SHADOW_MODE: "Auto-respuesta en modo de observación",
-    AUTOMATION_POLICY_DISABLED: "Política automática desactivada",
-    DELIVERY_OUTBOX_NOT_READY: "Cola de envíos no disponible",
-    LIVE_SOURCE_REQUIRED: "Requiere una fuente de datos en vivo",
-    LOW_CLASSIFICATION_CONFIDENCE: "Tema poco claro: lo revisa una persona",
-    METRICOOL_MUTATIONS_DISABLED: "Cambios en Metricool desactivados",
-    OUTBOUND_CIRCUIT_BREAKER: "Envíos detenidos por seguridad",
-    OUTBOUND_INTERACTION: "Mensaje enviado por la cuenta",
-    OUTSIDE_BUSINESS_HOURS: "Fuera del horario de atención",
-    PUBLIC_REVIEW_REQUIRES_APPROVAL: "Reseña pública sujeta a aprobación",
-    REPLY_WINDOW_EXPIRED: "Fuera del plazo para auto-respuesta",
-    SENSITIVE_OR_NEGATIVE: "Caso sensible o negativo",
-    WORKFLOW_NOT_PUBLISHED: "Workflow sin publicar",
-  };
-  return labels[reasonCode] || "Condición de revisión detectada";
 }
 
 function formatDate(value: string) {
@@ -882,27 +845,32 @@ export function InteractionDetailPanel({
                 {detail.automation ? <ShieldCheck size={18} weight="duotone" /> : <Robot size={18} weight="duotone" />}
               </span>
               <div>
-                <strong>Protocolo de respuesta SAC</strong>
-                <small>{detail.automation ? "Evaluación trazable sac-v1" : "Pendiente de evaluación"}</small>
+                <strong>Qué detectó wiwo.sac en este mensaje</strong>
+                <small>Revisión automática por reglas; no envía nada.</small>
               </div>
             </header>
             {detail.automation ? (
               <>
+                <p className="case-automation-card__summary">
+                  <strong>{routeSummary(detail.automation.effectiveRoute).title}</strong>
+                  <span>{routeSummary(detail.automation.effectiveRoute).detail}</span>
+                </p>
                 <dl>
-                  <div><dt>Ruta</dt><dd>{routeLabel(detail.automation.effectiveRoute)}</dd></div>
-                  <div><dt>Intención</dt><dd>{detail.automation.intent.replaceAll("_", " ")}</dd></div>
-                  <div><dt>Riesgo</dt><dd>{detail.automation.risk}</dd></div>
-                  <div><dt>Conocimiento</dt><dd>{knowledgeLabel(detail.automation.knowledge.status)}</dd></div>
-                  <div><dt>Contexto</dt><dd>{detail.automation.conversation.messageCount} mensaje(s)</dd></div>
-                  <div>
-                    <dt>Plazo automático</dt>
-                    <dd>{providerReplyWindowMs === undefined ? "Según proveedor" : providerReplyWindowExpired ? "Fuera del plazo" : "Dentro del plazo"}</dd>
-                  </div>
+                  <div><dt>Tema</dt><dd>{topicLabel(detail.automation.intent)}</dd></div>
+                  <div><dt>Claridad del tema</dt><dd>{topicClarity(detail.automation.classificationConfidence).label} · {topicClarity(detail.automation.classificationConfidence).short}</dd></div>
+                  <div><dt>Qué tan delicado es</dt><dd>{riskLabel(detail.automation.risk)}</dd></div>
+                  <div><dt>Plazo de Meta</dt><dd>{providerReplyWindowMs === undefined ? "Esta red no tiene plazo fijo" : providerReplyWindowExpired ? "Vencido: aún puedes intentar responder" : "Dentro del plazo"}</dd></div>
+                  <div className="case-automation-card__wide"><dt>Respuesta aprobada de la marca</dt><dd>{knowledgeExplain(detail.automation.knowledge.status)}</dd></div>
                 </dl>
-                <p>{detail.automation.reasonCodes.map(automationReasonLabel).join(" · ")}</p>
+                {reasonLines(detail.automation.reasonCodes).length ? (
+                  <div className="case-automation-card__why">
+                    <span>Por qué</span>
+                    <ul>{reasonLines(detail.automation.reasonCodes).map((line) => <li key={line}>{line}</li>)}</ul>
+                  </div>
+                ) : null}
               </>
             ) : (
-              <p>Ejecuta “Protocolo SAC” desde la bandeja para clasificar, proponer y enrutar este caso sin escribir en Metricool.</p>
+              <p>Este mensaje todavía no se revisa. Desde la Bandeja, «Protocolo SAC» lo clasifica y prepara una sugerencia sin enviar nada.</p>
             )}
           </section>
 
