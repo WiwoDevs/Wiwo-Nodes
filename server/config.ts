@@ -114,6 +114,29 @@ export interface AppConfig {
    * Clasificación con IA en modo sombra. Apagada por defecto; sin clave no hace nada. La clave
    * nunca sale del servidor ni se publica en /api/ai/status.
    */
+  /**
+   * WhatsApp por Baileys (WhatsApp Web, no oficial). La sesión vive en el worker
+   * (server/whatsapp-worker.ts); la API solo guarda los números y recibe lo que el worker le
+   * entrega por las rutas internas, autenticadas con `workerKey`.
+   */
+  whatsapp: {
+    /** Habilita las rutas internas del worker en live. En demo se simula sin conexión real. */
+    enabled: boolean;
+    /**
+     * Cortacorriente propio de los envíos por WhatsApp (SAC_FLOW_WHATSAPP_SENDS_ENABLED, apagado
+     * por defecto). Reemplaza para WhatsApp a SAC_FLOW_DISABLE_OUTBOUND_SENDS y
+     * SAC_FLOW_ENABLE_MANUAL_REPLIES, que siguen gobernando solo Metricool.
+     */
+    sendsEnabled: boolean;
+    /** Clave compartida API ↔ worker (SAC_FLOW_WHATSAPP_WORKER_KEY, 32+ caracteres). */
+    workerKey?: string;
+    /** Carpeta de las sesiones de WhatsApp (credenciales), fuera del repositorio. */
+    authDir: string;
+    /** Pausas y topes por número para que el envío se vea humano y no dispare el antispam. */
+    pacing: WhatsAppPacingConfig;
+    /** Un mismo texto exacto a más de este número de chats en 30 minutos se bloquea. */
+    repeatedTextLimit: number;
+  };
   ai: {
     enabled: boolean;
     provider: "byteplus" | "anthropic";
@@ -136,6 +159,46 @@ function parseAiBrandIds(raw: string | undefined): "all" | string[] {
   const value = (raw || "").trim();
   if (value === "*") return "all";
   return [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))];
+}
+
+export interface WhatsAppPacingConfig {
+  /** Pausa mínima y máxima (al azar) entre dos envíos del mismo número. */
+  minGapMs: number;
+  maxGapMs: number;
+  maxPerMinute: number;
+  maxPerHour: number;
+  /** "Escribiendo…" según el largo del texto, acotado entre un mínimo y un máximo. */
+  typingMsPerChar: number;
+  typingMinMs: number;
+  typingMaxMs: number;
+}
+
+function loadWhatsAppConfig(env: NodeJS.ProcessEnv, cwd: string): AppConfig["whatsapp"] {
+  const workerKey = env.SAC_FLOW_WHATSAPP_WORKER_KEY?.trim() || undefined;
+  if (workerKey && workerKey.length < 32) {
+    throw new Error("SAC_FLOW_WHATSAPP_WORKER_KEY debe tener al menos 32 caracteres.");
+  }
+  const integer = (value: string | undefined, fallback: number, min: number, max: number) =>
+    z.coerce.number().int().min(min).max(max).parse(value?.trim() || fallback);
+  const minGapMs = integer(env.SAC_FLOW_WHATSAPP_MIN_GAP_MS, 4_000, 1_000, 600_000);
+  const maxGapMs = Math.max(minGapMs, integer(env.SAC_FLOW_WHATSAPP_MAX_GAP_MS, 12_000, 1_000, 600_000));
+  const typingMinMs = integer(env.SAC_FLOW_WHATSAPP_TYPING_MIN_MS, 1_500, 0, 60_000);
+  return {
+    enabled: parseBoolean(env.SAC_FLOW_WHATSAPP_ENABLED, false),
+    sendsEnabled: parseBoolean(env.SAC_FLOW_WHATSAPP_SENDS_ENABLED, false),
+    workerKey,
+    authDir: path.resolve(env.SAC_FLOW_WHATSAPP_AUTH_DIR?.trim() || path.join(cwd, "data", "whatsapp-auth")),
+    pacing: {
+      minGapMs,
+      maxGapMs,
+      maxPerMinute: integer(env.SAC_FLOW_WHATSAPP_MAX_PER_MINUTE, 6, 1, 60),
+      maxPerHour: integer(env.SAC_FLOW_WHATSAPP_MAX_PER_HOUR, 60, 1, 1_000),
+      typingMsPerChar: integer(env.SAC_FLOW_WHATSAPP_TYPING_MS_PER_CHAR, 45, 0, 500),
+      typingMinMs,
+      typingMaxMs: Math.max(typingMinMs, integer(env.SAC_FLOW_WHATSAPP_TYPING_MAX_MS, 8_000, 0, 60_000)),
+    },
+    repeatedTextLimit: integer(env.SAC_FLOW_WHATSAPP_REPEATED_TEXT_LIMIT, 5, 1, 100),
+  };
 }
 
 function loadAiConfig(env: NodeJS.ProcessEnv): AppConfig["ai"] {
@@ -438,6 +501,7 @@ export function loadConfig(
     },
     auth,
     serviceApiKeys,
+    whatsapp: loadWhatsAppConfig(env, cwd),
     ai: loadAiConfig(env),
     serveFrontend: parseBoolean(env.SERVE_FRONTEND, production),
     frontendDir: path.resolve(env.FRONTEND_DIR || path.join(cwd, "dist", "client")),

@@ -206,6 +206,10 @@ import {
 } from "./sac-automation.js";
 import { queueEligibleAutoReplies } from "./auto-reply-outbox.js";
 import { registerAutomationRoutes } from "./automation-routes.js";
+import { ApiError } from "./api-error.js";
+import { isWhatsAppWorkerPath, registerWhatsAppRoutes, whatsappMode } from "./whatsapp-routes.js";
+import { WhatsAppLineService } from "./whatsapp/line-service.js";
+import { buildWhatsAppInteraction, historyMessageIds } from "./whatsapp/ingest.js";
 import { AutomationServiceError } from "./automation-service.js";
 import {
   contactKeyFor,
@@ -218,20 +222,6 @@ import {
   publicInboxInteraction,
   publicPostContext,
 } from "./inbox-contacts.js";
-
-class ApiError extends Error {
-  readonly statusCode: number;
-  readonly code: string;
-  readonly details?: unknown;
-
-  constructor(statusCode: number, code: string, message: string, details?: unknown) {
-    super(message);
-    this.name = "ApiError";
-    this.statusCode = statusCode;
-    this.code = code;
-    this.details = details;
-  }
-}
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -609,6 +599,8 @@ function isProtectedApiPath(url: string): boolean {
     && routePath !== "/api/auth/google/callback"
     && routePath !== "/api/auth/config"
     && !isServiceApiPath(routePath)
+    // El worker de WhatsApp no tiene sesión: sus rutas exigen su propia clave (whatsapp-routes.ts).
+    && !isWhatsAppWorkerPath(routePath)
     && !isOperationalProbePath(routePath);
 }
 
@@ -1773,6 +1765,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       unmatched: sacUsageSeed.unmatched.map((item) => `${item.cliente} (${item.redes.join(", ")}): ${item.motivo === "sin_cuenta" ? "sin cuenta" : "red no conectada"}`),
     }, "Marca «En SAC» precargada en Clientes.");
   }
+  // Números de WhatsApp: estado vivo (QR, código, señal del worker) en memoria de este proceso.
+  const whatsappLines = new WhatsAppLineService(repository, { demoMode: config.demoMode });
   // Roles asignados desde "Usuarios y roles": la identidad los consulta en cada solicitud.
   const accessDirectory = createAccessDirectory(repository);
   const identityConfig = { ...config.auth, accessDirectory };
@@ -1883,7 +1877,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         },
       });
     }
-    if (config.security.rateLimit.enabled && isApiPath(request.url) && !isOperationalProbePath(request.url)) {
+    if (
+      config.security.rateLimit.enabled
+      && isApiPath(request.url)
+      && !isOperationalProbePath(request.url)
+      && !isWhatsAppWorkerPath(request.url)
+    ) {
       const now = Date.now();
       const key = rateLimitKey(request.headers as Record<string, unknown>, request.ip, [config.auth.cookieName, API_SESSION_COOKIE]);
       const current = rateLimitBuckets.get(key);
@@ -2399,6 +2398,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       inboxSyncEnabled: config.operations.inboxSyncEnabled,
       autoReplyDispatchMode: config.operations.autoReplyDispatchMode,
       autoReplyMaxPending: config.operations.autoReplyMaxPending,
+      whatsapp: whatsappMode(config),
+      whatsappSendsEnabled: config.whatsapp.sendsEnabled,
     },
     security: {
       apiKeyRequired: config.security.requireApiKey,
@@ -3031,7 +3032,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       const brand = store.brands.find((item) => item.id === brandId);
       if (!brand) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
       // Se puede marcar una red aún no conectada en Metricool: queda pendiente y vale sola al conectarse.
-      brand.account.sacChannels = CHANNELS.filter((channel) => body.channels.includes(channel));
+      brand.account.sacChannels = CHANNELS.filter((channel) => (body.channels as Channel[]).includes(channel));
       return brand;
     });
     return {
@@ -4731,18 +4732,38 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const sensitive = requiresHumanReview(interaction, store.workflow, confidence);
     let updatedAfterDelivery: Interaction | undefined;
     let replyDeliveryId: string | undefined;
-    let replyDeliveryStatus: "sent" | "demo_simulated" | undefined;
+    let replyDeliveryStatus: "sent" | "demo_simulated" | "queued" | undefined;
     let liveCredentials: MetricoolAccountReference | undefined;
+    // WhatsApp no pasa por Metricool: la API deja la entrega en cola y el worker la envía.
+    const isWhatsApp = interaction.channel === "whatsapp";
+    const whatsappQueued = isWhatsApp && !config.demoMode;
 
     if (body.mode === "send") {
-      if (config.operations.outboundSendsDisabled) {
+      // WhatsApp (live) tiene su propio cortacorriente: los de Metricool no lo abren ni lo
+      // cierran, así se puede probar WhatsApp sin habilitar respuestas a Metricool.
+      if (whatsappQueued) {
+        if (!config.whatsapp.sendsEnabled) {
+          throw new ApiError(
+            423,
+            "WHATSAPP_SENDS_DISABLED",
+            "Los envíos por WhatsApp están desactivados en este entorno (SAC_FLOW_WHATSAPP_SENDS_ENABLED); solo se pueden guardar borradores.",
+          );
+        }
+      } else if (config.operations.outboundSendsDisabled) {
         throw new ApiError(
           423,
           "OUTBOUND_SENDS_DISABLED",
           "El cortacorriente de envíos está activo; solo se pueden guardar borradores.",
         );
       }
-      if (!config.demoMode) {
+      if (isWhatsApp && (!body.approvedByHuman || actor.source === "service")) {
+        throw new ApiError(
+          409,
+          "WHATSAPP_HUMAN_ONLY",
+          "WhatsApp no tiene envío automático: cada respuesta la aprueba y envía una persona.",
+        );
+      }
+      if (!config.demoMode && !whatsappQueued) {
         if (body.approvedByHuman && !config.operations.manualRepliesEnabled) {
           throw new ApiError(
             423,
@@ -4798,7 +4819,35 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         );
       }
 
-      if (!config.demoMode) {
+      if (whatsappQueued) {
+        if (whatsappMode(config) !== "live") {
+          throw new ApiError(503, "WHATSAPP_DISABLED", "WhatsApp no está habilitado en este servidor.");
+        }
+        const reference = interaction.metricoolRef?.whatsapp;
+        const line = reference ? await whatsappLines.find(reference.lineId) : undefined;
+        if (!reference || !line) {
+          throw new ApiError(422, "WHATSAPP_LINE_NOT_FOUND", "El número de WhatsApp de esta conversación ya no existe.");
+        }
+        if (line.desiredState !== "linked") {
+          throw new ApiError(409, "WHATSAPP_LINE_UNLINKED", "El número de WhatsApp de esta conversación está desvinculado.");
+        }
+        // Un mismo texto exacto a muchos chats en poco tiempo es lo que más marca un número como spam.
+        const since = Date.now() - 30 * 60_000;
+        const recent = await repository.listReplyDeliveries({ accountId: interaction.accountId, limit: 300 });
+        const sameText = new Set(recent
+          .filter((delivery) => delivery.bodyText === body.text
+            && delivery.interactionId !== interaction.id
+            && !["failed", "cancelled"].includes(delivery.status)
+            && Date.parse(delivery.createdAt) >= since)
+          .map((delivery) => delivery.interactionId));
+        if (sameText.size >= config.whatsapp.repeatedTextLimit) {
+          throw new ApiError(
+            409,
+            "WHATSAPP_REPEATED_TEXT",
+            `Este mismo texto ya salió a ${sameText.size} chats en la última media hora. Personalízalo para que WhatsApp no marque el número como spam.`,
+          );
+        }
+      } else if (!config.demoMode) {
         if (!metricoolClient) {
           throw new ApiError(503, "METRICOOL_NOT_CONFIGURED", "Metricool no está configurado para modo live.");
         }
@@ -4817,11 +4866,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
       await repository.recoverStaleReplyDeliveries();
       if (!config.demoMode) {
-        const uncertainForAccount = (await repository.listReplyDeliveries({
+        // WhatsApp y Metricool comparten la cuenta de la marca, pero son proveedores distintos:
+        // una entrega incierta de uno no frena al otro.
+        const uncertainCandidates = await repository.listReplyDeliveries({
           status: "uncertain",
           accountId: interaction.accountId,
-          limit: 1,
-        }))[0];
+          limit: 20,
+        });
+        let uncertainForAccount: (typeof uncertainCandidates)[number] | undefined;
+        for (const candidate of uncertainCandidates) {
+          const owner = candidate.interactionId === interaction.id
+            ? interaction
+            : await repository.findInteraction(candidate.interactionId);
+          if ((owner?.channel === "whatsapp") === isWhatsApp) {
+            uncertainForAccount = candidate;
+            break;
+          }
+        }
         if (uncertainForAccount) {
           const sameInteraction = uncertainForAccount.interactionId === interaction.id;
           throw new ApiError(
@@ -4890,6 +4951,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           await rememberIdempotent(repository, `reply:${id}`, key, hash, 200, response);
           return response;
         }
+        if (delivery.status === "pending" && whatsappQueued) {
+          const response = {
+            data: publicInteractionMutationState(interaction),
+            meta: { ...apiMeta(config), delivery: "queued", deliveryId: delivery.id, idempotentReplay: true },
+          };
+          await rememberIdempotent(repository, `reply:${id}`, key, hash, 200, response);
+          return response;
+        }
         if (delivery.status !== "pending") {
           const errorCode = delivery.status === "uncertain"
             ? "DELIVERY_RECONCILIATION_REQUIRED"
@@ -4927,6 +4996,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         }
         updatedAfterDelivery = settled.interaction;
         replyDeliveryStatus = "demo_simulated";
+      } else if (whatsappQueued) {
+        // Queda en cola: el worker la toma cuando el número está conectado y cumplió su pausa,
+        // muestra "escribiendo…" y confirma el envío por la ruta interna.
+        updatedAfterDelivery = interaction;
+        replyDeliveryStatus = "queued";
       } else {
         const claimed = await repository.claimReplyDelivery(delivery.id, 2 * 60_000);
         if (!claimed) {
@@ -4948,7 +5022,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         }
       }
 
-      if (!config.demoMode) {
+      if (!config.demoMode && !whatsappQueued) {
         if (!metricoolClient || !liveCredentials) {
           throw new ApiError(500, "DELIVERY_STATE_ERROR", "La entrega perdió su configuración validada.");
         }
@@ -5468,6 +5542,44 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     config,
     requireRole: (request, role) => requireRole(config, request, role),
     requirePermission: (request, permission) => requirePermission(config, request, permission),
+  });
+
+  registerWhatsAppRoutes(app, {
+    config,
+    repository,
+    lines: whatsappLines,
+    requireActor: (request) => requestActor(config, request),
+    requirePermission: (request, permission) => requirePermission(config, request, permission),
+    isMasterAdmin: (actor) => actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+    ingest: async (line, brand, messages, historyMode) => {
+      // Historial antiguo: llega cerrado y no pasa por el protocolo SAC (no es un caso). Solo el
+      // último mensaje reciente sin responder de cada chat queda abierto (historyMessageIds).
+      const historyIds = historyMode ? historyMessageIds(messages, historyMode) : new Set<string>();
+      const incoming = messages.map((message) => buildWhatsAppInteraction(message, line, brand, {
+        history: historyIds.has(message.messageId),
+      }));
+      const inserted = await repository.insertInteractions(incoming);
+      const historyCreated = inserted.created.filter((interaction) => interaction.metricoolRef?.whatsapp?.history).length;
+      if (!inserted.created.length) return { created: 0, duplicates: inserted.duplicates, history: 0 };
+      // Una respuesta escrita desde el teléfono cierra el caso como "Respondido por el equipo".
+      if (inserted.created.some((interaction) => interaction.direction === "outbound")) {
+        await reconcileDetectedTeamResponses(repository, [brand.account.id]);
+      }
+      const protocolIds = inserted.created
+        .filter((interaction) => interaction.direction === "inbound")
+        .filter((interaction) => ["new", "pending", "drafted", "escalated"].includes(interaction.status))
+        .map((interaction) => interaction.id);
+      // Clasifica y evalúa el protocolo SAC como con Metricool. Nunca se encolan respuestas
+      // automáticas: WhatsApp solo envía lo que aprobó una persona.
+      if (protocolIds.length) {
+        await repository.mutateInteractions(protocolIds, (current) => processSacInteractions(
+          current,
+          protocolIds,
+          sacAutomationOptions(config),
+        ));
+      }
+      return { created: inserted.created.length, duplicates: inserted.duplicates, history: historyCreated };
+    },
   });
 
   app.setErrorHandler((error, request, reply) => {

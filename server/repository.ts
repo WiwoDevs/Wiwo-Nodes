@@ -30,7 +30,7 @@ import type {
   WorkflowVersion,
 } from "./types.js";
 import { CHANNELS } from "./types.js";
-import type { UserAccessRecord } from "./types.js";
+import type { UserAccessRecord, WhatsAppLine } from "./types.js";
 import type { AccessRoleRecord } from "./permissions.js";
 import { ensureMetricoolInboxCoverage } from "./workflow-coverage.js";
 import { mergeMissingMetricoolRef } from "./workflow-service.js";
@@ -192,6 +192,7 @@ export class JsonRepository implements SacFlowRepository {
       store.automation = store.automation || createDemoAutomationState(new Date(store.createdAt));
       store.userAccess = Array.isArray(store.userAccess) ? store.userAccess : [];
       store.accessRoles = Array.isArray(store.accessRoles) ? store.accessRoles : [];
+      store.whatsappLines = Array.isArray(store.whatsappLines) ? store.whatsappLines : [];
       return store;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -951,6 +952,31 @@ export class JsonRepository implements SacFlowRepository {
       const next = roles.filter((role) => role.id !== id);
       store.accessRoles = next;
       return next.length !== roles.length;
+    });
+  }
+
+  async listWhatsAppLines(): Promise<WhatsAppLine[]> {
+    return this.exclusive(async () => clone((await this.readUnlocked()).whatsappLines ?? [])
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt)));
+  }
+
+  async saveWhatsAppLine(line: WhatsAppLine): Promise<WhatsAppLine> {
+    return this.mutate((store) => {
+      const lines = store.whatsappLines ?? [];
+      const index = lines.findIndex((item) => item.id === line.id);
+      if (index >= 0) lines[index] = line;
+      else lines.push(line);
+      store.whatsappLines = lines;
+      return line;
+    });
+  }
+
+  async deleteWhatsAppLine(id: string): Promise<boolean> {
+    return this.mutate((store) => {
+      const lines = store.whatsappLines ?? [];
+      const next = lines.filter((line) => line.id !== id);
+      store.whatsappLines = next;
+      return next.length !== lines.length;
     });
   }
 

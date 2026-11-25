@@ -5,7 +5,11 @@ export type SocialPlatform =
   | "tiktok"
   | "youtube"
   | "linkedin"
-  | "google_business";
+  | "google_business"
+  | "whatsapp";
+
+/** Redes que una cuenta conecta por Metricool. WhatsApp llega aparte, por un número vinculado. */
+export type MetricoolPlatform = Exclude<SocialPlatform, "whatsapp">;
 
 export interface SessionActor {
   userId: string;
@@ -572,4 +576,52 @@ export interface ProjectRequirement {
   label: string;
   description: string;
   complete: boolean;
+}
+
+export type WhatsAppLineStatus =
+  | "pending_link"
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "logged_out"
+  | "unlinked"
+  | "error";
+
+/** Número de WhatsApp tal como lo ve cualquier persona de la bandeja. */
+export interface WhatsAppLineSummary {
+  id: string;
+  brandId: string;
+  label: string;
+  status: WhatsAppLineStatus;
+  phoneNumber?: string;
+  displayName?: string;
+}
+
+/** Número de WhatsApp como lo ve un admin principal (incluye QR o código mientras vencen). */
+export interface WhatsAppAdminLine extends WhatsAppLineSummary {
+  brandName: string;
+  desiredState: "linked" | "unlinked";
+  generation: number;
+  linkMethod: "qr" | "code";
+  /** Al vincular se pide el historial completo del teléfono. */
+  importHistory?: boolean;
+  qrDataUrl?: string;
+  pairingCode?: string;
+  linkedAt?: string;
+  lastConnectedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WhatsAppMode = "demo" | "live" | "disabled";
+
+export interface WhatsAppAdminData {
+  lines: WhatsAppAdminLine[];
+  worker: { mode: WhatsAppMode; online: boolean; lastSeenAt?: string };
+}
+
+export interface WhatsAppStatusData {
+  mode: WhatsAppMode;
+  lines: WhatsAppLineSummary[];
 }

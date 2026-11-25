@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   CHANNELS,
+  METRICOOL_CHANNELS,
   INTERACTION_STATUSES,
   INTERACTION_TYPES,
   METRICOOL_INSTAGRAM_PROVIDERS,
@@ -138,7 +139,7 @@ export const brandVisibilitySchema = z.object({
 
 /** Redes de la cuenta que se usan hoy en SAC (lista vacía: la cuenta no se usa en SAC). */
 export const brandSacUsageSchema = z.object({
-  channels: z.array(z.enum(CHANNELS)).max(CHANNELS.length),
+  channels: z.array(z.enum(METRICOOL_CHANNELS)).max(METRICOOL_CHANNELS.length),
 }).strict();
 
 const isoDay = z.string().trim().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "Usa el formato AAAA-MM-DD.");
@@ -194,7 +195,7 @@ export const brandCreateSchema = z.object({
   accountId: idSchema.optional(),
   accountName: z.string().trim().min(2).max(120).optional(),
   accountHandle: handleSchema,
-  channels: z.array(z.enum(CHANNELS)).min(1).max(CHANNELS.length).default(["instagram", "facebook"]),
+  channels: z.array(z.enum(METRICOOL_CHANNELS)).min(1).max(METRICOOL_CHANNELS.length).default(["instagram", "facebook"]),
   accountActive: z.boolean().optional(),
 }).strict();
 
@@ -204,7 +205,7 @@ export const brandUpdateSchema = z.object({
   active: z.boolean().optional(),
   accountName: z.string().trim().min(2).max(120).optional(),
   accountHandle: handleSchema.optional(),
-  channels: z.array(z.enum(CHANNELS)).min(1).max(CHANNELS.length).optional(),
+  channels: z.array(z.enum(METRICOOL_CHANNELS)).min(1).max(METRICOOL_CHANNELS.length).optional(),
   accountActive: z.boolean().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, {
   message: "Debe enviar al menos un campo para actualizar.",

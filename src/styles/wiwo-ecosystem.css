@@ -2071,6 +2071,140 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .case-notes-card > header span { color: var(--neo-fg); background: var(--neo-hover); }
 .case-audit-card__dot { color: var(--neo-muted-fg); background: var(--neo-muted-fg); }
 
+/* ── WhatsApp: números vinculados (solo admins principales) y acciones de Gestión WhatsApp ── */
+.manual-inbox-whatsapp-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.manual-inbox-whatsapp-actions small { color: var(--muted); font-size: 11.5px; }
+.manual-inbox-whatsapp-actions small.is-warning { color: var(--amber); }
+
+.account-credentials-panel.whatsapp-lines {
+  width: min(640px, 94vw);
+  max-height: min(88vh, 900px);
+  overflow-y: auto;
+  background: var(--surface-overlay);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+.whatsapp-lines__risk {
+  display: flex;
+  margin: 0;
+  padding: 10px 12px;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 12px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.whatsapp-lines__risk svg { flex: none; margin-top: 1px; }
+.whatsapp-lines__risk span { color: var(--ink); }
+.whatsapp-lines__notice { color: var(--ink-2); background: var(--surface-soft); }
+.whatsapp-lines__list { display: grid; margin: 0; padding: 0; gap: 10px; list-style: none; }
+.whatsapp-lines__empty {
+  padding: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+.whatsapp-line {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+.whatsapp-line__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.whatsapp-line__name { display: grid; min-width: 0; gap: 2px; }
+.whatsapp-line__name strong { color: var(--ink); font-size: 13.5px; }
+.whatsapp-line__name small { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.whatsapp-line__status {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.whatsapp-line__status--ok { color: var(--green); background: var(--green-soft); }
+.whatsapp-line__status--wait { color: var(--amber); background: var(--amber-soft); }
+.whatsapp-line__status--bad { color: var(--rose); background: var(--rose-soft); }
+.whatsapp-line__status--off { color: var(--muted); background: var(--surface); }
+.whatsapp-line__error { margin: 0; color: var(--rose); font-size: 12px; line-height: 1.45; }
+.whatsapp-line__link {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+.whatsapp-line__link img {
+  width: 200px;
+  height: 200px;
+  padding: 8px;
+  border-radius: 12px;
+  /* El QR necesita fondo blanco para que la cámara lo lea, también en modo oscuro. */
+  background: #fff;
+}
+.whatsapp-line__link ol { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+.whatsapp-line__code {
+  padding: 12px 16px;
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--accent-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+.whatsapp-line__meta { color: var(--muted); font-size: 11.5px; }
+.whatsapp-line__meta:empty { display: none; }
+.whatsapp-line__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.whatsapp-lines__form { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+@media (max-width: 560px) {
+  .whatsapp-line__link { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+}
+.manual-inbox-timeline__meta { display: inline-flex; align-items: center; gap: 10px; }
+.manual-inbox-load-older {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: transparent;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.manual-inbox-load-older:hover:not(:disabled) { border-color: var(--accent-line); color: var(--ink); }
+.manual-inbox-load-older:disabled { cursor: default; opacity: 0.6; }
+.whatsapp-line__meta { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.whatsapp-lines__history {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  cursor: pointer;
+}
+.whatsapp-lines__history input { width: 16px; height: 16px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+.whatsapp-lines__history span { display: grid; gap: 3px; }
+.whatsapp-lines__history strong { color: var(--ink); font-size: 12.5px; }
+.whatsapp-lines__history small { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+
 /* Barra de desplazamiento visible (pedido del usuario, noviembre 2026): en el selector de cuentas y
    en las listas de Gestión DMs/comentarios se puede bajar arrastrando o haciendo clic en la barra,
    no solo con la rueda. El resto de la web mantiene las barras ocultas, como Lab. */

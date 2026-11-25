@@ -20,6 +20,7 @@ import {
   Play,
   SidebarSimple,
   UsersThree,
+  WhatsappLogo,
   Sun,
   TestTube,
   WarningCircle,
@@ -30,6 +31,7 @@ import { ReportsView } from "./components/ReportsView";
 import { InteractionDetailPanel } from "./components/InteractionDetailPanel";
 import { InteractionsView, type InteractionsViewProps } from "./components/InteractionsView";
 import { ManualManagementView } from "./components/ManualManagementView";
+import { WhatsAppLinesPanel } from "./components/WhatsAppLinesPanel";
 import { SettingsView } from "./components/SettingsView";
 import { UsersRolesView } from "./components/UsersRolesView";
 import { can, type Permission } from "./lib/permissions";
@@ -50,6 +52,8 @@ import {
   createBrand,
   deactivateBrand,
   liveSyncAccount,
+  loadWhatsAppStatus,
+  requestWhatsAppHistory,
   setBrandVisibility,
   setBrandSacUsage,
   importMetricoolBrands,
@@ -94,7 +98,7 @@ import { playToastSound } from "./lib/brand-sounds";
 import { SoundToggle } from "./components/SoundToggle";
 import { HelpAssistant } from "./components/HelpAssistant";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
-import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor, SocialPlatform } from "./types";
+import type { BrandAccount, BrandAdminInput, BrandResourceKind, Interaction, InteractionDetail, ManualPostSummary, MetricoolInstagramProvider, ReplyDelivery, SessionActor, SocialPlatform, WhatsAppStatusData } from "./types";
 import { platformLabel } from "./components/SocialPlatformIcon";
 import { confirmAction } from "./lib/confirm";
 import { useMinuteTick } from "./lib/use-minute-tick";
@@ -109,12 +113,23 @@ const AutomationPlatform = lazy(() =>
   import("./components/AutomationPlatform").then((module) => ({ default: module.AutomationPlatform })),
 );
 
-type ViewId = "platform-home" | "automation-executions" | "workflow" | "dashboard" | "reports" | "interactions" | "manual-dms" | "manual-comments" | "accounts" | "users" | "settings";
+type ViewId = "platform-home" | "automation-executions" | "workflow" | "dashboard" | "reports" | "interactions" | "manual-dms" | "manual-whatsapp" | "manual-comments" | "accounts" | "users" | "settings";
 type EditorTab = "editor" | "executions" | "evaluations";
 
-/** Vistas de respuesta por cuenta. Comparten componente y difieren solo en la superficie. */
-const MANUAL_VIEWS = ["manual-dms", "manual-comments"] as const;
+/**
+ * Vistas de respuesta por cuenta. Comparten componente y difieren solo en la superficie.
+ * Gestión WhatsApp es Gestión DMs limitada a los chats de WhatsApp (que Gestión DMs no muestra).
+ */
+const MANUAL_VIEWS = ["manual-dms", "manual-whatsapp", "manual-comments"] as const;
 type ManualViewId = (typeof MANUAL_VIEWS)[number];
+/** Superficie de cada vista manual, para los conteos del selector de cuenta. */
+type ManualSurface = "dm" | "comment" | "whatsapp";
+
+function manualSurfaceOf(view: ViewId): ManualSurface {
+  if (view === "manual-comments") return "comment";
+  if (view === "manual-whatsapp") return "whatsapp";
+  return "dm";
+}
 
 function isManualView(value: ViewId): value is ManualViewId {
   return (MANUAL_VIEWS as readonly string[]).includes(value);
@@ -163,6 +178,7 @@ const navigation: Array<{
   { id: "platform-home", label: "Inicio", icon: House, group: null },
   { id: "interactions", label: "Bandeja SAC", icon: ChatCircleDots, badge: "0", group: "Bandejas" },
   { id: "manual-dms", label: "Gestión DMs", icon: ChatsCircle, group: "Bandejas" },
+  { id: "manual-whatsapp", label: "Gestión WhatsApp", railLabel: "Gestión Whats­App", icon: WhatsappLogo, group: "Bandejas" },
   { id: "manual-comments", label: "Gestión comentarios", railLabel: "Gestión comen­tarios", icon: ChatCircleText, group: "Bandejas" },
   { id: "dashboard", label: "Resumen SAC", icon: ChartLineUp, group: "Operación SAC" },
   { id: "reports", label: "Reportes", icon: PresentationChart, group: "Operación SAC" },
@@ -220,6 +236,10 @@ const pageTitles: Record<ViewId, { title: string; description: string }> = {
   "manual-dms": {
     title: "Gestión de mensajes directos",
     description: "Conversaciones privadas por contacto, con su historial completo",
+  },
+  "manual-whatsapp": {
+    title: "Gestión de WhatsApp",
+    description: "Chats de WhatsApp de los números vinculados, por contacto",
   },
   "manual-comments": {
     title: "Gestión de comentarios",
@@ -560,11 +580,12 @@ export function App({ onSignOut, sessionActor }: {
   const selectedManualAccount = visibleData.accounts.find((account) => account.id === manualAccountId);
   /** Casos por atender por cuenta y superficie: en plazo y total (para el selector de cuenta). */
   const manualPendingCounts = useMemo(() => {
-    const counts: Record<"dm" | "comment", Record<string, { inWindow: number; total: number }>> = { dm: {}, comment: {} };
+    const counts: Record<ManualSurface, Record<string, { inWindow: number; total: number }>> = { dm: {}, comment: {}, whatsapp: {} };
     const now = Date.now();
     for (const interaction of visibleData.interactions) {
       if (!needsAction(interaction) || (interaction.kind !== "dm" && interaction.kind !== "comment")) continue;
-      const bucket = counts[interaction.kind][interaction.accountId] ??= { inWindow: 0, total: 0 };
+      const surface: ManualSurface = interaction.platform === "whatsapp" ? "whatsapp" : interaction.kind;
+      const bucket = counts[surface][interaction.accountId] ??= { inWindow: 0, total: 0 };
       bucket.total += 1;
       if (!isExpired(interaction, now)) bucket.inWindow += 1;
     }
@@ -580,8 +601,51 @@ export function App({ onSignOut, sessionActor }: {
   const navSnapshotRef = useRef<string[]>([]);
   const manualInteractions = useMemo(() => {
     if (!manualAccountId) return [];
-    return visibleData.interactions.filter((interaction) => interaction.accountId === manualAccountId);
-  }, [manualAccountId, visibleData.interactions]);
+    // WhatsApp tiene su propia sección: Gestión DMs y comentarios no muestran esos chats.
+    const whatsappView = view === "manual-whatsapp";
+    return visibleData.interactions.filter((interaction) => interaction.accountId === manualAccountId
+      && (interaction.platform === "whatsapp") === whatsappView);
+  }, [manualAccountId, view, visibleData.interactions]);
+  /** Números de WhatsApp de las marcas visibles (estado para Gestión WhatsApp). */
+  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatusData | null>(null);
+  const [showWhatsAppLines, setShowWhatsAppLines] = useState(false);
+  /**
+   * Cuentas que atienden WhatsApp: las marcas con un número configurado o con chats de WhatsApp.
+   * Su "red" visible es WhatsApp, conectada o no según el número.
+   */
+  const whatsappAccounts = useMemo<BrandAccount[]>(() => {
+    const linesByBrand = new Map<string, NonNullable<typeof whatsappStatus>["lines"]>();
+    for (const line of whatsappStatus?.lines ?? []) {
+      linesByBrand.set(line.brandId, [...(linesByBrand.get(line.brandId) ?? []), line]);
+    }
+    const withChats = new Set(visibleData.interactions
+      .filter((interaction) => interaction.platform === "whatsapp")
+      .map((interaction) => interaction.accountId));
+    return operationalAccounts
+      .filter((account) => linesByBrand.has(account.brandId ?? account.id) || withChats.has(account.id))
+      .map((account) => {
+        const lines = linesByBrand.get(account.brandId ?? account.id) ?? [];
+        const connected = lines.find((line) => line.status === "connected");
+        const shown = connected ?? lines[0];
+        return {
+          ...account,
+          // La salud que importa aquí es la del número, no la conexión con Metricool.
+          health: connected ? "healthy" as const : "disconnected" as const,
+          healthDetail: connected
+            ? "Número de WhatsApp conectado."
+            : lines.length
+              ? "Número de WhatsApp desconectado: las respuestas quedan en cola hasta que vuelva."
+              : "Sin número de WhatsApp vinculado.",
+          accountHandle: shown?.phoneNumber ?? shown?.label ?? "WhatsApp",
+          channels: [{
+            platform: "whatsapp" as const,
+            username: shown?.phoneNumber ?? shown?.label ?? "WhatsApp",
+            externalId: shown?.id ?? account.id,
+            status: connected ? "connected" as const : "disconnected" as const,
+          }],
+        };
+      });
+  }, [operationalAccounts, visibleData.interactions, whatsappStatus]);
   const selectedContactKey = selectedInteractionDetail?.contactKey
     ?? visibleData.interactions.find((interaction) => interaction.id === selectedInteractionId)?.contactKey
     ?? null;
@@ -616,7 +680,10 @@ export function App({ onSignOut, sessionActor }: {
    */
   const [liveCheckedAt, setLiveCheckedAt] = useState<string | null>(null);
   const liveSyncBusyRef = useRef(false);
-  const liveAccountId = isManualView(view) && canSync && !connectionIssue ? selectedManualAccount?.id : undefined;
+  // WhatsApp no se lee en Metricool: sus mensajes llegan solos por el worker y la bandeja en vivo.
+  const liveAccountId = isManualView(view) && view !== "manual-whatsapp" && canSync && !connectionIssue
+    ? selectedManualAccount?.id
+    : undefined;
   const liveSurface = view === "manual-comments" ? "comments" : "conversations";
   useEffect(() => {
     setLiveCheckedAt(null);
@@ -931,9 +998,26 @@ export function App({ onSignOut, sessionActor }: {
     if (editorTab === "evaluations") void refreshWorkflowValidation();
   }, [view, editorTab]);
 
+  // Estado de los números de WhatsApp: al abrir Gestión WhatsApp y cada 30 s mientras está abierta.
+  const refreshWhatsAppStatus = useCallback(async () => {
+    try {
+      setWhatsappStatus(await loadWhatsAppStatus());
+    } catch {
+      // Sin estado se muestran igual los chats que ya existen.
+    }
+  }, []);
   useEffect(() => {
-    const accounts = (operationalData?.accounts ?? []).filter((account) =>
-      account.brandActive !== false && account.accountActive !== false);
+    if (view !== "manual-whatsapp" || connectionIssue) return;
+    void refreshWhatsAppStatus();
+    const timer = window.setInterval(() => void refreshWhatsAppStatus(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [connectionIssue, refreshWhatsAppStatus, view]);
+
+  useEffect(() => {
+    const accounts = view === "manual-whatsapp"
+      ? whatsappAccounts
+      : (operationalData?.accounts ?? []).filter((account) =>
+        account.brandActive !== false && account.accountActive !== false);
     if (accounts.length === 0) {
       if (manualAccountId !== null) setManualAccountId(null);
       return;
@@ -941,9 +1025,9 @@ export function App({ onSignOut, sessionActor }: {
     const current = manualAccountId && accounts.some((account) => account.id === manualAccountId);
     if (current && manualAccountSettled.current) return;
     // Por defecto, la cuenta con más casos en plazo de la superficie que se está viendo (DMs o
-    // comentarios), igual que el orden del selector; luego la de más pendientes. Las cuentas
-    // «En SAC» van primero, como en el selector.
-    const surface = view === "manual-comments" ? "comment" : "dm";
+    // comentarios o WhatsApp), igual que el orden del selector; luego la de más pendientes.
+    // Las cuentas «En SAC» van primero, como en el selector.
+    const surface = manualSurfaceOf(view);
     const inSac = (account: BrandAccount) => (account.sacChannels?.length ? 1 : 0);
     const score = (accountId: string) => {
       const counts = manualPendingCounts[surface][accountId];
@@ -956,7 +1040,7 @@ export function App({ onSignOut, sessionActor }: {
     })[0]!;
     if (best.id !== manualAccountId) setManualAccountId(best.id);
     if (operationalData?.interactions.length) manualAccountSettled.current = true;
-  }, [manualAccountId, manualPendingCounts, operationalData?.accounts, operationalData?.interactions.length, view]);
+  }, [manualAccountId, manualPendingCounts, operationalData?.accounts, operationalData?.interactions.length, view, whatsappAccounts]);
 
   async function refreshExecutions() {
     setLoadingExecutions(true);
@@ -1418,14 +1502,20 @@ export function App({ onSignOut, sessionActor }: {
     // Un DM ya respondido sigue abierto como un chat: el mensaje nuevo va a la misma conversación.
     const followUp = detail.kind === "dm" && detail.direction === "inbound" && detail.status === "answered_by_team";
     try {
-      await saveInteractionReply(detail.id, text, "send", detail.version, { followUp });
+      const result = await saveInteractionReply(detail.id, text, "send", detail.version, { followUp });
       await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
-      setToast({
-        tone: "success",
-        title: followUp ? "Mensaje enviado" : "Respuesta procesada",
-        detail: `${detail.brandName} · envío confirmado y auditado.`,
-      });
+      setToast(result.delivery === "queued"
+        ? {
+            tone: "success",
+            title: "Respuesta en cola",
+            detail: `${detail.brandName} · sale por WhatsApp en unos segundos, con pausa y "escribiendo…" como una persona.`,
+          }
+        : {
+            tone: "success",
+            title: followUp ? "Mensaje enviado" : "Respuesta procesada",
+            detail: `${detail.brandName} · envío confirmado y auditado.`,
+          });
       return true;
     } catch (error) {
       await refreshInteractionDetail(detail.id).catch(() => undefined);
@@ -1437,6 +1527,42 @@ export function App({ onSignOut, sessionActor }: {
       return false;
     } finally {
       setMutatingInteraction(false);
+    }
+  }
+
+  /**
+   * "Cargar anteriores" en un chat de WhatsApp. El teléfono responde en segundos (si WhatsApp
+   * entrega el historial): los mensajes llegan por la bandeja en vivo y se refresca el chat.
+   */
+  const [isLoadingOlderWhatsApp, setLoadingOlderWhatsApp] = useState(false);
+  async function loadOlderWhatsAppMessages(detail: InteractionDetail) {
+    if (isLoadingOlderWhatsApp) return;
+    setLoadingOlderWhatsApp(true);
+    try {
+      const result = await requestWhatsAppHistory(detail.id);
+      if (!result.requested) {
+        setToast({ tone: "warning", title: "Sin historial en demo", detail: "En modo demostración no hay un teléfono al que pedirle mensajes antiguos.", sound: false });
+        return;
+      }
+      setToast({
+        tone: "success",
+        title: "Historial pedido al teléfono",
+        detail: "Los mensajes anteriores aparecen en unos segundos si WhatsApp los entrega. No cuentan como casos.",
+        sound: false,
+      });
+      for (const waitMs of [5_000, 10_000]) {
+        await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+        await syncInboxChanges().catch(() => undefined);
+        await refreshInteractionDetail(detail.id).catch(() => undefined);
+      }
+    } catch (error) {
+      setToast({
+        tone: "warning",
+        title: "No se pudo pedir el historial",
+        detail: error instanceof Error ? error.message : "Revisa que el número esté conectado e inténtalo de nuevo.",
+      });
+    } finally {
+      setLoadingOlderWhatsApp(false);
     }
   }
 
@@ -2351,8 +2477,34 @@ export function App({ onSignOut, sessionActor }: {
               surfaceKind={view === "manual-comments" ? "comment" : "dm"}
               // Solo cuentas operativas: una marca desactivada no debe poder seleccionarse
               // para responder. Sigue apareciendo en Clientes para poder reactivarla.
-              accounts={operationalAccounts}
-              pendingCounts={manualPendingCounts[view === "manual-comments" ? "comment" : "dm"]}
+              accounts={view === "manual-whatsapp" ? whatsappAccounts : operationalAccounts}
+              pendingCounts={manualPendingCounts[manualSurfaceOf(view)]}
+              {...(view === "manual-whatsapp" ? {
+                onLoadOlderMessages: loadOlderWhatsAppMessages,
+                isLoadingOlderMessages: isLoadingOlderWhatsApp,
+                heading: {
+                  title: "Gestión de WhatsApp",
+                  description: "Chats de los números de WhatsApp vinculados, por contacto. Cada respuesta sale con pausa y «escribiendo…».",
+                },
+                emptyAccounts: canHideBrands
+                  ? { title: "Aún no hay números de WhatsApp", detail: "Agrega un número en «Números de WhatsApp» y vincúlalo desde el teléfono de la marca." }
+                  : { title: "Aún no hay números de WhatsApp", detail: "Un admin principal debe vincular el número de WhatsApp de cada marca." },
+                headerActions: (
+                  <div className="manual-inbox-whatsapp-actions">
+                    {whatsappStatus?.mode === "disabled" ? (
+                      <small className="is-warning">WhatsApp no está habilitado en este servidor.</small>
+                    ) : selectedManualAccount && whatsappAccounts.find((account) => account.id === selectedManualAccount.id)?.channels[0]?.status === "disconnected" ? (
+                      <small className="is-warning">Número desconectado: las respuestas quedan en cola hasta que vuelva.</small>
+                    ) : null}
+                    {canHideBrands ? (
+                      <button className="manual-inbox-refresh" type="button" onClick={() => setShowWhatsAppLines(true)}>
+                        <WhatsappLogo size={17} weight="bold" aria-hidden="true" />
+                        Números de WhatsApp
+                      </button>
+                    ) : null}
+                  </div>
+                ),
+              } : {})}
               interactions={manualInteractions}
               selectedAccountId={manualAccountId}
               selectedInteractionId={selectedInteractionId}
@@ -2414,8 +2566,8 @@ export function App({ onSignOut, sessionActor }: {
                 setManualCommentsIssue(null);
                 setManualPostCommentsReloadToken((current) => current + 1);
               }}
-              onRefreshAccount={refreshManualAccount}
-              liveCheckedAt={canSync ? liveCheckedAt : undefined}
+              onRefreshAccount={view === "manual-whatsapp" ? undefined : refreshManualAccount}
+              liveCheckedAt={canSync && view !== "manual-whatsapp" ? liveCheckedAt : undefined}
               onSaveDraft={saveDetailDraft}
               onSendReply={sendDetailReply}
               onResolve={resolveInteraction}
@@ -2495,6 +2647,21 @@ export function App({ onSignOut, sessionActor }: {
       </main>
       {isExportOpen ? (
         <ExportDialog accounts={visibleData.accounts} onClose={() => setExportOpen(false)} onExport={runExport} />
+      ) : null}
+      {showWhatsAppLines && canHideBrands ? (
+        <WhatsAppLinesPanel
+          brands={operationalAccounts.map((account) => ({ id: account.brandId ?? account.id, name: account.name }))}
+          onClose={() => {
+            setShowWhatsAppLines(false);
+            // Mientras el panel estuvo abierto el número pudo conectarse o caerse.
+            void refreshWhatsAppStatus();
+          }}
+          onChanged={() => {
+            void refreshWhatsAppStatus();
+            void syncInboxChanges();
+          }}
+          onNotify={(tone, title, detail) => setToast({ tone, title, detail: detail ?? "" })}
+        />
       ) : null}
 
       {detailPresentation === "panel" ? (

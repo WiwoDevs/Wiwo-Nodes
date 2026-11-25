@@ -12,6 +12,7 @@
  * lámina de flujo necesita ambos números.
  */
 import type { Brand, Channel, Interaction } from "./types.js";
+import { isImportedHistory } from "./types.js";
 import { detectNoise } from "./noise-detection.js";
 
 export interface SacReportOptions {
@@ -293,9 +294,11 @@ export function buildSacReport(
 ): SacReportFigures {
   const advertencias: string[] = [];
 
+  // El historial antiguo de WhatsApp importado es contexto, no casos: no cambia meses ya informados.
   const entrantes = interactions.filter((item) =>
     item.brandId === brand.id
     && item.direction === "inbound"
+    && !isImportedHistory(item)
     && dentro(item, options.from, options.to));
 
   // Cuánto se decidió por reglas, a mano o con IA viaja en `clasificacion`: es una nota del
@@ -387,6 +390,7 @@ export function buildSacReport(
     const previos = interactions.filter((item) =>
       item.brandId === brand.id
       && item.direction === "inbound"
+      && !isImportedHistory(item)
       && dentro(item, options.previous!.from, options.previous!.to));
     const anterior = previos.filter(esCasoSac).length;
 

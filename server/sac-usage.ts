@@ -7,6 +7,7 @@
  * visibles con todo su historial. La edita solo un admin principal, como la visibilidad de clientes.
  */
 import type { Brand, CatalogStore, Channel, Interaction } from "./types.js";
+import { isImportedHistory } from "./types.js";
 
 /**
  * Cuentas que el equipo indicó que se usan en SAC (noviembre 2026). El calce es por nombre o
@@ -149,7 +150,7 @@ export function messageVolumeRows(
 ): MessageVolumeRow[] {
   const rows = new Map<string, MessageVolumeRow>();
   for (const item of interactions) {
-    if (item.direction !== "inbound" || item.source === "planilla" || !visibleBrandIds.has(item.brandId)) continue;
+    if (item.direction !== "inbound" || item.source === "planilla" || isImportedHistory(item) || !visibleBrandIds.has(item.brandId)) continue;
     const time = Date.parse(item.createdAt);
     if (!Number.isFinite(time)) continue;
     const date = new Date(time).toISOString().slice(0, 10);

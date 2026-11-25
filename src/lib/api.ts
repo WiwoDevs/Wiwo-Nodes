@@ -33,6 +33,8 @@ import type {
   SacMonthlyReport,
   ReportTriage,
   NoiseSignal,
+  WhatsAppAdminData,
+  WhatsAppStatusData,
 } from "../types";
 
 export type RunResult = {
@@ -1559,7 +1561,7 @@ export async function saveInteractionReply(
   mode: "draft" | "send" = "draft",
   expectedVersion = 1,
   options: { followUp?: boolean } = {},
-): Promise<void> {
+): Promise<{ delivery?: string }> {
   const response = await fetch(`${API_BASE}/interactions/${encodeURIComponent(interactionId)}/reply`, {
     method: "POST",
     headers: {
@@ -1573,6 +1575,88 @@ export async function saveInteractionReply(
       expectedVersion,
       ...(mode === "send" && options.followUp ? { followUp: true } : {}),
     }),
+  });
+  if (!response.ok) await throwApiError(response);
+  const payload = await response.json().catch(() => undefined) as { meta?: { delivery?: string } } | undefined;
+  // "queued": WhatsApp deja la respuesta en cola y el worker la envía con su pausa.
+  return { delivery: payload?.meta?.delivery };
+}
+
+/** Estado de los números de WhatsApp de las marcas visibles (cualquier rol de la bandeja). */
+export async function loadWhatsAppStatus(): Promise<WhatsAppStatusData> {
+  const response = await fetch(`${API_BASE}/whatsapp/status`);
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: WhatsAppStatusData }).data;
+}
+
+/** Números con su QR o código vigente. Solo admins principales. */
+export async function loadWhatsAppLines(): Promise<WhatsAppAdminData> {
+  const response = await fetch(`${API_BASE}/whatsapp/lines`);
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: WhatsAppAdminData }).data;
+}
+
+async function postWhatsApp(path: string, body?: unknown, method: "POST" | "DELETE" = "POST"): Promise<WhatsAppAdminData> {
+  const response = await fetch(`${API_BASE}/whatsapp/${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: WhatsAppAdminData }).data;
+}
+
+export function createWhatsAppLine(input: {
+  brandId: string;
+  label: string;
+  method: "qr" | "code";
+  phoneNumber?: string;
+  importHistory?: boolean;
+}): Promise<WhatsAppAdminData> {
+  return postWhatsApp("lines", input);
+}
+
+export function linkWhatsAppLine(
+  lineId: string,
+  method: "qr" | "code",
+  phoneNumber?: string,
+  importHistory?: boolean,
+): Promise<WhatsAppAdminData> {
+  return postWhatsApp(`lines/${encodeURIComponent(lineId)}/link`, {
+    method,
+    ...(phoneNumber ? { phoneNumber } : {}),
+    ...(importHistory !== undefined ? { importHistory } : {}),
+  });
+}
+
+/**
+ * "Cargar anteriores": pide al teléfono los mensajes previos del chat. Llegan en segundos por la
+ * bandeja en vivo, como historial. `requested: false` en demo (no hay teléfono).
+ */
+export async function requestWhatsAppHistory(interactionId: string): Promise<{ requested: boolean }> {
+  const response = await fetch(`${API_BASE}/whatsapp/history`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ interactionId }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: { requested: boolean } }).data;
+}
+
+export function unlinkWhatsAppLine(lineId: string): Promise<WhatsAppAdminData> {
+  return postWhatsApp(`lines/${encodeURIComponent(lineId)}/unlink`);
+}
+
+export function removeWhatsAppLine(lineId: string): Promise<WhatsAppAdminData> {
+  return postWhatsApp(`lines/${encodeURIComponent(lineId)}`, undefined, "DELETE");
+}
+
+/** Solo demo: deja un mensaje ficticio en la bandeja por el mismo camino que uno real. */
+export async function simulateWhatsAppMessage(lineId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/whatsapp/lines/${encodeURIComponent(lineId)}/demo-message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
   });
   if (!response.ok) await throwApiError(response);
 }

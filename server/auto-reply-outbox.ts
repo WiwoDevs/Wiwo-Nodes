@@ -26,6 +26,8 @@ export async function queueEligibleAutoReplies(
 ): Promise<AutoReplyQueueResult> {
   const candidates = interactions.filter((interaction) =>
     interaction.direction === "inbound"
+    // WhatsApp no tiene envío automático: solo sale lo que aprueba una persona.
+    && interaction.channel !== "whatsapp"
     && interaction.automation?.effectiveRoute === "auto_reply"
     && !["replied", "resolved"].includes(interaction.status));
   let created = 0;
