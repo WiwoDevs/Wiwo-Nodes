@@ -1121,7 +1121,7 @@ Acepta uno o más campos:
 Reglas:
 
 - `pollIntervalMinutes`: entero 1–1440.
-- `minimumConfidence`: 0–1.
+- `minimumConfidence`: 0–1. En la web se llama «Claridad del tema para enviar solo» y se elige entre dos opciones: «Solo alta» (0,90) o «Alta o media» (0,82). La clasificación por reglas solo produce 0,97/0,92 (calza con una regla: alta), 0,84 o más (por la categoría del caso: media) y 0,55 (tema no reconocido: baja).
 - `autoReplyAccountIds`: máximo 20; cada ID debe pertenecer a una cuenta existente.
 - `requireHumanFor`: máximo 30 strings de hasta 50 caracteres.
 - `nodes`: 1–100; `edges`: máximo 200.

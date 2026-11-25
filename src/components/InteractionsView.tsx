@@ -155,25 +155,6 @@ function normalize(value: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function shortDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "sin fecha";
-  return new Intl.DateTimeFormat("es-CL", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(date);
-}
-
-function syncRunLabel(status?: InboxSyncStatus["lastRunStatus"]): string {
-  if (status === "success") return "correcta";
-  if (status === "partial") return "parcial";
-  if (status === "failed") return "fallida";
-  return "sin ejecuciones";
-}
-
 function responseLabel(status: InteractionStatus) {
   if (status === "automated") return "Respuesta automática";
   if (status === "answered_by_team") return "Respondido por el equipo";
@@ -235,9 +216,7 @@ export function InteractionsView({
   canWrite = true,
   canSync = true,
   canExport = true,
-  lastUpdatedAt,
   refreshIssue = null,
-  inboxSync,
   onRefresh,
   onProcessProtocol,
   onExport,
@@ -797,33 +776,14 @@ export function InteractionsView({
             </button>
           ) : null}
         </p>
-        <div className="results-toolbar__meta">
-          <p className="results-toolbar__hint">
-            El protocolo solo genera borradores o deriva casos; no envía nada a Metricool.
-          </p>
-          <p
-            className={`results-toolbar__freshness${refreshIssue ? " results-toolbar__freshness--warning" : ""}`}
-            title={refreshIssue ?? undefined}
-          >
-            <span>{refreshIssue ? "Datos con retraso; reintentando" : "Vista automática cada 30 s"}</span>
-            {lastUpdatedAt ? (
-              <time dateTime={lastUpdatedAt}>Vista actualizada {shortDateTime(lastUpdatedAt)}</time>
-            ) : (
-              <span>Esperando primera lectura</span>
-            )}
-            {inboxSync?.enabled ? (
-              inboxSync.lastRunAt ? (
-                <time dateTime={inboxSync.lastRunAt}>
-                  Última sync Metricool {shortDateTime(inboxSync.lastRunAt)} ({syncRunLabel(inboxSync.lastRunStatus)})
-                </time>
-              ) : (
-                <span>Metricool cada {inboxSync.intervalMinutes} min, sin ejecución confirmada</span>
-              )
-            ) : (
-              <span>Sync programada de Metricool desactivada</span>
-            )}
-          </p>
-        </div>
+        {/* Por pedido del equipo, sin la línea de estado (vista cada 30 s, última sync): solo se avisa si los datos vienen con retraso. */}
+        {refreshIssue ? (
+          <div className="results-toolbar__meta">
+            <p className="results-toolbar__freshness results-toolbar__freshness--warning" title={refreshIssue}>
+              <span>Datos con retraso; reintentando</span>
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {selectedContactKeys.size > 0 ? (

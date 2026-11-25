@@ -275,7 +275,6 @@ test("updates the SAC inbox from Metricool without leaving the operator view", a
   test.skip(testInfo.project.name.includes("mobile"), "Desktop covers the network sync; mobile has dedicated responsive coverage.");
   await page.getByRole("button", { name: "Bandeja SAC", exact: true }).click();
   await expect(page.locator(".interactions-view").getByRole("heading", { name: "Conversaciones", exact: true })).toBeVisible();
-  await expect(page.getByText("Vista automática cada 30 s", { exact: true })).toBeVisible();
 
   const syncResponse = page.waitForResponse((response) =>
     response.request().method() === "POST" && response.url().endsWith("/api/sync"),
@@ -285,7 +284,6 @@ test("updates the SAC inbox from Metricool without leaving the operator view", a
 
   await expect(page.locator(".interactions-view").getByRole("heading", { name: "Conversaciones", exact: true })).toBeVisible();
   await expect(page.getByText("Bandeja actualizada", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Última sync Metricool/)).toBeVisible();
 });
 
 test("refreshes the visible inbox locally every 30 seconds without triggering Metricool", async ({ page }) => {
@@ -518,7 +516,7 @@ test("labels and previews Metricool attachments without exposing unsafe URLs", a
   );
   await expect(content.getByRole("link")).toHaveCount(1);
   await image.dispatchEvent("error");
-  await expect(content.getByText("Vista previa no disponible", { exact: true })).toBeVisible();
+  await expect(content.getByText("Vista previa no disponible: el archivo pudo vencer en la red social.", { exact: true })).toBeVisible();
   await expect(content.getByRole("link", { name: "Abrir archivo 1" })).toBeVisible();
 });
 

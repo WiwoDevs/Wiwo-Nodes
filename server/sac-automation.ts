@@ -620,7 +620,7 @@ export function processSacInteractions(
       at,
       action: "classified",
       actor: "workflow",
-      detail: `Intención ${assessment.intent}; riesgo ${assessment.risk}; confianza ${Math.round(assessment.classificationConfidence * 100)}%.`,
+      detail: `Intención ${assessment.intent}; riesgo ${assessment.risk}; claridad del tema ${assessment.classificationConfidence >= 0.9 ? "alta" : assessment.classificationConfidence >= 0.8 ? "media" : "baja"}.`,
       metadata: { intent: assessment.intent, risk: assessment.risk, confidence: assessment.classificationConfidence },
     });
     interaction.audit.push({
