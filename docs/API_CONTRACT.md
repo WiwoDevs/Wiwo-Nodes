@@ -653,11 +653,11 @@ Respuesta: el listado de `GET /api/admin/users` más `user` con la persona actua
 
 ### `PUT /api/brands/:brandId/sac-usage`
 
-Marca qué redes de la cuenta usa hoy el equipo en SAC (marca «En SAC» de Clientes): `{ "channels": Channel[] }`; una lista vacía deja la cuenta como «no se usa en SAC». Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. Cada red debe estar conectada en la cuenta (`account.channels`); si no, `422 CHANNEL_NOT_CONNECTED`.
+Marca qué redes de la cuenta usa hoy el equipo en SAC (marca «En SAC» de Clientes): `{ "channels": Channel[] }`; una lista vacía deja la cuenta como «no se usa en SAC». Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. Se aceptan también redes aún no conectadas en la cuenta: quedan «pendientes» (la web las muestra atenuadas) y valen solas cuando se conecten en Metricool.
 
 Es solo una etiqueta para filtrar Clientes y su tablero: no oculta, no deja de sincronizar y no cambia la bandeja, Reportes ni METRIQ. Las cuentas sin marcar siguen visibles con todo su historial. Se guarda en `account.sacChannels` (PostgreSQL: `social_accounts.sac_channels`, migración `0021_account_sac_usage.sql`) y viaja en `PublicBrand.account.sacChannels`; ausente significa que nunca se marcó. Al editar los canales de una marca, las redes marcadas que ya no estén conectadas se quitan.
 
-Precarga: al arrancar, la API marca una sola vez (solo si ninguna cuenta tiene el campo definido) las cuentas de la lista del equipo, calzando por nombre o usuario de la cuenta normalizado y por red, nunca por IDs de Metricool (`server/sac-usage.ts`). Lo que no calza queda en el registro `sac_usage_seeded` (`unmatched`).
+Precarga: al arrancar, la API marca una sola vez (solo si ninguna cuenta tiene el campo definido) las cuentas de la lista del equipo, calzando por nombre o usuario de la cuenta normalizado y por red, nunca por IDs de Metricool (`server/sac-usage.ts`). Lo que no calza queda en el registro `sac_usage_seeded` (`unmatched`). Las redes de la lista se marcan aunque todavía no estén conectadas, y una cuenta de la lista que se vincula después (p. ej. `picharaoficial`) se marca sola al arrancar o al vincularse, solo si nadie le definió la marca antes.
 
 Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, externalWrites: false } }`.
 

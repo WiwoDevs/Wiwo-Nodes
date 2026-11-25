@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type SacFlowApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
 import type { GoogleOAuthClient } from "../../server/google-auth.js";
-import { messageVolumeRows, normalizeAccountName, planSacUsageSeed, shouldSeedSacUsage } from "../../server/sac-usage.js";
+import { messageVolumeRows, normalizeAccountName, planSacUsageForNewAccounts, planSacUsageSeed, shouldSeedSacUsage } from "../../server/sac-usage.js";
 import type { Brand, Channel, Interaction } from "../../server/types.js";
 
 const apps: SacFlowApp[] = [];
@@ -52,13 +52,23 @@ describe("precarga de la marca En SAC", () => {
       b1: ["facebook", "instagram", "linkedin", "tiktok", "x", "youtube"],
       b2: ["linkedin"],
       b3: ["facebook", "instagram"],
-      b4: ["facebook", "instagram"],
+      // El TikTok de Truecaller queda marcado aunque aún no esté conectado (pendiente).
+      b4: ["facebook", "instagram", "tiktok"],
       b5: ["instagram"],
     });
     expect(plan.unmatched).toContainEqual({ cliente: "Truecaller", redes: ["tiktok"], motivo: "red_no_conectada" });
     expect(plan.unmatched).toContainEqual({ cliente: "Pichara", redes: ["tiktok"], motivo: "sin_cuenta" });
     // Los clientes ocultos no se marcan.
     expect(plan.unmatched).toContainEqual({ cliente: "Vans Colombia", redes: ["instagram", "facebook"], motivo: "sin_cuenta" });
+  });
+
+  it("marca sola una cuenta de la lista que se vincula después (Pichara), sin tocar lo editado", () => {
+    const pichara = brand("p1", "picharaoficial", "@picharaoficial", ["tiktok"]);
+    const editada = brand("c1", "Converse", "@conversechile", ["instagram", "facebook"]);
+    editada.account.sacChannels = [];
+    expect(planSacUsageForNewAccounts([pichara, editada])).toEqual([
+      { brandId: "p1", accountName: "picharaoficial", cliente: "Pichara", channels: ["tiktok"] },
+    ]);
   });
 
   it("corre solo si nadie marcó nunca una cuenta (desmarcar todo no la reactiva)", () => {
@@ -172,8 +182,10 @@ describe("API de la marca En SAC y del tablero de Clientes", () => {
     expect(sinPermiso.statusCode).toBe(403);
     expect(sinPermiso.json().error.code).toBe("MASTER_ADMIN_REQUIRED");
 
-    const noConectada = await app.inject({ method: "PUT", url: "/api/brands/brand-01/sac-usage", headers: { cookie: jefa }, payload: { channels: ["tiktok"] } });
-    expect(noConectada.statusCode).toBe(422);
+    // Una red aún no conectada se puede marcar: queda pendiente hasta que se conecte.
+    const pendiente = await app.inject({ method: "PUT", url: "/api/brands/brand-01/sac-usage", headers: { cookie: jefa }, payload: { channels: ["tiktok", "instagram"] } });
+    expect(pendiente.statusCode).toBe(200);
+    expect(pendiente.json().data.account.sacChannels).toEqual(["instagram", "tiktok"]);
 
     const marcada = await app.inject({ method: "PUT", url: "/api/brands/brand-01/sac-usage", headers: { cookie: jefa }, payload: { channels: ["instagram"] } });
     expect(marcada.statusCode).toBe(200);

@@ -2005,3 +2005,6 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .case-automation-card__why > span { color: var(--neo-muted-fg); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
 .case-automation-card__why ul { margin: 4px 0 0; padding-left: 18px; color: var(--neo-fg); font-size: 12px; line-height: 1.45; }
 .case-automation-card > p { color: var(--neo-muted-fg); font-size: 12px; }
+
+/* Red marcada En SAC que aún no está conectada en Metricool: atenuada y con borde punteado. */
+.sac-usage-chip.is-pending { opacity: .55; outline: 1px dashed var(--neo-border); outline-offset: -1px; }
