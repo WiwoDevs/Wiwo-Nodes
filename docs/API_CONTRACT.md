@@ -1271,7 +1271,7 @@ Errores específicos: `DELIVERY_IN_PROGRESS`, `DELIVERY_ALREADY_ACTIVE`, `DELIVE
 
 ### WhatsApp
 
-Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás del adaptador `WhatsAppGateway`. Arquitectura, riesgos y operación: [WHATSAPP.md](WHATSAPP.md). Modo (`meta.whatsappMode`): `demo` (simulado, sin worker), `live` (con `SAC_FLOW_WHATSAPP_WORKER_KEY`) o `disabled` (sin la clave). Quién lo usa se activa por persona en la base (`PUT /api/admin/users/whatsapp`).
+Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás del adaptador `WhatsAppGateway`. Arquitectura, riesgos y operación: [WHATSAPP.md](WHATSAPP.md). Modo (`meta.whatsappMode`): `demo` (simulado, sin worker), `live` (con `SAC_FLOW_WHATSAPP_WORKER_KEY` o, sin ella, la clave derivada de `SAC_FLOW_API_KEY`) o `disabled` (sin ninguna de las dos). Quién lo usa se activa por persona en la base (`PUT /api/admin/users/whatsapp`).
 
 **Números** (solo admins principales: `SAC_FLOW_AUTH_ADMIN_EMAILS`, o cualquier admin sin inicio de sesión propio; los demás reciben `403 MASTER_ADMIN_REQUIRED` o `403 FORBIDDEN`):
 
@@ -1290,7 +1290,7 @@ Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás d
 
 **Estado para la bandeja** (cualquier rol con sesión): `GET /api/whatsapp/status` → `{ mode, lines: [{ id, brandId, label, status, phoneNumber?, displayName? }] }`, solo de las marcas del actor y sin QR ni código.
 
-**Worker** (`/api/internal/whatsapp/*`): no usan la sesión ni `SAC_FLOW_API_KEY`. Exigen la cabecera `X-WhatsApp-Worker-Key` igual a `SAC_FLOW_WHATSAPP_WORKER_KEY` (`401 WORKER_KEY_REQUIRED`) y solo existen en modo `live` (si no, `404`). No cuentan para el límite de solicitudes.
+**Worker** (`/api/internal/whatsapp/*`): no usan la sesión ni `SAC_FLOW_API_KEY`. Exigen la cabecera `X-WhatsApp-Worker-Key` igual a `SAC_FLOW_WHATSAPP_WORKER_KEY` (o, sin ella, a la clave derivada de `SAC_FLOW_API_KEY` con HMAC-SHA256; la clave del sitio en sí no sirve) (`401 WORKER_KEY_REQUIRED`) y solo existen en modo `live` (si no, `404`). No cuentan para el límite de solicitudes.
 
 | Método | Ruta | Body | Resultado |
 |---|---|---|---|

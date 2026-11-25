@@ -84,7 +84,7 @@ Metricool sigue siendo el sistema externo que obtiene y publica mensajes/comenta
 ### Adaptador de WhatsApp
 
 - Un proceso aparte (`server/whatsapp-worker.ts`) mantiene una sesión de WhatsApp Web por número, detrás de `WhatsAppGateway` (`server/whatsapp/gateway.ts`). La implementación actual es Baileys (`server/whatsapp/baileys-gateway.ts`, no oficial); la API oficial de Meta puede reemplazarla sin cambiar la API ni la web.
-- El worker no toca el repositorio: habla con la API por `/api/internal/whatsapp/*` (clave `SAC_FLOW_WHATSAPP_WORKER_KEY`). La API guarda los mensajes con `insertInteractions` (la bandeja en vivo los ve), y las respuestas usan el mismo outbox que Metricool: la API deja la entrega en cola y el worker la reserva, la envía con ritmo humano (`server/whatsapp/pacing.ts`) y la cierra.
+- El worker no toca el repositorio: habla con la API por `/api/internal/whatsapp/*` (clave `SAC_FLOW_WHATSAPP_WORKER_KEY`, o una derivada de `SAC_FLOW_API_KEY`). La API guarda los mensajes con `insertInteractions` (la bandeja en vivo los ve), y las respuestas usan el mismo outbox que Metricool: la API deja la entrega en cola y el worker la reserva, la envía con ritmo humano (`server/whatsapp/pacing.ts`) y la cierra.
 - Las sesiones (credenciales) viven solo en la carpeta del worker; los números y su último estado, en el repositorio (`whatsapp_lines`). Detalle y riesgos: [WHATSAPP.md](WHATSAPP.md).
 
 ### Exportación

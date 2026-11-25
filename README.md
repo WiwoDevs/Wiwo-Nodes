@@ -165,7 +165,7 @@ Abre http://localhost:5173. Vite reenvía `/api` a Fastify en el puerto 8787.
 
 ## Despliegue
 
-- **Producción** (`docker-compose.production.yml`): PostgreSQL, migraciones (`migrate`), API, worker y respaldo diario de la base (`backup`). El worker de WhatsApp (`whatsapp`) está en el perfil `whatsapp` y solo arranca con `--profile whatsapp`. La API sirve la web compilada en el puerto 8787 y responde 404 real para `/api/*` desconocidas.
+- **Producción** (`docker-compose.production.yml`): PostgreSQL, migraciones (`migrate`), API, worker y respaldo diario de la base (`backup`). El worker de WhatsApp (`whatsapp`) arranca con el resto; su clave con la API se deriva de `SAC_FLOW_API_KEY` si no se define `SAC_FLOW_WHATSAPP_WORKER_KEY`. La API sirve la web compilada en el puerto 8787 y responde 404 real para `/api/*` desconocidas.
 - **Respaldos:** `pg_dump` diario en `/var/backups/sac-flow` (fuera del volumen de Docker), con 14 días de retención y restauración en una sola transacción. Ver [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md#respaldos-de-la-base).
 - **Deploy:** el workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) se ejecuta en cada push a `main` y despliega por SSH. Los cambios en los archivos de Docker Compose requieren aprobación manual en el servidor antes de aplicarse.
 - **Variables:** se documentan en [`.env.example`](.env.example). Las principales:
@@ -211,7 +211,7 @@ Más detalle: [docs/SECURITY.md](docs/SECURITY.md).
 | `npm run verify` | `check` + `build:all` + `test` + auditoría de dependencias |
 | `npm run migrate` | Aplica migraciones de PostgreSQL |
 | `npm run start:worker` | Worker de sincronización y envíos (requiere PostgreSQL) |
-| `npm run dev:whatsapp` / `npm run start:whatsapp` | Worker de WhatsApp (Baileys): sesiones, mensajes y envíos con ritmo humano. Requiere `SAC_FLOW_WHATSAPP_WORKER_KEY`; quién usa WhatsApp se activa por persona en Usuarios y roles |
+| `npm run dev:whatsapp` / `npm run start:whatsapp` | Worker de WhatsApp (Baileys): sesiones, mensajes y envíos con ritmo humano. Usa `SAC_FLOW_WHATSAPP_WORKER_KEY` o, sin ella, una clave derivada de `SAC_FLOW_API_KEY`; quién usa WhatsApp se activa por persona en Usuarios y roles |
 | `npm start` | API compilada (requiere `build:all`) |
 
 La lista completa está en `scripts` de [`package.json`](package.json). En `scripts/` hay además herramientas de línea de comandos para importaciones, clasificación y planillas.

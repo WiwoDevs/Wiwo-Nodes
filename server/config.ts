@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -169,11 +170,24 @@ export interface WhatsAppPacingConfig {
   typingMaxMs: number;
 }
 
-function loadWhatsAppConfig(env: NodeJS.ProcessEnv, cwd: string): AppConfig["whatsapp"] {
-  const workerKey = env.SAC_FLOW_WHATSAPP_WORKER_KEY?.trim() || undefined;
-  if (workerKey && workerKey.length < 32) {
-    throw new Error("SAC_FLOW_WHATSAPP_WORKER_KEY debe tener al menos 32 caracteres.");
+/**
+ * Clave API ↔ worker de WhatsApp. Si no se define una propia, se deriva de SAC_FLOW_API_KEY, que
+ * la API y los workers ya comparten: así WhatsApp funciona sin configurar nada más en el servidor.
+ * La derivación es de un solo sentido (HMAC), no expone la clave del sitio y no sirve como ella.
+ */
+export function whatsappWorkerKey(env: NodeJS.ProcessEnv): string | undefined {
+  const explicit = env.SAC_FLOW_WHATSAPP_WORKER_KEY?.trim() || undefined;
+  if (explicit) {
+    if (explicit.length < 32) throw new Error("SAC_FLOW_WHATSAPP_WORKER_KEY debe tener al menos 32 caracteres.");
+    return explicit;
   }
+  const siteKey = env.SAC_FLOW_API_KEY?.trim();
+  if (!siteKey) return undefined;
+  return createHmac("sha256", siteKey).update("wiwo.sac:whatsapp-worker:v1").digest("base64url");
+}
+
+function loadWhatsAppConfig(env: NodeJS.ProcessEnv, cwd: string): AppConfig["whatsapp"] {
+  const workerKey = whatsappWorkerKey(env);
   const integer = (value: string | undefined, fallback: number, min: number, max: number) =>
     z.coerce.number().int().min(min).max(max).parse(value?.trim() || fallback);
   const minGapMs = integer(env.SAC_FLOW_WHATSAPP_MIN_GAP_MS, 4_000, 1_000, 600_000);

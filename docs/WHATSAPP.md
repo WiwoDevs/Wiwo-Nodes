@@ -72,7 +72,7 @@ Si un mensaje no cabe en el ritmo, espera su turno en la cola; nunca se descarta
 
 1. En `.env`:
    ```
-   SAC_FLOW_WHATSAPP_WORKER_KEY=<32+ caracteres al azar>
+   SAC_FLOW_WHATSAPP_WORKER_KEY=<32+ caracteres al azar>   # opcional: sin ella se deriva de SAC_FLOW_API_KEY
    ```
    Con la clave, WhatsApp queda en vivo y cada persona lo tiene activado salvo que un admin principal se lo apague.
    Genera la clave con `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`.
@@ -87,8 +87,8 @@ Con `METRICOOL_MODE=demo` no hay worker. Desde **Números de WhatsApp**, "Agrega
 
 ### Producción
 
-- En el `.env` del servidor: `SAC_FLOW_WHATSAPP_WORKER_KEY`. La API y el worker leen la misma clave. Quién puede usar WhatsApp se decide por persona en **Usuarios y roles** (activado por defecto).
-- El servicio `whatsapp` de `docker-compose.production.yml` tiene `profiles: ["whatsapp"]` y no arranca solo. Se enciende con `docker compose -f docker-compose.production.yml --profile whatsapp up -d whatsapp`. Guarda las sesiones en el volumen `sac-flow-whatsapp-auth`.
+- No hace falta configurar nada en el servidor: si no se define `SAC_FLOW_WHATSAPP_WORKER_KEY`, la API y el worker derivan la misma clave de `SAC_FLOW_API_KEY` (HMAC de un solo sentido; no expone la clave del sitio ni sirve como ella). Quién puede usar WhatsApp se decide por persona en **Usuarios y roles** (activado por defecto).
+- El servicio `whatsapp` de `docker-compose.production.yml` arranca con el resto del stack; sin números vinculados no hace nada. Para detenerlo: `docker compose -f docker-compose.production.yml stop whatsapp`. Guarda las sesiones en el volumen `sac-flow-whatsapp-auth`.
 - Cambiar `docker-compose*.yml` hace que el deploy pida **aprobación manual en el servidor**.
 - Salud: `GET http://127.0.0.1:8789/health` dentro del contenedor (gateway, números, conectados, último error).
 - Respaldo: el volumen de sesiones **no** entra en el `pg_dump`. Perderlo solo obliga a volver a vincular, así que no se respalda: es preferible a tener copias de credenciales repartidas.

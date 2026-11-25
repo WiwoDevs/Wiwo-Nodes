@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type SacFlowApp } from "../../server/app.js";
-import { loadConfig } from "../../server/config.js";
+import { loadConfig, whatsappWorkerKey } from "../../server/config.js";
 import { JsonRepository } from "../../server/repository.js";
 import { normalizeBaileysMessage, personJid, phoneFromJid } from "../../server/whatsapp/messages.js";
 import { SendPacer, reconnectDelayMs } from "../../server/whatsapp/pacing.js";
@@ -301,10 +301,19 @@ describe("WhatsApp por la API (worker simulado)", () => {
     expect(wrong.statusCode).toBe(401);
   });
 
-  it("no expone las rutas del worker si el servidor no tiene su clave", async () => {
-    const { app, worker } = await liveApp({ SAC_FLOW_WHATSAPP_WORKER_KEY: "" });
-    const response = await app.inject({ method: "GET", url: "/api/internal/whatsapp/lines", headers: worker });
-    expect(response.statusCode).toBe(404);
+  it("sin clave propia, el worker usa una derivada de la clave del sitio (sin configurar nada más)", async () => {
+    const { app } = await liveApp({ SAC_FLOW_WHATSAPP_WORKER_KEY: "" });
+    const derived = whatsappWorkerKey({ SAC_FLOW_API_KEY: API_KEY })!;
+    expect(derived).toHaveLength(43);
+    expect(derived).not.toContain(API_KEY);
+    const ok = await app.inject({ method: "GET", url: "/api/internal/whatsapp/lines", headers: { [WHATSAPP_WORKER_KEY_HEADER]: derived } });
+    expect(ok.statusCode).toBe(200);
+    // La clave del sitio no abre las rutas del worker.
+    const site = await app.inject({ method: "GET", url: "/api/internal/whatsapp/lines", headers: { [WHATSAPP_WORKER_KEY_HEADER]: API_KEY } });
+    expect(site.statusCode).toBe(401);
+    // Una clave propia manda sobre la derivada; sin ninguna de las dos, WhatsApp queda apagado.
+    expect(whatsappWorkerKey({ SAC_FLOW_API_KEY: API_KEY, SAC_FLOW_WHATSAPP_WORKER_KEY: WORKER_KEY })).toBe(WORKER_KEY);
+    expect(whatsappWorkerKey({})).toBeUndefined();
   });
 
   it("guarda los mensajes como DMs de WhatsApp sin duplicarlos y deja la respuesta en cola para el worker", async () => {
