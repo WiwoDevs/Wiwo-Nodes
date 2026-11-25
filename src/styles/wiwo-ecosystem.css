@@ -2015,3 +2015,58 @@ input[type="radio"] { accent-color: var(--neo-blue); }
   color: #1a1a1a;
   background: var(--neo-green);
 }
+
+/* ── Sin azul antiguo (revisión de diseño, noviembre 2026) ─────────────────────────────────────
+   El azul queda solo para selección, foco, estados activos y enlaces. Etiquetas, chips, avisos e
+   íconos informativos usan los tonos neutros de WiWO en ambos temas. */
+.view-header__eyebrow { color: var(--neo-muted-fg); }
+
+/* Bandeja SAC */
+.interactions-table .conversation-cell__preview { color: var(--neo-muted-fg); }
+.interactions-table .conversation-cell__preview strong { color: var(--neo-fg); }
+.conversation-cell__count,
+.conversation-cell__pending { color: var(--neo-fg) !important; background: var(--neo-hover); }
+.automation-route { color: var(--neo-muted-fg); }
+.status-badge--pending { color: var(--neo-fg) !important; background: var(--neo-hover); }
+.priority-label--high { color: var(--amber) !important; }
+.row-action--primary { border-color: var(--neo-border); color: var(--neo-fg); background: transparent; }
+.row-action--primary:hover:not(:disabled) { background: var(--neo-hover); }
+.filter-reset { color: var(--neo-muted-fg); }
+.filter-reset:hover { color: var(--neo-fg); }
+.content-context__label { color: var(--neo-fg); background: var(--neo-hover); }
+.selection-bar,
+.case-status-form { border-color: var(--neo-border); background: var(--neo-card); }
+
+/* Detalle del caso */
+.case-reply-card__draft-state { color: var(--neo-muted-fg); }
+.case-reply-provider-note { border-color: var(--neo-border); color: var(--neo-muted-fg); background: var(--neo-hover); }
+.case-ai-recommendation:not(.case-ai-recommendation--grounded) { border-color: var(--neo-border); background: var(--neo-card); }
+.case-ai-recommendation:not(.case-ai-recommendation--grounded) .case-ai-recommendation__icon,
+.case-coordination-card__icon { color: var(--neo-fg); background: var(--neo-hover); box-shadow: none; }
+.case-coordination-card > svg { color: var(--neo-muted-fg); }
+
+/* Gestión DMs / comentarios */
+.manual-inbox-refresh { border-color: var(--neo-border); color: var(--neo-fg); background: transparent; }
+.manual-inbox-refresh:hover:not(:disabled) { background: var(--neo-hover); }
+.manual-inbox-contact__meta em { color: var(--neo-fg); }
+
+/* Reportes */
+.reports-info { border-color: var(--neo-border); color: var(--neo-muted-fg); background: var(--neo-card); }
+.reports-info > svg { color: var(--neo-muted-fg); }
+.reports-brand strong { color: var(--neo-fg); }
+
+/* Resumen SAC y Configuración: íconos informativos sobre fondo neutro */
+.kpi-card .kpi-card__icon,
+.integration-row__icon--metricool { color: var(--neo-fg); background: var(--neo-hover); }
+.kpi-card--pending .kpi-card__icon { color: var(--rose); background: var(--rose-soft); }
+
+/* Usuarios */
+.users-roles-chip--assigned,
+.users-roles-you { color: var(--neo-fg); background: var(--neo-hover); }
+
+/* Iniciales de quien escribe (Gestión DMs y su encabezado): círculo neutro, no azul. */
+.manual-inbox-contact__avatar:not(.is-post),
+.manual-inbox-conversation-header__avatar:not(.has-media) { color: var(--neo-fg); background: var(--neo-hover); }
+.case-ai-recommendation:not(.case-ai-recommendation--grounded) > header small { color: var(--neo-muted-fg); }
+.case-notes-card > header span { color: var(--neo-fg); background: var(--neo-hover); }
+.case-audit-card__dot { color: var(--neo-muted-fg); background: var(--neo-muted-fg); }
