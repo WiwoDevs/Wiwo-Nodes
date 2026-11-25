@@ -171,6 +171,13 @@ export interface UserAccessRecord {
   hiddenBrandIds?: string[];
   hiddenBrandsUpdatedBy?: string;
   hiddenBrandsUpdatedAt?: string;
+  /**
+   * Si esta persona puede usar WhatsApp (ver Gestión WhatsApp y enviar por WhatsApp). Ajuste
+   * individual guardado en la base; ausente = activado. Solo un admin principal lo cambia.
+   */
+  whatsappEnabled?: boolean;
+  whatsappUpdatedBy?: string;
+  whatsappUpdatedAt?: string;
 }
 
 export interface ActorContext {
@@ -188,6 +195,8 @@ export interface ActorContext {
   source: "local" | "trusted_headers" | "google" | "dev" | "service";
   /** Correo verificado de la sesión (solo inicio de sesión con Google o prueba local). */
   email?: string;
+  /** Ajuste individual de WhatsApp (`user_access.whatsapp_enabled`); ausente = activado. */
+  whatsappEnabled?: boolean;
 }
 
 /**

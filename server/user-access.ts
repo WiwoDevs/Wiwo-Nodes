@@ -112,6 +112,10 @@ export interface UserAccessView {
   hiddenBrandIds: string[];
   hiddenBrandsUpdatedBy?: string;
   hiddenBrandsUpdatedAt?: string;
+  /** WhatsApp para esta persona (ajuste individual en la base; activado por defecto). */
+  whatsappEnabled: boolean;
+  whatsappUpdatedBy?: string;
+  whatsappUpdatedAt?: string;
 }
 
 /** Permisos que trae un rol (por id) según el catálogo; "none" o desconocido = ninguno. */
@@ -211,9 +215,13 @@ export async function listAccessControl(
     const permissionsRemove = overridable ? stored?.permissionsRemove ?? [] : [];
     const masterAdmin = Boolean(config.adminEmails?.includes(email));
     const hiddenBrandIds = masterAdmin ? [] : stored?.hiddenBrandIds ?? [];
+    const whatsappEnabled = stored?.whatsappEnabled !== false;
     return {
       masterAdmin,
       hiddenBrandIds,
+      whatsappEnabled,
+      ...(!whatsappEnabled && stored?.whatsappUpdatedBy ? { whatsappUpdatedBy: stored.whatsappUpdatedBy } : {}),
+      ...(!whatsappEnabled && stored?.whatsappUpdatedAt ? { whatsappUpdatedAt: stored.whatsappUpdatedAt } : {}),
       ...(hiddenBrandIds.length && stored?.hiddenBrandsUpdatedBy ? { hiddenBrandsUpdatedBy: stored.hiddenBrandsUpdatedBy } : {}),
       ...(hiddenBrandIds.length && stored?.hiddenBrandsUpdatedAt ? { hiddenBrandsUpdatedAt: stored.hiddenBrandsUpdatedAt } : {}),
       rolePermissions,

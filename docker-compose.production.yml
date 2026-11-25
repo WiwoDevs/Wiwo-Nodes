@@ -79,10 +79,8 @@ x-sac-flow-app: &sac-flow-app
     SAC_FLOW_AUTH_SESSION_TTL_MS: "${SAC_FLOW_AUTH_SESSION_TTL_MS:-432000000}"
     # Clave de solo lectura para /api/integrations/* (METRIQ). Vacia = rutas deshabilitadas.
     SAC_FLOW_SERVICE_API_KEY: "${SAC_FLOW_SERVICE_API_KEY:-}"
-    # WhatsApp por Baileys (no oficial; ver docs/WHATSAPP.md). Apagado por defecto. La API y el
-    # servicio whatsapp comparten la clave interna.
-    SAC_FLOW_WHATSAPP_ENABLED: "${SAC_FLOW_WHATSAPP_ENABLED:-false}"
-    SAC_FLOW_WHATSAPP_SENDS_ENABLED: "${SAC_FLOW_WHATSAPP_SENDS_ENABLED:-false}"
+    # WhatsApp por Baileys (no oficial; ver docs/WHATSAPP.md). La API y el servicio whatsapp
+    # comparten la clave interna; quien puede usarlo se activa por persona en la base (Usuarios y roles).
     SAC_FLOW_WHATSAPP_WORKER_KEY: "${SAC_FLOW_WHATSAPP_WORKER_KEY:-}"
     SAC_FLOW_WHATSAPP_MIN_GAP_MS: "${SAC_FLOW_WHATSAPP_MIN_GAP_MS:-4000}"
     SAC_FLOW_WHATSAPP_MAX_GAP_MS: "${SAC_FLOW_WHATSAPP_MAX_GAP_MS:-12000}"

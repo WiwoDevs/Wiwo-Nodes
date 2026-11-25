@@ -211,7 +211,7 @@ Más detalle: [docs/SECURITY.md](docs/SECURITY.md).
 | `npm run verify` | `check` + `build:all` + `test` + auditoría de dependencias |
 | `npm run migrate` | Aplica migraciones de PostgreSQL |
 | `npm run start:worker` | Worker de sincronización y envíos (requiere PostgreSQL) |
-| `npm run dev:whatsapp` / `npm run start:whatsapp` | Worker de WhatsApp (Baileys): sesiones, mensajes y envíos con ritmo humano. Requiere `SAC_FLOW_WHATSAPP_ENABLED=true` y `SAC_FLOW_WHATSAPP_WORKER_KEY` |
+| `npm run dev:whatsapp` / `npm run start:whatsapp` | Worker de WhatsApp (Baileys): sesiones, mensajes y envíos con ritmo humano. Requiere `SAC_FLOW_WHATSAPP_WORKER_KEY`; quién usa WhatsApp se activa por persona en Usuarios y roles |
 | `npm start` | API compilada (requiere `build:all`) |
 
 La lista completa está en `scripts` de [`package.json`](package.json). En `scripts/` hay además herramientas de línea de comandos para importaciones, clasificación y planillas.

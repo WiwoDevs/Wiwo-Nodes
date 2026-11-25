@@ -460,6 +460,12 @@ export const userHiddenBrandsSchema = z.object({
   brandIds: z.array(z.string().trim().min(1).max(100)).max(500),
 }).strict();
 
+/** Activa o apaga WhatsApp para una persona (solo admin principal). */
+export const userWhatsAppSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  enabled: z.boolean(),
+}).strict();
+
 export const accessRoleIdParamsSchema = z.object({
   roleId: z.string().trim().min(1).max(80),
 }).strict();

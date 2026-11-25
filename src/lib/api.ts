@@ -1423,6 +1423,11 @@ export function setUserPermissions(email: string, permissions: string[] | null):
 }
 
 /** Clientes que una persona no ve (solo admin principal); lista vacía = ve todos. */
+/** Activa o apaga WhatsApp para una persona (solo admin principal). */
+export function setUserWhatsApp(email: string, enabled: boolean): Promise<AccessControlListing & { user?: UserAccessView }> {
+  return accessControlRequest("/admin/users/whatsapp", jsonInit("PUT", { email, enabled }));
+}
+
 export function setUserHiddenBrands(email: string, brandIds: string[]): Promise<AccessControlListing & { user?: UserAccessView }> {
   return accessControlRequest("/admin/users/hidden-brands", jsonInit("PUT", { email, brandIds }));
 }

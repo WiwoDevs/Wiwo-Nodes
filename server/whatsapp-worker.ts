@@ -29,8 +29,8 @@ const config = loadConfig();
 if (config.demoMode) {
   throw new Error("El worker de WhatsApp no corre en modo demo: la demo simula los números en la API.");
 }
-if (!config.whatsapp.enabled || !config.whatsapp.workerKey) {
-  throw new Error("Configura SAC_FLOW_WHATSAPP_ENABLED=true y SAC_FLOW_WHATSAPP_WORKER_KEY (32+ caracteres) en la API y en el worker.");
+if (!config.whatsapp.workerKey) {
+  throw new Error("Configura SAC_FLOW_WHATSAPP_WORKER_KEY (32+ caracteres), la misma en la API y en el worker.");
 }
 const workerKey = config.whatsapp.workerKey;
 const apiUrl = (process.env.SAC_FLOW_INTERNAL_API_URL || `http://127.0.0.1:${config.port}`).replace(/\/$/, "");

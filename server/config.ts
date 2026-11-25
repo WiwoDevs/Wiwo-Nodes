@@ -120,15 +120,11 @@ export interface AppConfig {
    * entrega por las rutas internas, autenticadas con `workerKey`.
    */
   whatsapp: {
-    /** Habilita las rutas internas del worker en live. En demo se simula sin conexión real. */
-    enabled: boolean;
     /**
-     * Cortacorriente propio de los envíos por WhatsApp (SAC_FLOW_WHATSAPP_SENDS_ENABLED, apagado
-     * por defecto). Reemplaza para WhatsApp a SAC_FLOW_DISABLE_OUTBOUND_SENDS y
-     * SAC_FLOW_ENABLE_MANUAL_REPLIES, que siguen gobernando solo Metricool.
+     * Clave compartida API ↔ worker (SAC_FLOW_WHATSAPP_WORKER_KEY, 32+ caracteres). Con ella,
+     * WhatsApp queda en vivo; quién puede usarlo se decide por persona en la base
+     * (`user_access.whatsapp_enabled`, activado por defecto), no con variables de entorno.
      */
-    sendsEnabled: boolean;
-    /** Clave compartida API ↔ worker (SAC_FLOW_WHATSAPP_WORKER_KEY, 32+ caracteres). */
     workerKey?: string;
     /** Carpeta de las sesiones de WhatsApp (credenciales), fuera del repositorio. */
     authDir: string;
@@ -184,8 +180,6 @@ function loadWhatsAppConfig(env: NodeJS.ProcessEnv, cwd: string): AppConfig["wha
   const maxGapMs = Math.max(minGapMs, integer(env.SAC_FLOW_WHATSAPP_MAX_GAP_MS, 12_000, 1_000, 600_000));
   const typingMinMs = integer(env.SAC_FLOW_WHATSAPP_TYPING_MIN_MS, 1_500, 0, 60_000);
   return {
-    enabled: parseBoolean(env.SAC_FLOW_WHATSAPP_ENABLED, false),
-    sendsEnabled: parseBoolean(env.SAC_FLOW_WHATSAPP_SENDS_ENABLED, false),
     workerKey,
     authDir: path.resolve(env.SAC_FLOW_WHATSAPP_AUTH_DIR?.trim() || path.join(cwd, "data", "whatsapp-auth")),
     pacing: {

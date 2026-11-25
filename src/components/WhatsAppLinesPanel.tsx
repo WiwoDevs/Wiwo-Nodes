@@ -107,7 +107,7 @@ export function WhatsAppLinesPanel({ brands, onClose, onChanged, onNotify }: Wha
   const workerNote = mode === "demo"
     ? "Modo demostración: el QR es de muestra, no vincula ningún teléfono, y los mensajes se simulan."
     : mode === "disabled"
-      ? "WhatsApp no está habilitado en este servidor (SAC_FLOW_WHATSAPP_ENABLED y SAC_FLOW_WHATSAPP_WORKER_KEY)."
+      ? "WhatsApp no está habilitado en este servidor: falta SAC_FLOW_WHATSAPP_WORKER_KEY."
       : data && !data.worker.online
         ? "El worker de WhatsApp no responde. Los números no reciben ni envían hasta que vuelva (npm run dev:whatsapp o el servicio whatsapp)."
         : null;

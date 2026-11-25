@@ -966,6 +966,8 @@ describe("SAC Flow API", () => {
       brandIds: ["brand-01"],
       source: "trusted_headers",
       masterAdmin: false,
+      // WhatsApp por persona: activado por defecto.
+      whatsappEnabled: true,
     });
   });
 
