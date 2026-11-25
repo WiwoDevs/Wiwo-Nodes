@@ -2070,3 +2070,56 @@ input[type="radio"] { accent-color: var(--neo-blue); }
 .case-ai-recommendation:not(.case-ai-recommendation--grounded) > header small { color: var(--neo-muted-fg); }
 .case-notes-card > header span { color: var(--neo-fg); background: var(--neo-hover); }
 .case-audit-card__dot { color: var(--neo-muted-fg); background: var(--neo-muted-fg); }
+
+/* Barra de desplazamiento visible (pedido del usuario, noviembre 2026): en el selector de cuentas y
+   en las listas de Gestión DMs/comentarios se puede bajar arrastrando o haciendo clic en la barra,
+   no solo con la rueda. El resto de la web mantiene las barras ocultas, como Lab. */
+.account-filter__list,
+.manual-inbox-contact-list,
+.manual-inbox-exact-comments,
+.manual-inbox-timeline ol,
+.manual-inbox-timeline {
+  scrollbar-width: thin;
+  scrollbar-color: var(--neo-muted-fg) transparent;
+}
+.account-filter__list::-webkit-scrollbar,
+.manual-inbox-contact-list::-webkit-scrollbar,
+.manual-inbox-exact-comments::-webkit-scrollbar,
+.manual-inbox-timeline::-webkit-scrollbar,
+.manual-inbox-timeline ol::-webkit-scrollbar { display: block; width: 10px; height: 0; }
+.account-filter__list::-webkit-scrollbar-thumb,
+.manual-inbox-contact-list::-webkit-scrollbar-thumb,
+.manual-inbox-exact-comments::-webkit-scrollbar-thumb,
+.manual-inbox-timeline::-webkit-scrollbar-thumb,
+.manual-inbox-timeline ol::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-color: var(--neo-muted-fg);
+  background-clip: content-box;
+}
+
+/* Selector de cuentas dentro de Gestión DMs/comentarios: mismo alto que «Actualizar cuenta». */
+.manual-inbox-account-picker .account-filter { min-width: 0; }
+.manual-inbox-account-picker .account-filter__trigger {
+  height: 40px;
+  border-color: var(--neo-border);
+  border-radius: 10px;
+  color: var(--neo-fg);
+  background: var(--neo-card);
+  font-size: 13px;
+  font-weight: 650;
+}
+.manual-inbox-account-picker .account-filter__popover { width: max(100%, 380px); max-height: min(480px, 70vh); }
+/* La zona del selector oculta sus <label> (era el rótulo del <select> antiguo): el buscador sí se ve. */
+.manual-inbox-account-picker .account-filter__search {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  grid-column: auto;
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+}

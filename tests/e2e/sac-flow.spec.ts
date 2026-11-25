@@ -674,7 +674,7 @@ test("manages one account in a simplified two-pane manual workspace with exact h
   const workspace = page.locator(".manual-inbox-view");
   await expect(workspace.getByRole("heading", { name: "Gestión de comentarios", exact: true })).toBeVisible();
   await expect(page.locator(".manual-inbox-grid > .manual-inbox-column")).toHaveCount(2);
-  await expect(page.getByLabel("Cuenta obligatoria")).toHaveValue("account-01");
+  await expect(workspace.getByRole("button", { name: /^Cuenta: Marca / })).toBeVisible();
   expect(syncRequests).toBe(0);
 
   // Con la superficie fijada, la pestaña es solo la red.
