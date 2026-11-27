@@ -3,22 +3,25 @@
  * recorrido completo por la API sin conexión real (el worker se simula con sus rutas internas).
  * Todos los números y nombres son ficticios.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { atRestKey } from "../../server/whatsapp/at-rest.js";
+import { useEncryptedFileAuthState } from "../../server/whatsapp/encrypted-auth-state.js";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type SacFlowApp } from "../../server/app.js";
 import { loadConfig, whatsappWorkerKey } from "../../server/config.js";
 import { JsonRepository } from "../../server/repository.js";
-import { normalizeBaileysMessage, personJid, phoneFromJid } from "../../server/whatsapp/messages.js";
+import { mediaDescriptor, normalizeBaileysMessage, normalizeBaileysUpdate, personJid, phoneFromJid, receiptFromStatus } from "../../server/whatsapp/messages.js";
 import { SendPacer, reconnectDelayMs } from "../../server/whatsapp/pacing.js";
 import { WhatsAppLineService } from "../../server/whatsapp/line-service.js";
 import { WHATSAPP_WORKER_KEY_HEADER } from "../../server/whatsapp-routes.js";
 import { IdentityError, type IdentityService } from "../../server/identity.js";
 import type { ActorContext } from "../../server/types.js";
-import { buildWhatsAppInteraction, historyMessageIds } from "../../server/whatsapp/ingest.js";
+import { applyWhatsAppUpdate, buildWhatsAppInteraction, historyMessageIds } from "../../server/whatsapp/ingest.js";
 import { buildSacReport } from "../../server/sac-report.js";
 import { createDemoStore } from "../../server/seed.js";
+import { whatsappUnreadCount } from "../../server/inbox-contacts.js";
 
 const directories: string[] = [];
 const apps: SacFlowApp[] = [];
@@ -104,6 +107,9 @@ describe("SendPacer", () => {
     maxGapMs: 12_000,
     maxPerMinute: 3,
     maxPerHour: 5,
+    maxPerDay: 400,
+    chatChangeExtraMs: 0,
+    attachmentExtraMs: 0,
     typingMsPerChar: 50,
     typingMinMs: 1_500,
     typingMaxMs: 8_000,
@@ -630,5 +636,298 @@ describe("WhatsApp por la API (worker simulado)", () => {
     // En demo no hay worker: sus rutas no existen.
     const internal = await app.inject({ method: "GET", url: "/api/internal/whatsapp/lines", headers: { [WHATSAPP_WORKER_KEY_HEADER]: WORKER_KEY } });
     expect(internal.statusCode).toBe(404);
+  });
+});
+
+describe("chat completo de WhatsApp", () => {
+  const base = { key: { remoteJid: CUSTOMER_JID, id: "M1", fromMe: false }, messageTimestamp: 1_760_000_000 };
+
+  it("reconoce el archivo, la cita, las reacciones, ediciones, borrados y tics", () => {
+    expect(mediaDescriptor({ imageMessage: { mimetype: "image/jpeg", fileLength: 2048, caption: "boleta" } }))
+      .toEqual({ kind: "image", mimeType: "image/jpeg", declaredSize: 2048 });
+    expect(mediaDescriptor({ stickerMessage: { mimetype: "image/webp" } })?.kind).toBe("sticker");
+    expect(mediaDescriptor({ documentMessage: { mimetype: "application/x-msdownload", fileName: "virus.exe" } })).toBeUndefined();
+    expect(mediaDescriptor({ documentMessage: { mimetype: "application/pdf", fileName: "../boleta.pdf" } }))
+      .toMatchObject({ kind: "document", fileName: ".._boleta.pdf" });
+
+    const quoted = normalizeBaileysMessage({
+      ...base,
+      message: { extendedTextMessage: { text: "Sí, esa", contextInfo: { quotedMessage: { conversation: "¿Es esta la talla?" } } } },
+    });
+    expect(quoted?.quotedText).toBe("¿Es esta la talla?");
+
+    expect(normalizeBaileysUpdate({ ...base, message: { reactionMessage: { key: { id: "OUT1" }, text: "👍" } } }))
+      .toMatchObject({ type: "reaction", messageId: "OUT1", emoji: "👍", fromMe: false });
+    expect(normalizeBaileysUpdate({ ...base, message: { protocolMessage: { type: 0, key: { id: "M0" } } } }))
+      .toMatchObject({ type: "delete", messageId: "M0" });
+    expect(normalizeBaileysUpdate({ ...base, message: { protocolMessage: { type: 14, key: { id: "M0" }, editedMessage: { conversation: "Corregido" } } } }))
+      .toMatchObject({ type: "edit", messageId: "M0", text: "Corregido" });
+    expect(normalizeBaileysUpdate({ ...base, message: { conversation: "hola" } })).toBeUndefined();
+    expect([receiptFromStatus(3), receiptFromStatus(4), receiptFromStatus(5), receiptFromStatus(2)])
+      .toEqual(["delivered", "read", "played", undefined]);
+  });
+
+  it("los tics solo avanzan y las reacciones se reemplazan por persona", () => {
+    const store = createDemoStore();
+    const interaction = buildWhatsAppInteraction({ ...inbound("X1", "hola"), fromMe: true }, { id: "11111111-1111-4111-8111-111111111111", label: "Prueba" }, store.brands[0]!);
+    expect(applyWhatsAppUpdate(interaction, { type: "receipt", messageId: "X1", status: "read", at: "2026-11-25T10:00:00Z" })).toBe(true);
+    expect(applyWhatsAppUpdate(interaction, { type: "receipt", messageId: "X1", status: "delivered", at: "2026-11-25T10:01:00Z" })).toBe(false);
+    expect(interaction.metricoolRef?.whatsapp?.status).toBe("read");
+    applyWhatsAppUpdate(interaction, { type: "reaction", messageId: "X1", emoji: "👍", fromMe: false, at: "x" });
+    applyWhatsAppUpdate(interaction, { type: "reaction", messageId: "X1", emoji: "❤️", fromMe: false, at: "y" });
+    expect(interaction.metricoolRef?.whatsapp?.reactions).toEqual([{ emoji: "❤️", fromMe: false, at: "y" }]);
+    applyWhatsAppUpdate(interaction, { type: "reaction", messageId: "X1", emoji: "", fromMe: false, at: "z" });
+    expect(interaction.metricoolRef?.whatsapp?.reactions).toBeUndefined();
+  });
+
+  it("guarda archivos, responde con adjunto y cita, y registra lo enviado con sus tics", async () => {
+    const { app, person, worker } = await liveApp();
+    const lineId = await connectedLine(app, person, worker);
+    // El worker sube la foto recibida y entrega el mensaje que la trae.
+    const photo = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+    const uploaded = await app.inject({
+      method: "PUT",
+      url: `/api/internal/whatsapp/lines/${lineId}/media`,
+      headers: { ...worker, "content-type": "application/octet-stream", "x-media-type": "image%2Fjpeg" },
+      payload: photo,
+    });
+    expect(uploaded.statusCode).toBe(200);
+    const media = uploaded.json().data;
+    expect(media).toMatchObject({ kind: "image", mimeType: "image/jpeg", size: photo.length });
+    const rejected = await app.inject({
+      method: "PUT",
+      url: `/api/internal/whatsapp/lines/${lineId}/media`,
+      headers: { ...worker, "content-type": "application/octet-stream", "x-media-type": "application%2Fx-msdownload" },
+      payload: photo,
+    });
+    expect(rejected.statusCode).toBe(415);
+    await app.inject({
+      method: "POST",
+      url: `/api/internal/whatsapp/lines/${lineId}/messages`,
+      headers: worker,
+      payload: { messages: [{ ...inbound("PH-1", "[Imagen] mira la boleta"), kind: "attachment", media }] },
+    });
+    const row = (await app.inject({ method: "GET", url: "/api/interactions?channel=whatsapp", headers: person })).json().data[0];
+    expect(row.text).toBe("mira la boleta");
+    // El archivo se sirve a quien ve la marca, con su tipo y sin adivinar contenido.
+    const served = await app.inject({ method: "GET", url: `/api/media/whatsapp/${media.key}`, headers: person });
+    expect(served.statusCode).toBe(200);
+    expect(served.headers["content-type"]).toBe("image/jpeg");
+    expect(served.headers["x-content-type-options"]).toBe("nosniff");
+    const conversation = (await app.inject({ method: "GET", url: `/api/interactions/${row.id}/conversation`, headers: person })).json().data;
+    expect(conversation[0].contentContext.mediaUrls).toEqual([`/api/media/whatsapp/${media.key}?type=image`]);
+
+    // La persona sube un PDF y responde citando el mensaje del cliente.
+    const pdf = await app.inject({
+      method: "POST",
+      url: `/api/whatsapp/media?interactionId=${row.id}`,
+      headers: { ...person, "content-type": "application/octet-stream", "x-media-type": "application%2Fpdf", "x-file-name": "cotizaci%C3%B3n.pdf" },
+      payload: Buffer.from("%PDF-1.4 prueba"),
+    });
+    expect(pdf.statusCode).toBe(200);
+    expect(pdf.json().data).toMatchObject({ kind: "document", fileName: "cotización.pdf" });
+    const detail = (await app.inject({ method: "GET", url: `/api/interactions/${row.id}`, headers: person })).json().data;
+    const reply = await app.inject({
+      method: "POST",
+      url: `/api/interactions/${row.id}/reply`,
+      headers: { ...person, "idempotency-key": "wa-attach-1" },
+      payload: { text: "", mode: "send", approvedByHuman: true, expectedVersion: detail.version, attachmentKey: pdf.json().data.key, quote: true },
+    });
+    expect(reply.statusCode).toBe(200);
+    expect(reply.json().meta.delivery).toBe("queued");
+    const claim = (await app.inject({ method: "POST", url: "/api/internal/whatsapp/deliveries/claim", headers: worker, payload: { lineIds: [lineId] } })).json().data;
+    expect(claim).toMatchObject({
+      text: "",
+      attachment: { kind: "document", fileName: "cotización.pdf" },
+      quote: { messageId: "PH-1", text: "mira la boleta" },
+    });
+    const bytes = await app.inject({ method: "GET", url: `/api/internal/whatsapp/media/${claim.attachment.key}`, headers: worker });
+    expect(bytes.rawPayload.toString()).toBe("%PDF-1.4 prueba");
+    await app.inject({ method: "POST", url: `/api/internal/whatsapp/deliveries/${claim.deliveryId}/result`, headers: worker, payload: { status: "sent", messageId: "OUT-PDF" } });
+
+    // Lo enviado queda como mensaje saliente propio; el eco no lo duplica y los tics avanzan.
+    const echo = await app.inject({
+      method: "POST",
+      url: `/api/internal/whatsapp/lines/${lineId}/messages`,
+      headers: worker,
+      payload: { messages: [{ ...inbound("OUT-PDF", "[Documento]"), fromMe: true, kind: "attachment" }] },
+    });
+    expect(echo.json().data.created).toBe(0);
+    const updates = await app.inject({
+      method: "POST",
+      url: `/api/internal/whatsapp/lines/${lineId}/updates`,
+      headers: worker,
+      payload: { updates: [
+        { type: "receipt", messageId: "OUT-PDF", status: "read", at: new Date().toISOString() },
+        { type: "reaction", messageId: "OUT-PDF", emoji: "🙏", fromMe: false, at: new Date().toISOString() },
+        { type: "edit", messageId: "PH-1", text: "mira la boleta, porfa", at: new Date().toISOString() },
+        { type: "receipt", messageId: "NO-EXISTE", status: "read", at: new Date().toISOString() },
+      ] },
+    });
+    expect(updates.json().data).toEqual({ applied: 3, unknown: 1 });
+    const chat = (await app.inject({ method: "GET", url: `/api/interactions/${row.id}/conversation?scope=contact`, headers: person })).json().data as
+      Array<{ direction: string; text: string; whatsapp?: Record<string, unknown> }>;
+    const sent = chat.filter((message) => message.direction === "outbound");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.whatsapp).toMatchObject({ status: "read", quotedText: "mira la boleta", sentBy: expect.any(String), reactions: [{ emoji: "🙏", fromMe: false }] });
+    const original = chat.find((message) => message.direction === "inbound")!;
+    expect(original).toMatchObject({ text: "mira la boleta, porfa", whatsapp: { edited: true } });
+
+    // Adjuntos y citas son solo de WhatsApp.
+    const metricool = (await app.inject({ method: "GET", url: "/api/interactions?pageSize=200", headers: person })).json().data
+      .find((item: { channel: string; direction: string; brandId: string; status: string }) =>
+        item.channel !== "whatsapp" && item.direction === "inbound" && item.brandId === "brand-01" && ["new", "pending", "drafted"].includes(item.status));
+    const wrong = await app.inject({
+      method: "POST",
+      url: `/api/interactions/${metricool.id}/reply`,
+      headers: { ...person, "idempotency-key": "mc-quote-1" },
+      payload: { text: "Hola", mode: "send", approvedByHuman: true, expectedVersion: metricool.version, quote: true },
+    });
+    expect(wrong.statusCode).toBe(422);
+    expect(wrong.json().error.code).toBe("WHATSAPP_ONLY_OPTION");
+  });
+});
+
+describe("robustez del worker de WhatsApp", () => {
+  it("cifra la sesión en disco y migra una sesión antigua en texto plano", async () => {
+    const folder = await tempDir();
+    const key = atRestKey("clave-de-credenciales-de-prueba-32-caracteres");
+    // Sesión guardada como la dejaba useMultiFileAuthState (nombres con teléfono, texto plano).
+    await writeFile(path.join(folder, "creds.json"), JSON.stringify({ registered: true, me: { id: "0011112222@s.whatsapp.net" } }));
+    await writeFile(path.join(folder, "device-list-0011112222.json"), JSON.stringify(["0"]));
+    const { state, saveCreds } = await useEncryptedFileAuthState(folder, key);
+    expect(state.creds.registered).toBe(true);
+    const files = await readdir(folder);
+    expect(files.some((name) => name.endsWith(".json"))).toBe(false);
+    expect(files.every((name) => /^[0-9a-f]{40}\.enc$/.test(name))).toBe(true);
+    expect(files.join(" ")).not.toContain("0011112222");
+    for (const name of files) {
+      expect((await readFile(path.join(folder, name))).toString("latin1")).not.toContain("0011112222");
+    }
+    await saveCreds();
+    // Se vuelve a abrir igual; con otra clave no se encuentra nada (parte una sesión vacía).
+    expect((await useEncryptedFileAuthState(folder, key)).state.creds.registered).toBe(true);
+    const other = await useEncryptedFileAuthState(folder, atRestKey("otra-clave-cualquiera-de-32-caracteres-xx"));
+    expect(other.state.creds.registered).not.toBe(true);
+  });
+
+  it("respeta el tope diario y suma pausas al cambiar de chat o enviar archivos", () => {
+    const pacer = new SendPacer({
+      minGapMs: 1_000, maxGapMs: 1_000, maxPerMinute: 100, maxPerHour: 100, maxPerDay: 2,
+      typingMsPerChar: 50, typingMinMs: 1_500, typingMaxMs: 8_000, chatChangeExtraMs: 3_000, attachmentExtraMs: 4_000,
+    }, () => 0);
+    pacer.record(0, { chatId: "a" });
+    expect(pacer.readyAt(0)).toBe(1_000);
+    pacer.record(1_000, { chatId: "b", attachment: true });
+    // 1 s de pausa + 3 s por cambiar de chat + 4 s por el archivo; y ya topó el día.
+    expect(pacer.usage(2_000)).toEqual({ lastHour: 2, lastDay: 2 });
+    expect(pacer.readyAt(2_000)).toBe(24 * 60 * 60_000);
+  });
+
+  it("una respuesta que lleva 24 h en cola falla en vez de salir tarde", async () => {
+    const { app, person, worker } = await liveApp();
+    const lineId = await connectedLine(app, person, worker);
+    await app.inject({ method: "POST", url: `/api/internal/whatsapp/lines/${lineId}/messages`, headers: worker, payload: { messages: [inbound("OLD-Q", "Hola")] } });
+    const row = (await app.inject({ method: "GET", url: "/api/interactions?channel=whatsapp", headers: person })).json().data[0];
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/interactions/${row.id}/reply`,
+      headers: { ...person, "idempotency-key": "wa-old-1" },
+      payload: { text: "Respuesta que se atrasó", mode: "send", approvedByHuman: true, expectedVersion: row.version },
+    });
+    const deliveryId = sent.json().meta.deliveryId as string;
+    // La entrega envejece: se reescribe su fecha de creación en el JSON de prueba.
+    await app.sacFlow.repository.mutate((store) => {
+      const delivery = store.deliveries.find((item) => item.id === deliveryId)!;
+      delivery.createdAt = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+    });
+    const claim = await app.inject({ method: "POST", url: "/api/internal/whatsapp/deliveries/claim", headers: worker, payload: { lineIds: [lineId] } });
+    expect(claim.json().data).toBeNull();
+    const delivery = (await app.inject({ method: "GET", url: `/api/deliveries/${deliveryId}`, headers: person })).json().data;
+    expect(delivery).toMatchObject({ status: "failed", errorCode: "WHATSAPP_QUEUE_EXPIRED" });
+  });
+});
+
+describe("lectura y presencia en WhatsApp", () => {
+  const whatsappContact = async (app: SacFlowApp, person: Record<string, string>) => {
+    const listed = (await app.inject({ method: "GET", url: "/api/inbox/contacts?pageSize=200", headers: person })).json();
+    return (listed.data as Array<{ unreadCount?: number; replyTarget?: { id: string } }>).find((contact) => contact.unreadCount !== undefined);
+  };
+
+  it("cuenta no leídos hasta que alguien abre el chat, y lo marca leído en WhatsApp", async () => {
+    const { app, person, worker } = await liveApp();
+    const lineId = await connectedLine(app, person, worker);
+    await app.inject({
+      method: "POST",
+      url: `/api/internal/whatsapp/lines/${lineId}/messages`,
+      headers: worker,
+      payload: { messages: [inbound("READ-1", "Hola"), inbound("READ-2", "¿Siguen ahí?")] },
+    });
+    const before = await whatsappContact(app, person);
+    expect(before?.unreadCount).toBe(2);
+    const versionOf = async () => (await app.inject({ method: "GET", url: `/api/interactions/${before!.replyTarget!.id}`, headers: person })).json().data.version;
+    const versionBefore = await versionOf();
+
+    const read = await app.inject({ method: "POST", url: "/api/whatsapp/read", headers: person, payload: { interactionId: before!.replyTarget!.id } });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().data).toEqual({ read: 2, remote: true });
+    // Abrir el chat no invalida la respuesta que alguien está escribiendo.
+    expect(await versionOf()).toBe(versionBefore);
+    const commands = (await app.inject({ method: "GET", url: "/api/internal/whatsapp/chat-commands", headers: worker })).json().data;
+    expect(commands).toEqual(expect.arrayContaining([
+      { kind: "read", lineId, chatId: CUSTOMER_JID, messageIds: expect.arrayContaining(["READ-1", "READ-2"]) },
+      { kind: "watch", lineId, chatId: CUSTOMER_JID },
+    ]));
+    // Cada orden se entrega una sola vez.
+    expect((await app.inject({ method: "GET", url: "/api/internal/whatsapp/chat-commands", headers: worker })).json().data).toEqual([]);
+    expect((await whatsappContact(app, person))?.unreadCount).toBe(0);
+
+    // Abrirlo otra vez no manda nada; un mensaje nuevo vuelve a contar.
+    const again = await app.inject({ method: "POST", url: "/api/whatsapp/read", headers: person, payload: { interactionId: before!.replyTarget!.id } });
+    expect(again.json().data).toEqual({ read: 0, remote: false });
+    await app.inject({ method: "POST", url: `/api/internal/whatsapp/lines/${lineId}/messages`, headers: worker, payload: { messages: [inbound("READ-3", "Otra cosa")] } });
+    expect((await whatsappContact(app, person))?.unreadCount).toBe(1);
+  });
+
+  it("muestra si el cliente escribe y limita el escribiendo del equipo", async () => {
+    const { app, person, worker } = await liveApp();
+    const lineId = await connectedLine(app, person, worker);
+    await app.inject({ method: "POST", url: `/api/internal/whatsapp/lines/${lineId}/messages`, headers: worker, payload: { messages: [inbound("PRES-1", "Hola")] } });
+    const row = (await app.inject({ method: "GET", url: "/api/interactions?channel=whatsapp", headers: person })).json().data[0];
+
+    const presence = () => app.inject({ method: "GET", url: `/api/whatsapp/presence?interactionId=${row.id}`, headers: person });
+    expect((await presence()).json().data.state).toBeNull();
+    await app.inject({ method: "POST", url: `/api/internal/whatsapp/lines/${lineId}/presence`, headers: worker, payload: { chatId: CUSTOMER_JID, state: "recording" } });
+    expect((await presence()).json().data.state).toBe("recording");
+    await app.inject({ method: "POST", url: `/api/internal/whatsapp/lines/${lineId}/presence`, headers: worker, payload: { chatId: CUSTOMER_JID, state: "paused" } });
+    expect((await presence()).json().data.state).toBeNull();
+    // La presencia es solo para quien llama desde el worker.
+    expect((await app.inject({ method: "POST", url: `/api/internal/whatsapp/lines/${lineId}/presence`, headers: person, payload: { chatId: CUSTOMER_JID, state: "composing" } })).statusCode).toBe(401);
+
+    const typing = async (state: "composing" | "paused") => (await app.inject({
+      method: "POST", url: "/api/whatsapp/typing", headers: person, payload: { interactionId: row.id, state },
+    })).json().data.queued as boolean;
+    expect(await typing("composing")).toBe(true);
+    expect(await typing("composing")).toBe(false);
+    expect(await typing("paused")).toBe(true);
+    expect(await typing("paused")).toBe(false);
+    const commands = (await app.inject({ method: "GET", url: "/api/internal/whatsapp/chat-commands", headers: worker })).json().data;
+    expect(commands.filter((command: { kind: string }) => command.kind === "typing")).toEqual([
+      { kind: "typing", lineId, chatId: CUSTOMER_JID, state: "composing" },
+      { kind: "typing", lineId, chatId: CUSTOMER_JID, state: "paused" },
+    ]);
+  });
+
+  it("no cuenta como no leído lo anterior a la última respuesta ni el historial importado", () => {
+    const base = { channel: "whatsapp", direction: "inbound" } as const;
+    const ref = (extra: Record<string, unknown> = {}) => ({ whatsapp: { lineId: "l", chatId: "c", messageId: "m", ...extra } });
+    const newestFirst = [
+      { ...base, metricoolRef: ref() },
+      { ...base, metricoolRef: ref({ readAt: "2026-11-25T10:00:00.000Z" }) },
+      { ...base, metricoolRef: ref({ history: true }) },
+      { ...base, direction: "outbound", metricoolRef: ref() },
+      { ...base, metricoolRef: ref() },
+    ] as unknown as Parameters<typeof whatsappUnreadCount>[0];
+    expect(whatsappUnreadCount(newestFirst)).toBe(1);
   });
 });

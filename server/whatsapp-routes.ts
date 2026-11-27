@@ -16,18 +16,32 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { ApiError } from "./api-error.js";
 import type { AppConfig } from "./config.js";
-import type { Permission } from "./permissions.js";
+import { actorCan, type Permission } from "./permissions.js";
 import type { SacFlowRepository } from "./repository-contract.js";
 import type { ActorContext, Brand, WhatsAppLine } from "./types.js";
 import { WHATSAPP_LINE_STATUSES } from "./types.js";
 import type { NormalizedWhatsAppMessage } from "./whatsapp/messages.js";
 import { WhatsAppLineError, type WhatsAppLineService } from "./whatsapp/line-service.js";
-import type { WhatsAppHistoryMode } from "./whatsapp/ingest.js";
+import { applyWhatsAppUpdate, buildSentWhatsAppInteraction, whatsappExternalId, type WhatsAppHistoryMode } from "./whatsapp/ingest.js";
+import {
+  baseMime,
+  isMediaKey,
+  mediaKey,
+  mediaKindFor,
+  safeFileName,
+  WHATSAPP_MEDIA_MAX_BYTES,
+  type WhatsAppMediaRef,
+} from "./whatsapp/media.js";
+import type { WhatsAppMessageUpdate } from "./whatsapp/messages.js";
+import type { WiwoTalkService } from "./wiwo-talk/service.js";
+import type { Interaction } from "./types.js";
 
 export const WHATSAPP_WORKER_PREFIX = "/api/internal/whatsapp/";
 export const WHATSAPP_WORKER_KEY_HEADER = "x-whatsapp-worker-key";
 /** Tiempo que el worker tiene para mostrar "escribiendo…" y enviar antes de que la entrega quede incierta. */
 export const WHATSAPP_DELIVERY_LEASE_MS = 2 * 60_000;
+/** Una respuesta que no pudo salir en 24 h falla: no se envía fuera de contexto. */
+export const WHATSAPP_QUEUE_MAX_AGE_MS = 24 * 60 * 60_000;
 
 export function isWhatsAppWorkerPath(url: string): boolean {
   return (url.split("?", 1)[0] || "/").startsWith(WHATSAPP_WORKER_PREFIX);
@@ -49,6 +63,8 @@ export interface WhatsAppRouteDeps {
   requireActor: (request: FastifyRequest) => ActorContext;
   requirePermission: (request: FastifyRequest, permission: Permission) => ActorContext;
   isMasterAdmin: (actor: ActorContext) => boolean;
+  /** Conexiones de WiWO Talk: sus chats también son WhatsApp (leído, estado para la bandeja). */
+  wiwoTalk?: WiwoTalkService;
   /** Guarda los mensajes como interacciones (repositorio + protocolo SAC + respuestas del equipo). */
   ingest: (
     line: WhatsAppLine,
@@ -78,6 +94,15 @@ const linkBody = z.object({
 const historyBody = z.object({
   interactionId: z.string().trim().min(1).max(120),
 }).strict();
+const typingBody = z.object({
+  interactionId: z.string().trim().min(1).max(120),
+  state: z.enum(["composing", "paused"]),
+}).strict();
+const presenceQuery = z.object({ interactionId: z.string().trim().min(1).max(120) }).strict();
+const workerPresenceBody = z.object({
+  chatId: z.string().trim().min(3).max(200).regex(/^[^@\s]+@(s\.whatsapp\.net|lid)$/),
+  state: z.enum(["composing", "recording", "paused"]),
+}).strict();
 const demoMessageBody = z.object({
   text: z.string().trim().min(1).max(1_000).optional(),
 }).strict().default({});
@@ -100,7 +125,26 @@ const messageSchema = z.object({
   pushName: z.string().trim().max(120).optional(),
   text: z.string().max(4_000),
   kind: z.enum(["text", "attachment", "unsupported"]),
+  media: z.object({
+    key: z.string().regex(/^[0-9a-f]{64}$/),
+    mimeType: z.string().min(3).max(120),
+    kind: z.enum(["image", "video", "audio", "sticker", "document"]),
+    size: z.number().int().min(1).max(WHATSAPP_MEDIA_MAX_BYTES),
+    fileName: z.string().max(120).optional(),
+  }).strict().optional(),
+  quotedText: z.string().max(300).optional(),
 }).strict();
+const updatesBody = z.object({
+  updates: z.array(z.discriminatedUnion("type", [
+    z.object({ type: z.literal("receipt"), messageId: z.string().trim().min(1).max(200), status: z.enum(["delivered", "read", "played"]), at: z.string() }).strict(),
+    z.object({ type: z.literal("reaction"), messageId: z.string().trim().min(1).max(200), emoji: z.string().max(16), fromMe: z.boolean(), at: z.string() }).strict(),
+    z.object({ type: z.literal("edit"), messageId: z.string().trim().min(1).max(200), text: z.string().min(1).max(4_000), at: z.string() }).strict(),
+    z.object({ type: z.literal("delete"), messageId: z.string().trim().min(1).max(200), at: z.string() }).strict(),
+  ])).min(1).max(500),
+}).strict();
+const mediaParams = z.object({ key: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
+const lineMediaParams = z.object({ id: z.string().uuid() }).strict();
+const uploadQuery = z.object({ interactionId: z.string().trim().min(1).max(120) }).strict();
 const messagesBody = z.object({
   messages: z.array(messageSchema).min(1).max(200),
   /** Lote de historial antiguo: al vincular (`link`) o por "Cargar anteriores" (`on_demand`). */
@@ -138,6 +182,55 @@ const DEMO_TEXTS = [
 
 export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRouteDeps): void {
   const { config, repository, lines } = deps;
+  // Archivos de WhatsApp: llegan crudos (sin multipart), hasta 16 MB.
+  app.addContentTypeParser(
+    "application/octet-stream",
+    { parseAs: "buffer", bodyLimit: WHATSAPP_MEDIA_MAX_BYTES },
+    async (_request: FastifyRequest, body: Buffer) => body,
+  );
+
+  /** Guarda un archivo de WhatsApp (por sha256) para una marca; valida tipo y tamaño. */
+  const storeMedia = async (input: { data: unknown; mime: string | undefined; fileName: string | undefined; sticker: boolean; brandId: string }): Promise<WhatsAppMediaRef> => {
+    if (!Buffer.isBuffer(input.data) || !input.data.length) {
+      throw new ApiError(400, "MEDIA_REQUIRED", "Falta el archivo (envíalo como application/octet-stream).");
+    }
+    if (input.data.length > WHATSAPP_MEDIA_MAX_BYTES) throw new ApiError(413, "MEDIA_TOO_LARGE", "El archivo supera los 16 MB.");
+    const mimeType = baseMime(input.mime);
+    const kind = mediaKindFor(mimeType, input.sticker);
+    if (!kind) throw new ApiError(415, "MEDIA_TYPE_NOT_ALLOWED", "Ese tipo de archivo no se acepta por WhatsApp en wiwo.sac.");
+    const key = mediaKey(input.data);
+    const fileName = safeFileName(input.fileName);
+    await repository.saveWhatsAppMedia({
+      key,
+      brandId: input.brandId,
+      mimeType,
+      kind,
+      size: input.data.length,
+      ...(fileName ? { fileName } : {}),
+      data: input.data,
+      createdAt: new Date().toISOString(),
+    });
+    return { key, mimeType, kind, size: input.data.length, ...(fileName ? { fileName } : {}) };
+  };
+  const headerText = (request: FastifyRequest, name: string): string | undefined => {
+    const value = request.headers[name];
+    if (typeof value !== "string" || !value) return undefined;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return undefined;
+    }
+  };
+
+  /** Interacción de WhatsApp por id del mensaje en WhatsApp (para tics, reacciones y borrados). */
+  const findByMessageId = async (accountId: string, lineId: string, messageIds: string[]): Promise<Map<string, Interaction>> => {
+    const wanted = new Set(messageIds.map((messageId) => whatsappExternalId(lineId, messageId)));
+    const found = new Map<string, Interaction>();
+    for (const interaction of await repository.listInteractions({ accountId, channel: "whatsapp" })) {
+      if (wanted.has(interaction.externalId)) found.set(interaction.metricoolRef?.whatsapp?.messageId ?? "", interaction);
+    }
+    return found;
+  };
   const meta = () => ({ demoMode: config.demoMode, mode: config.mode, whatsappMode: whatsappMode(config) });
 
   const requireLineAdmin = (request: FastifyRequest): ActorContext => {
@@ -286,6 +379,133 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
     return { data: { requested: true, before: oldest.createdAt }, meta: meta() };
   });
 
+  /** El chat de WhatsApp de una interacción que la persona puede ver, o un error claro. */
+  const chatOf = async (actor: ActorContext, interactionId: string) => {
+    const interaction = await repository.findInteraction(interactionId);
+    if (!interaction) throw new ApiError(404, "INTERACTION_NOT_FOUND", "La interacción no existe.");
+    if (actor.brandIds !== "all" && !actor.brandIds.includes(interaction.brandId)) {
+      throw new ApiError(403, "FORBIDDEN", "El usuario no tiene acceso a esta marca.");
+    }
+    const reference = interaction.metricoolRef?.whatsapp;
+    if (interaction.channel !== "whatsapp" || !reference) {
+      throw new ApiError(422, "NOT_WHATSAPP", "Esta acción es solo para chats de WhatsApp.");
+    }
+    return { interaction, reference, lineId: reference.lineId, chatId: reference.chatId };
+  };
+
+  /** El número del chat está vinculado y conectado (solo en vivo; en demo no hay teléfono). */
+  const lineConnected = async (lineId: string) => {
+    if (whatsappMode(config) !== "live") return false;
+    const line = await lines.find(lineId);
+    return Boolean(line && line.desiredState === "linked" && line.status === "connected");
+  };
+
+  /**
+   * Alguien abrió el chat: lo del cliente queda leído en wiwo.sac (deja de contar como no leído)
+   * y, si la persona puede responder, también en WhatsApp (el cliente ve los tics azules). Así
+   * nada se marca leído en el teléfono sin que una persona lo haya abierto de verdad.
+   */
+  app.post("/api/whatsapp/read", async (request) => {
+    const actor = deps.requireActor(request);
+    const { interactionId } = historyBody.parse(request.body);
+    const { interaction, reference, lineId, chatId } = await chatOf(actor, interactionId);
+    const chat = (await repository.listInteractions({ accountId: interaction.accountId, channel: "whatsapp" }))
+      .filter((item) => item.metricoolRef?.whatsapp?.lineId === lineId && item.metricoolRef.whatsapp.chatId === chatId);
+    const unread = chat.filter((item) => item.direction === "inbound"
+      && !item.metricoolRef?.whatsapp?.history && !item.metricoolRef?.whatsapp?.readAt);
+    const at = new Date().toISOString();
+    for (const item of unread) {
+      await repository.updateMessageDetail(item.id, (target) => {
+        const reference = target.metricoolRef?.whatsapp;
+        if (!reference || reference.readAt) return false;
+        reference.readAt = at;
+        return true;
+      });
+    }
+    const canReply = actorCan(actor, "inbox.reply") && actor.whatsappEnabled !== false;
+    let remote = false;
+    if (reference.provider === "wiwo_talk") {
+      // WiWO Talk: la conversación queda leída también allá (sin tics hacia el cliente desde aquí).
+      const conversationId = reference.talkConversationId;
+      if (canReply && unread.length && conversationId && deps.wiwoTalk) remote = await deps.wiwoTalk.markRead(lineId, conversationId);
+    } else if (canReply && await lineConnected(lineId)) {
+      lines.requestRead(lineId, chatId, unread.map((item) => item.metricoolRef!.whatsapp!.messageId));
+      lines.requestWatch(lineId, chatId);
+      remote = unread.length > 0;
+    }
+    return { data: { read: unread.length, remote }, meta: meta() };
+  });
+
+  /** Si el cliente está escribiendo o grabando un audio en este chat ahora mismo. */
+  app.get("/api/whatsapp/presence", async (request) => {
+    const actor = deps.requireActor(request);
+    const { interactionId } = presenceQuery.parse(request.query);
+    const { lineId, chatId } = await chatOf(actor, interactionId);
+    if (await lineConnected(lineId)) lines.requestWatch(lineId, chatId);
+    return { data: { state: lines.presenceOf(lineId, chatId) }, meta: meta() };
+  });
+
+  /**
+   * "Escribiendo…" hacia el cliente mientras alguien del equipo redacta en wiwo.sac. Nunca
+   * pone el número "en línea"; el servidor limita las señales a una cada pocos segundos.
+   */
+  app.post("/api/whatsapp/typing", async (request) => {
+    const actor = deps.requirePermission(request, "inbox.reply");
+    if (actor.whatsappEnabled === false) {
+      throw new ApiError(403, "WHATSAPP_DISABLED_FOR_USER", "Un admin principal te desactivó WhatsApp.");
+    }
+    const body = typingBody.parse(request.body);
+    const { lineId, chatId } = await chatOf(actor, body.interactionId);
+    const queued = await lineConnected(lineId) ? lines.requestTyping(lineId, chatId, body.state) : false;
+    return { data: { queued }, meta: meta() };
+  });
+
+  /**
+   * Un archivo de WhatsApp (foto, video, audio, sticker o documento). Solo para quien ve la marca;
+   * los documentos se descargan (nunca se muestran en la página) y nada se interpreta como otro tipo.
+   */
+  app.get("/api/media/whatsapp/:key", async (request, reply) => {
+    const actor = deps.requireActor(request);
+    const { key } = mediaParams.parse(request.params);
+    const media = await repository.getWhatsAppMedia(key);
+    if (!media || (actor.brandIds !== "all" && !actor.brandIds.includes(media.brandId))) {
+      throw new ApiError(404, "MEDIA_NOT_FOUND", "El archivo no existe.");
+    }
+    const inline = media.kind !== "document";
+    const name = (media.fileName ?? `whatsapp-${key.slice(0, 12)}`).replace(/[^\w.\- ]/g, "_");
+    return reply
+      .header("Content-Type", media.mimeType)
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${name}"`)
+      .header("Cache-Control", "private, max-age=86400")
+      .send(media.data);
+  });
+
+  /**
+   * Adjunto para responder por WhatsApp: la persona lo sube antes de enviar (crudo, con
+   * `X-Media-Type` y `X-File-Name`) y la respuesta lo referencia por su clave.
+   */
+  app.post("/api/whatsapp/media", { bodyLimit: WHATSAPP_MEDIA_MAX_BYTES }, async (request) => {
+    const actor = deps.requirePermission(request, "inbox.reply");
+    if (actor.whatsappEnabled === false) {
+      throw new ApiError(403, "WHATSAPP_DISABLED_FOR_USER", "Un admin principal te desactivó WhatsApp.");
+    }
+    const { interactionId } = uploadQuery.parse(request.query);
+    const interaction = await repository.findInteraction(interactionId);
+    if (!interaction || interaction.channel !== "whatsapp") throw new ApiError(404, "INTERACTION_NOT_FOUND", "La conversación de WhatsApp no existe.");
+    if (actor.brandIds !== "all" && !actor.brandIds.includes(interaction.brandId)) {
+      throw new ApiError(403, "FORBIDDEN", "El usuario no tiene acceso a esta marca.");
+    }
+    const media = await storeMedia({
+      data: request.body,
+      mime: headerText(request, "x-media-type"),
+      fileName: headerText(request, "x-file-name"),
+      sticker: false,
+      brandId: interaction.brandId,
+    });
+    return { data: media, meta: meta() };
+  });
+
   // ── Estado para la bandeja (cualquier rol con sesión) ───────────────────────────────────
 
   app.get("/api/whatsapp/status", async (request) => {
@@ -295,6 +515,12 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
       data: {
         mode: whatsappMode(config),
         lines: await lines.listPublic(visible),
+        // Conexiones de WiWO Talk de las marcas visibles (sin claves ni ids de la subcuenta).
+        talk: deps.wiwoTalk
+          ? (await deps.wiwoTalk.list())
+            .filter((connection) => visible(connection.brandId))
+            .map((connection) => ({ id: connection.id, brandId: connection.brandId, label: connection.label, status: connection.status }))
+          : [],
       },
       meta: meta(),
     };
@@ -315,6 +541,58 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
   });
 
   app.get(`${WHATSAPP_WORKER_PREFIX}lines`, async () => ({ data: await lines.workerLines(), meta: meta() }));
+
+  /** El worker sube cada archivo que recibe, antes de entregar el mensaje que lo trae. */
+  app.put(`${WHATSAPP_WORKER_PREFIX}lines/:id/media`, { bodyLimit: WHATSAPP_MEDIA_MAX_BYTES }, async (request) => {
+    const { id } = lineMediaParams.parse(request.params);
+    const line = await lines.find(id);
+    if (!line) throw new ApiError(404, "WHATSAPP_LINE_NOT_FOUND", "El número de WhatsApp no existe.");
+    const media = await storeMedia({
+      data: request.body,
+      mime: headerText(request, "x-media-type"),
+      fileName: headerText(request, "x-file-name"),
+      sticker: request.headers["x-media-sticker"] === "1",
+      brandId: line.brandId,
+    });
+    return { data: media, meta: meta() };
+  });
+
+  /** El worker baja el adjunto que debe enviar. */
+  app.get(`${WHATSAPP_WORKER_PREFIX}media/:key`, async (request, reply) => {
+    const { key } = mediaParams.parse(request.params);
+    const media = isMediaKey(key) ? await repository.getWhatsAppMedia(key) : undefined;
+    if (!media) throw new ApiError(404, "MEDIA_NOT_FOUND", "El archivo no existe.");
+    return reply.header("Content-Type", "application/octet-stream").send(media.data);
+  });
+
+  /** Tics, reacciones, ediciones y borrados sobre mensajes ya guardados. */
+  app.post(`${WHATSAPP_WORKER_PREFIX}lines/:id/updates`, async (request) => {
+    const { id } = lineParams.parse(request.params);
+    const body = updatesBody.parse(request.body);
+    const line = await lines.find(id);
+    if (!line) throw new ApiError(404, "WHATSAPP_LINE_NOT_FOUND", "El número de WhatsApp no existe.");
+    const brand = (await repository.snapshotCatalog()).brands.find((item) => item.id === line.brandId);
+    if (!brand) return { data: { applied: 0, unknown: body.updates.length }, meta: meta() };
+    const targets = await findByMessageId(brand.account.id, line.id, body.updates.map((update) => update.messageId));
+    let applied = 0;
+    for (const update of body.updates as WhatsAppMessageUpdate[]) {
+      const target = targets.get(update.messageId);
+      if (!target) continue;
+      if (await repository.updateMessageDetail(target.id, (interaction) => applyWhatsAppUpdate(interaction, update))) applied += 1;
+    }
+    return { data: { applied, unknown: body.updates.length - [...body.updates].filter((update) => targets.has(update.messageId)).length }, meta: meta() };
+  });
+
+  /** Órdenes rápidas de chats abiertos (leído, presencia, escribiendo); se entregan una vez. */
+  app.get(`${WHATSAPP_WORKER_PREFIX}chat-commands`, async () => ({ data: lines.takeChatCommands(), meta: meta() }));
+
+  /** El cliente está escribiendo, grabando o dejó de hacerlo (solo en memoria, sin texto). */
+  app.post(`${WHATSAPP_WORKER_PREFIX}lines/:id/presence`, async (request) => {
+    const { id } = lineParams.parse(request.params);
+    const body = workerPresenceBody.parse(request.body);
+    lines.reportPresence(id, body.chatId, body.state);
+    return { data: { ok: true }, meta: meta() };
+  });
 
   /** Pedidos de "Cargar anteriores" pendientes; cada uno se entrega una sola vez. */
   app.get(`${WHATSAPP_WORKER_PREFIX}history-requests`, async () => ({ data: lines.takeHistoryRequests(), meta: meta() }));
@@ -369,7 +647,6 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
       .filter((line) => line.desiredState === "linked" && line.status === "connected")
       .map((line) => line.id));
     const ready = new Set(body.lineIds.filter((id) => connected.has(id)));
-    if (!ready.size) return { data: null, meta: meta() };
     const pending = await repository.listReplyDeliveries({ status: "pending", oldestFirst: true, limit: 200 });
     const now = Date.now();
     for (const delivery of pending) {
@@ -378,9 +655,21 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
       if (delivery.nextAttemptAt && Date.parse(delivery.nextAttemptAt) > now) continue;
       const interaction = await repository.findInteraction(delivery.interactionId);
       const ref = interaction?.metricoolRef?.whatsapp;
-      if (!interaction || interaction.channel !== "whatsapp" || !ref || !ready.has(ref.lineId)) continue;
+      if (!interaction || interaction.channel !== "whatsapp" || !ref) continue;
+      // Una respuesta que lleva 24 h en cola (número desconectado) ya no sale: falla con su motivo,
+      // y quien la escribió decide si volver a enviarla. Nunca le llega al cliente un día tarde.
+      if (now - Date.parse(delivery.createdAt) > WHATSAPP_QUEUE_MAX_AGE_MS) {
+        const expired = await repository.claimReplyDelivery(delivery.id, WHATSAPP_DELIVERY_LEASE_MS);
+        if (expired) {
+          await repository.settleReplyDelivery(expired.id, { status: "failed", errorCode: "WHATSAPP_QUEUE_EXPIRED", at: new Date().toISOString() });
+          request.log.info({ event: "whatsapp_delivery_expired", deliveryId: expired.id }, "Respuesta de WhatsApp vencida en cola.");
+        }
+        continue;
+      }
+      if (!ready.has(ref.lineId)) continue;
       const claimed = await repository.claimReplyDelivery(delivery.id, WHATSAPP_DELIVERY_LEASE_MS);
       if (!claimed) continue;
+      const options = await repository.getWhatsAppDeliveryOptions(claimed.id);
       return {
         data: {
           deliveryId: claimed.id,
@@ -389,6 +678,8 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
           text: claimed.bodyText,
           replyToMessageId: ref.messageId,
           leaseExpiresAt: claimed.leaseExpiresAt,
+          ...(options?.attachment ? { attachment: options.attachment } : {}),
+          ...(options?.quote ? { quote: options.quote } : {}),
         },
         meta: meta(),
       };
@@ -413,6 +704,26 @@ export function registerWhatsAppRoutes(app: FastifyInstance, deps: WhatsAppRoute
       ...(body.status !== "sent" ? { errorCode: body.errorCode ?? "WHATSAPP_DELIVERY_UNKNOWN" } : {}),
       at: new Date().toISOString(),
     });
+    // El mensaje enviado queda como saliente propio (con sus tics). Su eco tiene el mismo id
+    // externo, así que no se duplica cuando WhatsApp lo devuelve.
+    if (body.status === "sent" && body.messageId) {
+      const inbound = await repository.findInteraction(delivery.interactionId);
+      const ref = inbound?.metricoolRef?.whatsapp;
+      if (inbound && ref) {
+        const options = await repository.getWhatsAppDeliveryOptions(id);
+        await repository.insertInteractions([buildSentWhatsAppInteraction({
+          inbound,
+          lineId: ref.lineId,
+          chatId: ref.chatId,
+          messageId: body.messageId,
+          text: delivery.bodyText,
+          sentBy: delivery.requestedBy.displayName,
+          at: new Date().toISOString(),
+          ...(options?.attachment ? { attachment: options.attachment } : {}),
+          ...(options?.quote ? { quotedText: options.quote.text } : {}),
+        })]);
+      }
+    }
     request.log.info({ event: "whatsapp_delivery_settled", deliveryId: id, status: body.status }, "Entrega de WhatsApp registrada.");
     return { data: { status: settled?.delivery.status ?? body.status }, meta: meta() };
   });

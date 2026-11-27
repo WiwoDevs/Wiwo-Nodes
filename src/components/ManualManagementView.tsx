@@ -13,6 +13,7 @@ import {
   MagnifyingGlass,
   NotePencil,
   PaperPlaneTilt,
+  Paperclip,
   Sparkle,
   UserFocus,
   UserPlus,
@@ -29,6 +30,8 @@ import type {
   ManualPostSummary,
   SocialPlatform,
   StatusReasonCatalog,
+  WhatsAppAttachment,
+  WhatsAppDeliveryState,
 } from "../types";
 import {
   interactionKindLabel,
@@ -45,6 +48,14 @@ import { EmojiPicker } from "./EmojiPicker";
 import { AiReplySuggestion } from "./AiReplySuggestion";
 
 type ManualSurfaceId = "all" | `${SocialPlatform}:${InteractionKind}`;
+
+/** Tics de WhatsApp en palabras (como en la app: un tic, dos tics, leído). */
+const WHATSAPP_STATUS_LABEL: Record<WhatsAppDeliveryState, string> = {
+  sent: "✓ Enviado",
+  delivered: "✓✓ Entregado",
+  read: "✓✓ Leído",
+  played: "✓✓ Escuchado",
+};
 type StatusAction = "resolved" | "escalated";
 
 interface ManualSurfaceTab {
@@ -69,6 +80,8 @@ interface ManualInboxEntry {
   pendingCount: number;
   participantCount?: number;
   postSummary?: ManualPostSummary;
+  /** WhatsApp: mensajes del cliente que nadie del equipo abrió todavía. */
+  unreadCount?: number;
 }
 
 export interface ManualManagementViewProps {
@@ -111,7 +124,19 @@ export interface ManualManagementViewProps {
   /** Última lectura en vivo de esta cuenta en Metricool (cada ~15 s mientras la vista está abierta). */
   liveCheckedAt?: string | null;
   onSaveDraft: (detail: InteractionDetail, text: string) => void | Promise<void>;
-  onSendReply: (detail: InteractionDetail, text: string) => boolean | Promise<boolean>;
+  onSendReply: (
+    detail: InteractionDetail,
+    text: string,
+    options?: { attachmentKey?: string; quote?: boolean },
+  ) => boolean | Promise<boolean>;
+  /** WhatsApp: sube un archivo para enviarlo con la respuesta (hasta 16 MB). */
+  onUploadAttachment?: (detail: InteractionDetail, file: File) => Promise<WhatsAppAttachment>;
+  /** WhatsApp: el chat está a la vista; lo del cliente queda leído (tics azules). */
+  onMarkRead?: (detail: InteractionDetail) => void | Promise<void>;
+  /** WhatsApp: si el cliente está escribiendo o grabando ahora. */
+  onLoadPresence?: (detail: InteractionDetail) => Promise<"composing" | "recording" | null>;
+  /** WhatsApp: mostrar u ocultar "escribiendo…" al cliente mientras se redacta. */
+  onTyping?: (detail: InteractionDetail, state: "composing" | "paused") => void;
   onResolve: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => boolean | Promise<boolean>;
   onEscalate: (detail: InteractionDetail, reasonCode: string, reasonNote?: string) => boolean | Promise<boolean>;
   /** Vuelve a pendiente un caso cerrado (p. ej. por un saludo automático) para poder responderlo. */
@@ -274,6 +299,7 @@ function buildEntries(interactions: Interaction[], tab: ManualSurfaceTab): Manua
           ordered.filter(interactionIsPending).length,
           ...ordered.map((interaction) => interaction.conversationSummary?.pendingCount ?? 0),
         ),
+      unreadCount: Math.max(0, ...ordered.map((interaction) => interaction.conversationSummary?.unreadCount ?? 0)),
     };
   }).sort((left, right) =>
     timestamp(right.postId ? right.postSortAt ?? right.latest.receivedAt : right.latest.receivedAt)
@@ -459,7 +485,21 @@ export function ManualManagementView({
   emptyAccounts,
   onLoadOlderMessages,
   isLoadingOlderMessages = false,
+  onUploadAttachment,
+  onMarkRead,
+  onLoadPresence,
+  onTyping,
 }: ManualManagementViewProps) {
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const [customerPresence, setCustomerPresence] = useState<"composing" | "recording" | null>(null);
+  // "Escribiendo…" del equipo: cuándo se avisó por última vez y a qué chat.
+  const typingSent = useRef<{ detail: InteractionDetail; at: number } | null>(null);
+  // WhatsApp: adjunto ya subido y si se cita el mensaje del cliente.
+  const [attachment, setAttachment] = useState<WhatsAppAttachment | null>(null);
+  const [isUploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [quoteCustomer, setQuoteCustomer] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSurfaceId, setActiveSurfaceId] = useState<ManualSurfaceId>("all");
   const [query, setQuery] = useState("");
   const [onlyPending, setOnlyPending] = useState(true);
@@ -543,6 +583,7 @@ export function ManualManagementView({
     setActiveSurfaceId("all");
     setQuery("");
     setOnlyPending(true);
+    setOnlyUnread(false);
   }, [selectedAccountId]);
 
   useEffect(() => {
@@ -552,6 +593,10 @@ export function ManualManagementView({
   const activeTab = surfaceTabs.find((tab) => tab.id === activeSurfaceId) ?? surfaceTabs[0]!;
   // Con la vista fijada en comentarios, incluso "Todos" agrupa por publicación.
   const isCommentSurface = surfaceKind === "comment" || activeTab.kind === "comment";
+  const hasWhatsAppChats = accountInteractions.some((interaction) => interaction.platform === "whatsapp");
+  const unreadChats = useMemo(() => new Set(accountInteractions
+    .filter((interaction) => (interaction.conversationSummary?.unreadCount ?? 0) > 0)
+    .map((interaction) => interaction.contactKey || interaction.id)).size, [accountInteractions]);
   const entries = useMemo(() => {
     const normalizedQuery = normalizeSearch(query);
     const matchingPostSummaries = isCommentSurface && postSummaries
@@ -568,6 +613,7 @@ export function ManualManagementView({
       : buildEntries(accountInteractions, activeTab);
     return sourceEntries.filter((entry) => {
       if (onlyPending && entry.pendingCount === 0) return false;
+      if (onlyUnread && !entry.unreadCount) return false;
       if (!normalizedQuery) return true;
       const searchable = normalizeSearch(entry.items.map((interaction) => [
         interaction.customerName,
@@ -583,6 +629,7 @@ export function ManualManagementView({
     activeTab,
     isCommentSurface,
     onlyPending,
+    onlyUnread,
     postComments,
     postCommentsPostKey,
     postSummaries,
@@ -632,6 +679,52 @@ export function ManualManagementView({
     () => visibleDetail ? timelineFor(visibleDetail) : [],
     [visibleDetail],
   );
+
+  // WhatsApp: lo del cliente queda leído cuando el chat está a la vista (y cada vez que llega
+  // algo nuevo mientras sigue abierto). Con la pestaña oculta espera a que se vuelva a mirar.
+  const whatsappChat = visibleDetail?.platform === "whatsapp" ? visibleDetail : null;
+  // Chat de WiWO Talk: se responde con texto; adjuntos, "Cargar anteriores" y "escribiendo…" son
+  // solo de los números vinculados en wiwo.sac.
+  const isTalkChat = Boolean(whatsappChat?.conversationHistory.some((message) => message.whatsapp?.provider === "wiwo_talk"));
+  const latestCustomerMessageId = whatsappChat
+    ? [...whatsappChat.conversationHistory].reverse().find((message) => message.direction === "inbound")?.id ?? whatsappChat.id
+    : null;
+  const readKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!whatsappChat || !onMarkRead || !latestCustomerMessageId) return;
+    const key = `${whatsappChat.contactKey ?? whatsappChat.id}|${latestCustomerMessageId}`;
+    const markIfVisible = () => {
+      if (document.visibilityState !== "visible" || readKeyRef.current === key) return;
+      readKeyRef.current = key;
+      void onMarkRead(whatsappChat);
+    };
+    markIfVisible();
+    document.addEventListener("visibilitychange", markIfVisible);
+    return () => document.removeEventListener("visibilitychange", markIfVisible);
+  }, [latestCustomerMessageId, onMarkRead, whatsappChat]);
+
+  // WhatsApp: "escribiendo…" del cliente mientras el chat está abierto y a la vista.
+  const whatsappChatId = whatsappChat?.id ?? null;
+  useEffect(() => {
+    setCustomerPresence(null);
+    if (!whatsappChat || !onLoadPresence || isTalkChat) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (document.visibilityState !== "visible") return;
+      const state = await onLoadPresence(whatsappChat).catch(() => null);
+      if (!cancelled) setCustomerPresence(state);
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // Se reinicia solo al cambiar de chat, no en cada refresco del detalle.
+  }, [whatsappChatId, onLoadPresence, isTalkChat]);
+
+  // Al cambiar de chat o salir de la vista, el cliente deja de ver "escribiendo…".
+  useEffect(() => () => stopTyping(), [whatsappChatId]);
   const timelineListRef = useRef<HTMLOListElement>(null);
   // Como cualquier chat: al abrir, el mensaje que se responde queda al pie de la vista
   // (lo anterior arriba, al alcance del scroll), en vez de empezar por el más antiguo.
@@ -728,6 +821,9 @@ export function ManualManagementView({
       setStatusAction(null);
       setReasonCode("");
       setReasonNote("");
+      setAttachment(null);
+      setUploadError(null);
+      setQuoteCustomer(false);
     }
     activeDetailIdRef.current = nextId;
   }, [aiRecommendation, visibleDetail?.id, visibleDetail?.responseText, visibleDetail?.version]);
@@ -780,9 +876,26 @@ export function ManualManagementView({
     onClearSelection();
   };
 
+  /** Quita el "escribiendo…" que se le mostró al cliente, si se mostró. */
+  const stopTyping = () => {
+    const sent = typingSent.current;
+    typingSent.current = null;
+    if (sent && onTyping) onTyping(sent.detail, "paused");
+  };
+
   const updateDraft = (value: string) => {
     setDraftText(value);
     setDirty(true);
+    if (!onTyping || !visibleDetail || visibleDetail.platform !== "whatsapp" || isTalkChat || !canWrite) return;
+    if (!value.trim()) {
+      stopTyping();
+      return;
+    }
+    // Una señal cada pocos segundos mientras se escribe; el worker la apaga sola si se deja de escribir.
+    const last = typingSent.current;
+    if (last && last.detail.id === visibleDetail.id && Date.now() - last.at < 4_000) return;
+    typingSent.current = { detail: visibleDetail, at: Date.now() };
+    onTyping(visibleDetail, "composing");
   };
 
   /** Inserta el emoji donde está el cursor (o reemplaza lo seleccionado) y deja el cursor después. */
@@ -807,7 +920,9 @@ export function ManualManagementView({
     || deliveryBlocksSend
     || !selectedCommentIsOpen
     || visibleDetail.direction !== "inbound"
-    || !draftText.trim();
+    || isUploading
+    // En WhatsApp un archivo solo (sin texto) también es un mensaje.
+    || (!draftText.trim() && !attachment);
   /**
    * Envía lo escrito (botón o Ctrl/Cmd + Enter). Como en un chat, la confirmación aparece solo
    * la primera vez que se escribe en cada conversación durante la sesión del navegador; los
@@ -825,12 +940,37 @@ export function ManualManagementView({
       });
       if (!confirmed) return;
     }
-    const sent = await onSendReply(visibleDetail, text);
+    const whatsappOptions = visibleDetail.platform === "whatsapp" && (attachment || quoteCustomer)
+      ? { ...(attachment ? { attachmentKey: attachment.key } : {}), ...(quoteCustomer ? { quote: true } : {}) }
+      : undefined;
+    // Al enviar, el worker ya muestra su propio "escribiendo…" antes de mandar el mensaje.
+    typingSent.current = null;
+    const sent = await onSendReply(visibleDetail, text, whatsappOptions);
     if (sent) {
       rememberConfirmedConversation(conversation);
       // Como en un chat: el cuadro queda vacío y listo para el siguiente mensaje.
       setDraftText("");
       setDirty(false);
+      setAttachment(null);
+      setQuoteCustomer(false);
+    }
+  };
+
+  const pickAttachment = async (file: File | undefined) => {
+    if (!file || !visibleDetail || !onUploadAttachment) return;
+    if (file.size > 16 * 1024 * 1024) {
+      setUploadError("El archivo supera los 16 MB.");
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      setAttachment(await onUploadAttachment(visibleDetail, file));
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "No se pudo subir el archivo.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -1020,6 +1160,17 @@ export function ManualManagementView({
                   <FunnelSimple size={15} weight="bold" aria-hidden="true" />
                   Solo pendientes
                 </button>
+                {hasWhatsAppChats ? (
+                  <button
+                    className={`manual-inbox-pending-filter${onlyUnread ? " is-active" : ""}`}
+                    type="button"
+                    aria-pressed={onlyUnread}
+                    onClick={() => setOnlyUnread((current) => !current)}
+                    title="Chats con mensajes del cliente que nadie del equipo abrió todavía"
+                  >
+                    No leídos{unreadChats ? ` (${unreadChats})` : ""}
+                  </button>
+                ) : null}
               </div>
 
               <div className="manual-inbox-contact-list" aria-busy={isLoadingPosts && isCommentSurface}>
@@ -1075,6 +1226,12 @@ export function ManualManagementView({
                         <span className="manual-inbox-contact__topline">
                           <strong>{entryTitle}</strong>
                           <time dateTime={entryDateTime}>{entryDateLabel}</time>
+                          {entry.unreadCount ? (
+                            <span className="manual-inbox-unread" title={countLabel(entry.unreadCount, "mensaje sin leer", "mensajes sin leer")}>
+                              <span aria-hidden="true">{entry.unreadCount > 99 ? "99+" : entry.unreadCount}</span>
+                              <span className="manual-inbox-sr-only">{countLabel(entry.unreadCount, "mensaje sin leer", "mensajes sin leer")}</span>
+                            </span>
+                          ) : null}
                         </span>
                         {entrySubtitle ? <small>{entrySubtitle}</small> : null}
                         <p>
@@ -1306,7 +1463,8 @@ export function ManualManagementView({
                         <strong>Historial del chat</strong>
                       </div>
                       <span className="manual-inbox-timeline__meta">
-                        {onLoadOlderMessages && visibleDetail.platform === "whatsapp" ? (
+                        {isTalkChat ? <small className="manual-inbox-talk-badge" title="Chat de una subcuenta de WiWO Talk">WiWO Talk</small> : null}
+                        {onLoadOlderMessages && visibleDetail.platform === "whatsapp" && !isTalkChat ? (
                           <button
                             className="manual-inbox-load-older"
                             type="button"
@@ -1328,14 +1486,50 @@ export function ManualManagementView({
                           key={message.id}
                         >
                           <div>
-                            <strong>{message.direction === "inbound" ? visibleDetail.customerName : `${selectedAccount.name} · Equipo`}</strong>
-                            <time dateTime={message.createdAt}>{formatDateTime(message.createdAt)}</time>
+                            <strong>
+                              {message.direction === "inbound"
+                                ? visibleDetail.customerName
+                                : message.whatsapp?.sentBy
+                                  ? `${message.whatsapp.sentBy} · ${selectedAccount.name}`
+                                  : `${selectedAccount.name} · Equipo`}
+                            </strong>
+                            <time dateTime={message.createdAt}>
+                              {formatDateTime(message.createdAt)}{message.whatsapp?.edited ? " · editado" : ""}
+                            </time>
                           </div>
+                          {message.whatsapp?.quotedText ? (
+                            <blockquote className="manual-inbox-message__quote">{message.whatsapp.quotedText}</blockquote>
+                          ) : null}
                           <ContentContext text={message.text} context={message.contentContext} />
+                          {message.whatsapp?.deleted ? (
+                            <small className="manual-inbox-message__deleted">El cliente borró este mensaje en WhatsApp.</small>
+                          ) : null}
+                          {message.whatsapp?.reactions?.length ? (
+                            <span className="manual-inbox-message__reactions">
+                              {message.whatsapp.reactions.map((reaction) => (
+                                <span key={`${reaction.fromMe}-${reaction.emoji}`} title={reaction.fromMe ? "Reacción de la cuenta" : "Reacción del cliente"}>
+                                  {reaction.emoji}
+                                </span>
+                              ))}
+                            </span>
+                          ) : null}
+                          {message.direction === "outbound" && message.whatsapp?.status ? (
+                            <small className={`manual-inbox-message__ticks manual-inbox-message__ticks--${message.whatsapp.status}`}>
+                              {WHATSAPP_STATUS_LABEL[message.whatsapp.status]}
+                            </small>
+                          ) : null}
                           {message.id === visibleDetail.id ? <small>Respuesta dirigida a este caso exacto</small> : null}
                         </li>
                       ))}
                     </ol>
+                    <p className="manual-inbox-typing" aria-live="polite">
+                      {customerPresence ? (
+                        <>
+                          <span className="manual-inbox-typing__dots" aria-hidden="true"><i /><i /><i /></span>
+                          {visibleDetail.customerName} {customerPresence === "recording" ? "está grabando un audio…" : "está escribiendo…"}
+                        </>
+                      ) : null}
+                    </p>
                     </section>
                   ) : null}
 
@@ -1414,6 +1608,47 @@ export function ManualManagementView({
                     />
                     <EmojiPicker onPick={insertEmoji} disabled={!canWrite || isSaving || composerLocked} />
                     </div>
+                    {visibleDetail.platform === "whatsapp" && onUploadAttachment && !isTalkChat ? (
+                      <div className="manual-inbox-whatsapp-tools">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          hidden
+                          accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,audio/ogg,audio/mpeg,audio/mp4,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+                          onChange={(event) => void pickAttachment(event.target.files?.[0])}
+                        />
+                        {attachment ? (
+                          <span className="manual-inbox-attachment">
+                            <Paperclip size={14} weight="bold" aria-hidden="true" />
+                            <span>{attachment.fileName ?? "Archivo adjunto"}</span>
+                            <button type="button" aria-label="Quitar el adjunto" onClick={() => setAttachment(null)} disabled={isSaving}>
+                              <X size={12} weight="bold" aria-hidden="true" />
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="manual-inbox-tool"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={!canWrite || isSaving || composerLocked || isUploading}
+                            title="Foto, video, audio o documento, hasta 16 MB"
+                          >
+                            {isUploading ? <BusyOrb size="xs" /> : <Paperclip size={14} weight="bold" aria-hidden="true" />}
+                            {isUploading ? "Subiendo…" : "Adjuntar"}
+                          </button>
+                        )}
+                        <label className="manual-inbox-tool manual-inbox-tool--check">
+                          <input
+                            type="checkbox"
+                            checked={quoteCustomer}
+                            onChange={(event) => setQuoteCustomer(event.target.checked)}
+                            disabled={!canWrite || isSaving || composerLocked}
+                          />
+                          Citar su mensaje
+                        </label>
+                        {uploadError ? <small className="is-warning" role="alert">{uploadError}</small> : null}
+                      </div>
+                    ) : null}
                     {/* Solo avisa cuando hay algo sin guardar; el estado "sincronizado" no aporta. */}
                     <small className={`manual-inbox-draft-state${isDraftDirty ? " is-dirty" : ""}`} aria-live="polite">
                       {isDraftDirty ? "Cambios locales sin guardar; se pedirá confirmación antes de cambiar de caso." : ""}

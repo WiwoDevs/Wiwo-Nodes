@@ -34,7 +34,8 @@ import type {
 } from "./types.js";
 import type { AutomationState } from "./automation-types.js";
 import { CHANNELS } from "./types.js";
-import type { AccessRole, UserAccessRecord, WhatsAppLine, WhatsAppLineStatus } from "./types.js";
+import type { AccessRole, UserAccessRecord, WhatsAppLine, WhatsAppLineStatus, WiwoTalkConnection, WiwoTalkConnectionStatus } from "./types.js";
+import type { StoredWhatsAppMedia, WhatsAppDeliveryOptions } from "./whatsapp/media.js";
 import { normalizePermissions, type AccessRoleRecord, type BaseRole, type Permission } from "./permissions.js";
 import { ensureMetricoolInboxCoverage } from "./workflow-coverage.js";
 import { mergeMissingMetricoolRef } from "./workflow-service.js";
@@ -1012,6 +1013,39 @@ export class PostgresRepository implements SacFlowRepository {
     }));
   }
 
+  async updateMessageDetail(id: string, update: (interaction: Interaction) => boolean): Promise<boolean> {
+    return this.withTenantClient(async (client, organizationId) => {
+      // Bloquea la fila para que dos tics simultáneos no se pisen.
+      await client.query(
+        "SELECT 1 FROM interactions WHERE organization_id = $1 AND interaction_key = $2 FOR UPDATE",
+        [organizationId, id],
+      );
+      const [interaction] = await this.readInteractionsUnlocked(client, organizationId, { ids: [id] });
+      if (!interaction) return false;
+      const textBefore = interaction.text;
+      if (!update(interaction)) return false;
+      interaction.updatedAt = new Date().toISOString();
+      await client.query(
+        `UPDATE interactions
+         SET metricool_ref = $3::jsonb,
+             audit_trail = $4::jsonb,
+             updated_at = $5,
+             body_text = CASE WHEN $6::boolean THEN $7 ELSE body_text END
+         WHERE organization_id = $1 AND interaction_key = $2`,
+        [
+          organizationId,
+          id,
+          JSON.stringify(interaction.metricoolRef ?? {}),
+          JSON.stringify(interaction.audit ?? []),
+          interaction.updatedAt,
+          interaction.text !== textBefore,
+          interaction.text,
+        ],
+      );
+      return true;
+    }, { write: true });
+  }
+
   async insertInteractions(incoming: Interaction[]): Promise<{ created: Interaction[]; duplicates: number }> {
     if (!incoming.length) return { created: [], duplicates: 0 };
     return this.withTenantClient(async (client, organizationId) => {
@@ -1872,6 +1906,22 @@ export class PostgresRepository implements SacFlowRepository {
     }, { write: true });
   }
 
+  async setUserNotificationsSeen(input: { email: string; name?: string | null; seenAt: string }): Promise<string | undefined> {
+    return this.withTenantClient(async (client, organizationId) => {
+      // Solo avanza (GREATEST); quien inicia sesión ya tiene registro, así que el INSERT es un resguardo.
+      const result = await client.query<{ notifications_seen_at: Date | string | null }>(
+        `INSERT INTO user_access (organization_id, email, display_name, last_sign_in_at, notifications_seen_at, updated_at)
+         VALUES ($1, $2, $3, $4::timestamptz, $4::timestamptz, now())
+         ON CONFLICT (organization_id, email) DO UPDATE SET
+           notifications_seen_at = GREATEST(COALESCE(user_access.notifications_seen_at, EXCLUDED.notifications_seen_at), EXCLUDED.notifications_seen_at),
+           updated_at = now()
+         RETURNING notifications_seen_at`,
+        [organizationId, input.email, input.name ?? null, input.seenAt],
+      );
+      return isoOrUndefined(result.rows[0]?.notifications_seen_at ?? null);
+    }, { write: true });
+  }
+
   async setUserWhatsApp(input: SetUserWhatsAppInput): Promise<UserAccessRecord | undefined> {
     return this.withTenantClient(async (client, organizationId) => {
       const result = await client.query<UserAccessRow>(
@@ -1972,6 +2022,62 @@ export class PostgresRepository implements SacFlowRepository {
            source_host = EXCLUDED.source_host,
            fetched_at = EXCLUDED.fetched_at`,
         [organizationId, thumbnail.key, thumbnail.brandId, thumbnail.contentType, thumbnail.data, thumbnail.sourceHost, thumbnail.fetchedAt],
+      );
+    }, { write: true });
+  }
+
+  async getWhatsAppMedia(key: string): Promise<StoredWhatsAppMedia | undefined> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<{ brand_key: string; content_type: string; kind: StoredWhatsAppMedia["kind"]; file_name: string | null; size_bytes: number; data: Buffer; created_at: Date | string }>(
+        `SELECT brand_key, content_type, kind, file_name, size_bytes, data, created_at
+         FROM whatsapp_media WHERE organization_id = $1 AND media_key = $2`,
+        [organizationId, key],
+      );
+      const row = result.rows[0];
+      if (!row) return undefined;
+      return {
+        key,
+        brandId: row.brand_key,
+        mimeType: row.content_type,
+        kind: row.kind,
+        size: Number(row.size_bytes),
+        ...(row.file_name ? { fileName: row.file_name } : {}),
+        data: row.data,
+        createdAt: isoOrUndefined(row.created_at) ?? new Date(0).toISOString(),
+      };
+    });
+  }
+
+  async saveWhatsAppMedia(media: StoredWhatsAppMedia): Promise<void> {
+    await this.withTenantClient(async (client, organizationId) => {
+      // Mismo sha256 = mismo archivo: no se reescribe.
+      await client.query(
+        `INSERT INTO whatsapp_media (organization_id, media_key, brand_key, content_type, kind, file_name, size_bytes, data, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+         ON CONFLICT (organization_id, media_key) DO NOTHING`,
+        [organizationId, media.key, media.brandId, media.mimeType, media.kind, media.fileName ?? null, media.size, media.data, media.createdAt],
+      );
+    }, { write: true });
+  }
+
+  async getWhatsAppDeliveryOptions(deliveryId: string): Promise<WhatsAppDeliveryOptions | undefined> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<{ options: unknown }>(
+        "SELECT options FROM whatsapp_delivery_options WHERE organization_id = $1 AND delivery_id = $2",
+        [organizationId, deliveryId],
+      );
+      const options = result.rows[0]?.options;
+      return options && typeof options === "object" ? options as WhatsAppDeliveryOptions : undefined;
+    });
+  }
+
+  async saveWhatsAppDeliveryOptions(deliveryId: string, options: WhatsAppDeliveryOptions): Promise<void> {
+    await this.withTenantClient(async (client, organizationId) => {
+      await client.query(
+        `INSERT INTO whatsapp_delivery_options (organization_id, delivery_id, options)
+         VALUES ($1, $2, $3::jsonb)
+         ON CONFLICT (organization_id, delivery_id) DO UPDATE SET options = EXCLUDED.options`,
+        [organizationId, deliveryId, JSON.stringify(options)],
       );
     }, { write: true });
   }
@@ -2088,6 +2194,81 @@ export class PostgresRepository implements SacFlowRepository {
     return this.withTenantClient(async (client, organizationId) => {
       const result = await client.query(
         "DELETE FROM whatsapp_lines WHERE organization_id = $1 AND line_id = $2::uuid",
+        [organizationId, id],
+      );
+      return (result.rowCount ?? 0) > 0;
+    }, { write: true });
+  }
+
+  async listWiwoTalkConnections(): Promise<WiwoTalkConnection[]> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query<WiwoTalkRow>(
+        `SELECT ${WIWO_TALK_COLUMNS} FROM wiwo_talk_connections
+         WHERE organization_id = $1 ORDER BY created_at, connection_id`,
+        [organizationId],
+      );
+      return result.rows.map(wiwoTalkFromRow);
+    });
+  }
+
+  async saveWiwoTalkConnection(connection: WiwoTalkConnection): Promise<WiwoTalkConnection> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const taken = await client.query(
+        `SELECT 1 FROM wiwo_talk_connections
+         WHERE organization_id = $1 AND location_id = $2 AND connection_id <> $3::uuid`,
+        [organizationId, connection.locationId, connection.id],
+      );
+      if (taken.rowCount) throw new Error("WIWO_TALK_LOCATION_TAKEN");
+      const result = await client.query<WiwoTalkRow>(
+        `INSERT INTO wiwo_talk_connections (
+           organization_id, connection_id, brand_key, label, location_id, location_name, encrypted_secrets,
+           token_hint, status, last_error, last_error_at, last_sync_at, last_webhook_at, sync_cursor,
+           created_by, created_at, updated_at)
+         VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::timestamptz,
+           $13::timestamptz, $14::timestamptz, $15, $16::timestamptz, $17::timestamptz)
+         ON CONFLICT (organization_id, connection_id) DO UPDATE SET
+           brand_key = EXCLUDED.brand_key,
+           label = EXCLUDED.label,
+           location_id = EXCLUDED.location_id,
+           location_name = EXCLUDED.location_name,
+           encrypted_secrets = EXCLUDED.encrypted_secrets,
+           token_hint = EXCLUDED.token_hint,
+           status = EXCLUDED.status,
+           last_error = EXCLUDED.last_error,
+           last_error_at = EXCLUDED.last_error_at,
+           last_sync_at = EXCLUDED.last_sync_at,
+           last_webhook_at = EXCLUDED.last_webhook_at,
+           sync_cursor = EXCLUDED.sync_cursor,
+           updated_at = EXCLUDED.updated_at
+         RETURNING ${WIWO_TALK_COLUMNS}`,
+        [
+          organizationId,
+          connection.id,
+          connection.brandId,
+          connection.label,
+          connection.locationId,
+          connection.locationName ?? null,
+          connection.encryptedSecrets,
+          connection.tokenHint,
+          connection.status,
+          connection.lastError ?? null,
+          connection.lastErrorAt ?? null,
+          connection.lastSyncAt ?? null,
+          connection.lastWebhookAt ?? null,
+          connection.syncCursor ?? null,
+          connection.createdBy,
+          connection.createdAt,
+          connection.updatedAt,
+        ],
+      );
+      return wiwoTalkFromRow(result.rows[0]!);
+    }, { write: true });
+  }
+
+  async deleteWiwoTalkConnection(id: string): Promise<boolean> {
+    return this.withTenantClient(async (client, organizationId) => {
+      const result = await client.query(
+        "DELETE FROM wiwo_talk_connections WHERE organization_id = $1 AND connection_id = $2::uuid",
         [organizationId, id],
       );
       return (result.rowCount ?? 0) > 0;
@@ -3358,7 +3539,7 @@ export class PostgresRepository implements SacFlowRepository {
   }
 }
 
-const USER_ACCESS_COLUMNS = "email, display_name, role, assigned_by, assigned_at, last_sign_in_at, permissions_add, permissions_remove, permissions_updated_by, permissions_updated_at, hidden_brand_ids, hidden_brands_updated_by, hidden_brands_updated_at, whatsapp_enabled, whatsapp_updated_by, whatsapp_updated_at";
+const USER_ACCESS_COLUMNS = "email, display_name, role, assigned_by, assigned_at, last_sign_in_at, permissions_add, permissions_remove, permissions_updated_by, permissions_updated_at, hidden_brand_ids, hidden_brands_updated_by, hidden_brands_updated_at, whatsapp_enabled, whatsapp_updated_by, whatsapp_updated_at, notifications_seen_at";
 
 interface UserAccessRow extends QueryResultRow {
   email: string;
@@ -3377,6 +3558,7 @@ interface UserAccessRow extends QueryResultRow {
   whatsapp_enabled?: boolean | null;
   whatsapp_updated_by?: string | null;
   whatsapp_updated_at?: Date | string | null;
+  notifications_seen_at?: Date | string | null;
 }
 
 function brandIdList(value: unknown): string[] {
@@ -3405,7 +3587,9 @@ function userAccessFromRow(row: UserAccessRow): UserAccessRecord {
   const hiddenBrandIds = brandIdList(row.hidden_brand_ids);
   const hiddenBrandsUpdatedAt = isoOrUndefined(row.hidden_brands_updated_at ?? null);
   const whatsappUpdatedAt = isoOrUndefined(row.whatsapp_updated_at ?? null);
+  const notificationsSeenAt = isoOrUndefined(row.notifications_seen_at ?? null);
   return {
+    ...(notificationsSeenAt ? { notificationsSeenAt } : {}),
     // WhatsApp activado es el valor por defecto: solo viaja cuando está apagado.
     ...(row.whatsapp_enabled === false
       ? {
@@ -3478,6 +3662,54 @@ function whatsappLineFromRow(row: WhatsAppLineRow): WhatsAppLine {
     ...(linkedAt ? { linkedAt } : {}),
     ...(lastConnectedAt ? { lastConnectedAt } : {}),
     ...(row.last_error ? { lastError: row.last_error } : {}),
+    createdBy: row.created_by,
+    createdAt: isoOrUndefined(row.created_at) ?? new Date(0).toISOString(),
+    updatedAt: isoOrUndefined(row.updated_at) ?? new Date(0).toISOString(),
+  };
+}
+
+const WIWO_TALK_COLUMNS = `connection_id::text AS connection_id, brand_key, label, location_id, location_name,
+  encrypted_secrets, token_hint, status, last_error, last_error_at, last_sync_at, last_webhook_at, sync_cursor,
+  created_by, created_at, updated_at`;
+
+interface WiwoTalkRow extends QueryResultRow {
+  connection_id: string;
+  brand_key: string;
+  label: string;
+  location_id: string;
+  location_name: string | null;
+  encrypted_secrets: string;
+  token_hint: string;
+  status: WiwoTalkConnectionStatus;
+  last_error: string | null;
+  last_error_at: Date | string | null;
+  last_sync_at: Date | string | null;
+  last_webhook_at: Date | string | null;
+  sync_cursor: Date | string | null;
+  created_by: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+function wiwoTalkFromRow(row: WiwoTalkRow): WiwoTalkConnection {
+  const lastErrorAt = isoOrUndefined(row.last_error_at);
+  const lastSyncAt = isoOrUndefined(row.last_sync_at);
+  const lastWebhookAt = isoOrUndefined(row.last_webhook_at);
+  const syncCursor = isoOrUndefined(row.sync_cursor);
+  return {
+    id: row.connection_id,
+    brandId: row.brand_key,
+    label: row.label,
+    locationId: row.location_id,
+    ...(row.location_name ? { locationName: row.location_name } : {}),
+    encryptedSecrets: row.encrypted_secrets,
+    tokenHint: row.token_hint,
+    status: row.status,
+    ...(row.last_error ? { lastError: row.last_error } : {}),
+    ...(lastErrorAt ? { lastErrorAt } : {}),
+    ...(lastSyncAt ? { lastSyncAt } : {}),
+    ...(lastWebhookAt ? { lastWebhookAt } : {}),
+    ...(syncCursor ? { syncCursor } : {}),
     createdBy: row.created_by,
     createdAt: isoOrUndefined(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: isoOrUndefined(row.updated_at) ?? new Date(0).toISOString(),

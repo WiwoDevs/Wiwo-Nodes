@@ -118,6 +118,7 @@ export function trackInteractionChanges(repository: SacFlowRepository, changeLog
   };
   const tracked: Record<string, (args: unknown[], result: unknown) => ChangeSet> = {
     updateInteraction: (args, result) => (result ? [String(args[0])] : []),
+    updateMessageDetail: (args, result) => (result ? [String(args[0])] : []),
     mutateInteractions: (args) => (Array.isArray(args[0]) ? args[0].map(String) : "all"),
     insertInteractions: (_args, result) =>
       ((result as { created?: Array<{ id: string }> } | undefined)?.created ?? []).map((item) => item.id),

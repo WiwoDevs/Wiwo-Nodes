@@ -30,7 +30,8 @@ import type {
   WorkflowVersion,
 } from "./types.js";
 import { CHANNELS } from "./types.js";
-import type { UserAccessRecord, WhatsAppLine } from "./types.js";
+import type { UserAccessRecord, WhatsAppLine, WiwoTalkConnection } from "./types.js";
+import type { StoredWhatsAppMedia, WhatsAppDeliveryOptions } from "./whatsapp/media.js";
 import type { AccessRoleRecord } from "./permissions.js";
 import { ensureMetricoolInboxCoverage } from "./workflow-coverage.js";
 import { mergeMissingMetricoolRef } from "./workflow-service.js";
@@ -193,6 +194,7 @@ export class JsonRepository implements SacFlowRepository {
       store.userAccess = Array.isArray(store.userAccess) ? store.userAccess : [];
       store.accessRoles = Array.isArray(store.accessRoles) ? store.accessRoles : [];
       store.whatsappLines = Array.isArray(store.whatsappLines) ? store.whatsappLines : [];
+      store.wiwoTalkConnections = Array.isArray(store.wiwoTalkConnections) ? store.wiwoTalkConnections : [];
       return store;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -379,6 +381,15 @@ export class JsonRepository implements SacFlowRepository {
     operation: (store: DataStore) => T | Promise<T>,
   ): Promise<T> {
     return this.mutate(operation);
+  }
+
+  async updateMessageDetail(id: string, update: (interaction: Interaction) => boolean): Promise<boolean> {
+    return this.mutate((store) => {
+      const interaction = store.interactions.find((item) => item.id === id);
+      if (!interaction || !update(interaction)) return false;
+      interaction.updatedAt = new Date().toISOString();
+      return true;
+    });
   }
 
   async insertInteractions(incoming: Interaction[]): Promise<{ created: Interaction[]; duplicates: number }> {
@@ -887,6 +898,23 @@ export class JsonRepository implements SacFlowRepository {
     });
   }
 
+  async setUserNotificationsSeen(input: { email: string; name?: string | null; seenAt: string }): Promise<string | undefined> {
+    return this.mutate((store) => {
+      const records = store.userAccess ?? [];
+      let record = records.find((item) => item.email === input.email);
+      if (!record) {
+        // Quien inicia sesión ya tiene registro; esto cubre el caso raro de no tenerlo.
+        record = { email: input.email, name: input.name ?? null, lastSignInAt: input.seenAt };
+        records.push(record);
+      }
+      if (!record.notificationsSeenAt || Date.parse(input.seenAt) > Date.parse(record.notificationsSeenAt)) {
+        record.notificationsSeenAt = input.seenAt;
+      }
+      store.userAccess = records;
+      return record.notificationsSeenAt;
+    });
+  }
+
   async setUserWhatsApp(input: SetUserWhatsAppInput): Promise<UserAccessRecord | undefined> {
     return this.mutate((store) => {
       const records = store.userAccess ?? [];
@@ -956,6 +984,49 @@ export class JsonRepository implements SacFlowRepository {
     }
   }
 
+  /** Archivos de WhatsApp en archivos junto al JSON (carpeta whatsapp-media/), como las miniaturas. */
+  private whatsappMediaPath(key: string, extension: "bin" | "json"): string {
+    if (!/^[0-9a-f]{64}$/.test(key)) throw new Error("Clave de archivo inválida.");
+    return path.join(path.dirname(this.filePath), "whatsapp-media", `${key}.${extension}`);
+  }
+
+  async getWhatsAppMedia(key: string): Promise<StoredWhatsAppMedia | undefined> {
+    try {
+      const meta = JSON.parse(await readFile(this.whatsappMediaPath(key, "json"), "utf8")) as Omit<StoredWhatsAppMedia, "data">;
+      const data = await readFile(this.whatsappMediaPath(key, "bin"));
+      return { ...meta, key, data };
+    } catch {
+      return undefined;
+    }
+  }
+
+  async saveWhatsAppMedia(media: StoredWhatsAppMedia): Promise<void> {
+    const dataPath = this.whatsappMediaPath(media.key, "bin");
+    await mkdir(path.dirname(dataPath), { recursive: true });
+    const { data, ...meta } = media;
+    for (const [target, content] of [[dataPath, data], [this.whatsappMediaPath(media.key, "json"), JSON.stringify(meta)]] as const) {
+      const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+      await writeFile(temporary, content);
+      await rename(temporary, target);
+    }
+  }
+
+  async getWhatsAppDeliveryOptions(deliveryId: string): Promise<WhatsAppDeliveryOptions | undefined> {
+    return this.exclusive(async () => {
+      const found = ((await this.readUnlocked()).whatsappDeliveryOptions ?? []).find((item) => item.deliveryId === deliveryId);
+      return found ? clone(found.options) : undefined;
+    });
+  }
+
+  async saveWhatsAppDeliveryOptions(deliveryId: string, options: WhatsAppDeliveryOptions): Promise<void> {
+    await this.mutate((store) => {
+      const list = (store.whatsappDeliveryOptions ?? []).filter((item) => item.deliveryId !== deliveryId);
+      list.unshift({ deliveryId, options });
+      // Igual que las entregas, se conservan las 2000 más recientes.
+      store.whatsappDeliveryOptions = list.slice(0, 2_000);
+    });
+  }
+
   async listAccessRoles(): Promise<AccessRoleRecord[]> {
     return this.exclusive(async () => clone((await this.readUnlocked()).accessRoles ?? []));
   }
@@ -1002,6 +1073,34 @@ export class JsonRepository implements SacFlowRepository {
       const next = lines.filter((line) => line.id !== id);
       store.whatsappLines = next;
       return next.length !== lines.length;
+    });
+  }
+
+  async listWiwoTalkConnections(): Promise<WiwoTalkConnection[]> {
+    return this.exclusive(async () => clone((await this.readUnlocked()).wiwoTalkConnections ?? [])
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt)));
+  }
+
+  async saveWiwoTalkConnection(connection: WiwoTalkConnection): Promise<WiwoTalkConnection> {
+    return this.mutate((store) => {
+      const connections = store.wiwoTalkConnections ?? [];
+      if (connections.some((item) => item.id !== connection.id && item.locationId === connection.locationId)) {
+        throw new Error("WIWO_TALK_LOCATION_TAKEN");
+      }
+      const index = connections.findIndex((item) => item.id === connection.id);
+      if (index >= 0) connections[index] = connection;
+      else connections.push(connection);
+      store.wiwoTalkConnections = connections;
+      return clone(connection);
+    });
+  }
+
+  async deleteWiwoTalkConnection(id: string): Promise<boolean> {
+    return this.mutate((store) => {
+      const connections = store.wiwoTalkConnections ?? [];
+      const next = connections.filter((connection) => connection.id !== id);
+      store.wiwoTalkConnections = next;
+      return next.length !== connections.length;
     });
   }
 
@@ -1086,14 +1185,17 @@ export class JsonRepository implements SacFlowRepository {
 /** Ajustes personales de permisos de un registro, para conservarlos al cambiar su rol. */
 /** Clientes ocultos guardados de una persona, para conservarlos al cambiar otra cosa. */
 function hiddenBrandsOf(record: UserAccessRecord | undefined): Partial<UserAccessRecord> {
-  // WhatsApp apagado también se conserva al cambiar el rol o los permisos.
-  const whatsapp: Partial<UserAccessRecord> = record?.whatsappEnabled === false
-    ? {
-      whatsappEnabled: false,
-      ...(record.whatsappUpdatedBy ? { whatsappUpdatedBy: record.whatsappUpdatedBy } : {}),
-      ...(record.whatsappUpdatedAt ? { whatsappUpdatedAt: record.whatsappUpdatedAt } : {}),
-    }
-    : {};
+  // WhatsApp apagado y lo leído en la campana también se conservan al cambiar el rol o los permisos.
+  const whatsapp: Partial<UserAccessRecord> = {
+    ...(record?.whatsappEnabled === false
+      ? {
+        whatsappEnabled: false,
+        ...(record.whatsappUpdatedBy ? { whatsappUpdatedBy: record.whatsappUpdatedBy } : {}),
+        ...(record.whatsappUpdatedAt ? { whatsappUpdatedAt: record.whatsappUpdatedAt } : {}),
+      }
+      : {}),
+    ...(record?.notificationsSeenAt ? { notificationsSeenAt: record.notificationsSeenAt } : {}),
+  };
   if (!record?.hiddenBrandIds?.length) return whatsapp;
   return {
     ...whatsapp,

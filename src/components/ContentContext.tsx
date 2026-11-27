@@ -27,8 +27,12 @@ const FALLBACKS: Partial<Record<InteractionContentKind, string>> = {
   unavailable: "Metricool no entregó texto ni archivo para este evento.",
 };
 
+/** Archivo de WhatsApp que guarda la propia API (`/api/media/whatsapp/<sha256>?type=…`). */
+const INTERNAL_WHATSAPP_MEDIA = /^\/api\/media\/whatsapp\/[0-9a-f]{64}\?type=(image|video|audio|sticker|document)$/;
+
 function safeHttpsUrl(value?: string): string | undefined {
   if (!value) return undefined;
+  if (INTERNAL_WHATSAPP_MEDIA.test(value)) return value;
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password) return undefined;
@@ -60,7 +64,10 @@ function safeHttpsUrl(value?: string): string | undefined {
   }
 }
 
-function mediaType(url: string): "image" | "video" | "audio" | "unknown" {
+function mediaType(url: string): "image" | "video" | "audio" | "link" | "unknown" {
+  // Los archivos de WhatsApp dicen su clase en `type`: los documentos van directo al enlace.
+  const internal = INTERNAL_WHATSAPP_MEDIA.exec(url)?.[1];
+  if (internal) return internal === "sticker" ? "image" : internal === "document" ? "link" : internal as "image" | "video" | "audio";
   const value = new URL(url).pathname.toLocaleLowerCase("en");
   if (/\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/u.test(value)) return "image";
   if (/\.(?:m4v|mov|mp4|webm)$/u.test(value)) return "video";
@@ -117,6 +124,8 @@ function MediaPreview({ url, index }: { url: string; index: number }) {
           aria-label={label}
           onError={() => setMode("link")}
         />
+      ) : inferred === "link" ? (
+        <small>Documento adjunto.</small>
       ) : (
         <small>Vista previa no disponible: el archivo pudo vencer en la red social.</small>
       )}

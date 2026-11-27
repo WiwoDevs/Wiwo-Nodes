@@ -75,6 +75,19 @@ export interface InboxContactSummary {
   assignmentConflict: boolean;
   /** Mensajes abiertos de esta persona señalados como posible spam o ruido. */
   noiseCount: number;
+  /** WhatsApp: mensajes del cliente que nadie del equipo ha abierto desde la última respuesta. */
+  unreadCount?: number;
+}
+
+/** No leídos de un chat de WhatsApp: lo del cliente después de lo último del equipo, sin abrir. */
+export function whatsappUnreadCount(ordered: Interaction[]): number {
+  let unread = 0;
+  for (const interaction of ordered) {
+    if (interaction.direction === "outbound") break;
+    const reference = interaction.metricoolRef?.whatsapp;
+    if (reference && !reference.history && !reference.readAt) unread += 1;
+  }
+  return unread;
 }
 
 export interface InboxPostSummary {
@@ -395,6 +408,7 @@ export function groupInboxContacts(
       threadCount: new Set(ordered.map(conversationKey)).size,
       assignmentConflict: assignmentStates.size > 1,
       noiseCount: openInbound.length - realOpen.length,
+      ...(latest.channel === "whatsapp" ? { unreadCount: whatsappUnreadCount(ordered) } : {}),
     };
   }).sort((left, right) =>
     Date.parse(right.latest.createdAt) - Date.parse(left.latest.createdAt)

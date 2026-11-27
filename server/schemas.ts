@@ -315,14 +315,22 @@ export const liveSyncSchema = z.object({
 }).strict();
 
 export const replySchema = z.object({
-  text: z.string().trim().min(1).max(1_000),
+  text: z.string().trim().max(1_000),
   mode: z.enum(["draft", "send"]),
   approvedByHuman: z.boolean().default(false),
   confidence: z.number().min(0).max(1).optional(),
   expectedVersion: z.number().int().min(1),
   /** Seguir escribiendo en un DM ya respondido (como en un chat). Solo con `mode: "send"`. */
   followUp: z.boolean().default(false),
-}).strict();
+  /** Solo WhatsApp: archivo subido antes con `POST /api/whatsapp/media`. */
+  attachmentKey: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  /** Solo WhatsApp: citar el mensaje del cliente al responder. */
+  quote: z.boolean().default(false),
+}).strict().refine(
+  // Sin adjunto el texto es obligatorio; con adjunto puede ir vacío (el archivo es el mensaje).
+  (value) => value.text.length > 0 || Boolean(value.attachmentKey && value.mode === "send"),
+  { message: "Escribe una respuesta.", path: ["text"] },
+);
 
 export const replyDeliveryParamsSchema = z.object({
   id: z.string().uuid(),
@@ -458,6 +466,11 @@ export const userPermissionsSchema = z.object({
 export const userHiddenBrandsSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   brandIds: z.array(z.string().trim().min(1).max(100)).max(500),
+}).strict();
+
+/** Hasta cuándo leyó la persona sus notificaciones de la campana. */
+export const notificationsSeenSchema = z.object({
+  seenAt: z.string().trim().refine((value) => Number.isFinite(Date.parse(value)), "Debe ser una fecha ISO válida."),
 }).strict();
 
 /** Activa o apaga WhatsApp para una persona (solo admin principal). */
