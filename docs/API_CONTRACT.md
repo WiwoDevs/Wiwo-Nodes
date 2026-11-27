@@ -568,13 +568,21 @@ Devuelve el contexto seguro que la UI usa para ajustar acciones de solo lectura,
     "brandIds": ["brand-01"],
     "source": "google",
     "email": "agente@example.test",
-    "masterAdmin": false
+    "masterAdmin": false,
+    "whatsappEnabled": true,
+    "notificationsSeenAt": "2026-11-25T12:00:00.000Z"
   },
   "meta": { "demoMode": false, "mode": "live" }
 }
 ```
 
 `brandIds` puede ser `"all"`. `source` indica el origen de la identidad (`local`, `trusted_headers`, `google` o `dev`); `email` solo aparece con sesión de Google o de prueba local y alimenta el menú de perfil. `masterAdmin` es `true` solo para un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`; sin inicio de sesión propio, el admin local), el único que oculta o muestra clientes. Esta respuesta informa la experiencia visual, pero la autorización sigue aplicándose en cada endpoint servidor.
+
+`whatsappEnabled` es el ajuste individual de WhatsApp (activado por defecto). `notificationsSeenAt` aparece cuando la persona ya marcó su campana como leída: los avisos posteriores cuentan como no leídos.
+
+### `PUT /api/me/notifications`
+
+Campana de notificaciones (cualquier rol con sesión). Body `{ seenAt }` (fecha ISO): guarda hasta cuándo leyó la persona sus avisos en `user_access.notifications_seen_at` (migración `0026_user_notifications_seen.sql`). Solo avanza (un valor anterior no retrocede lo guardado) y nunca queda en el futuro (se recorta a ahora). Respuesta `{ stored: true, notificationsSeenAt }`; sin correo de sesión (modo local sin inicio de sesión) responde `{ stored: false }` y la web lo recuerda en el navegador. Fecha inválida: `400 VALIDATION_ERROR`. Los avisos se arman en la web con las mismas filas en vivo de la bandeja (`GET /api/inbox/contacts` y sus cambios); no hay una ruta aparte de notificaciones.
 
 ### `GET /api/brands`
 
@@ -1288,7 +1296,24 @@ Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás d
 
 **Historial de un chat** (cualquier rol con acceso a la marca): `POST /api/whatsapp/history` con `{ interactionId }` pide al teléfono hasta 50 mensajes anteriores al más antiguo que wiwo.sac tiene de ese chat → `{ requested: true, before }`. Llegan en segundos por la bandeja en vivo, si WhatsApp los entrega. Errores: `422 NOT_WHATSAPP`, `409 WHATSAPP_NOT_CONNECTED`, `429 HISTORY_RECENTLY_REQUESTED` (20 s por chat). En demo responde `{ requested: false, reason: "demo" }`. El historial importado (`metricoolRef.whatsapp.history: true`) llega `resolved` con motivo `whatsapp_history`, no pasa por el protocolo SAC y no cuenta en `GET /api/reports/sac`, `GET /api/stats/messages` ni en las filas de `/api/integrations/*`. Al vincular, el último mensaje de cliente de cada chat de los últimos 7 días queda como caso normal.
 
-**Estado para la bandeja** (cualquier rol con sesión): `GET /api/whatsapp/status` → `{ mode, lines: [{ id, brandId, label, status, phoneNumber?, displayName? }] }`, solo de las marcas del actor y sin QR ni código.
+**Estado para la bandeja** (cualquier rol con sesión): `GET /api/whatsapp/status` → `{ mode, lines: [{ id, brandId, label, status, phoneNumber?, displayName? }], talk: [{ id, brandId, label, status }] }`, solo de las marcas del actor, sin QR, código ni claves. `talk` son las conexiones de WiWO Talk (ver abajo).
+
+**Chat completo.** Los mensajes de WhatsApp traen en el detalle de la conversación (`GET /api/interactions/:id/conversation`, `whatsapp`) los tics de los salientes (`status`: `sent`, `delivered`, `read`, `played`; solo avanzan), la cita (`quotedText`), las reacciones (`reactions: [{ emoji, fromMe }]`), `edited`, `deleted`, quién lo envió desde wiwo.sac (`sentBy`) y `provider: "wiwo_talk"` en los chats de WiWO Talk.
+- **Archivos.** Las fotos, videos, audios, stickers y documentos se guardan en la API y se abren con `GET /api/media/whatsapp/:key` (sha256), solo para quien ve la marca. Los documentos se descargan y nunca se muestran en la página.
+- **Adjuntar un archivo.** Para responder con uno: `POST /api/whatsapp/media?interactionId=…`, con el archivo crudo (`application/octet-stream`, `X-Media-Type`, `X-File-Name`; hasta 16 MB; `inbox.reply`). Devuelve `{ key, mimeType, kind, size, fileName? }`, y la respuesta lo usa con `attachmentKey`.
+- **Citar.** `quote: true` en la respuesta cita el mensaje del cliente.
+- **Solo WhatsApp.** En otra red, `attachmentKey` y `quote` responden `422 WHATSAPP_ONLY_OPTION`; por WiWO Talk, `422 WIWO_TALK_TEXT_ONLY`. Un archivo sin texto también es un mensaje.
+
+**Lectura y presencia.**
+- **`POST /api/whatsapp/read`** con `{ interactionId }` deja leídos los mensajes del cliente de ese chat: `metricoolRef.whatsapp.readAt`, sin cambiar la versión del caso. Responde `{ read, remote }`.
+  - Con un número vinculado, si la persona puede responder (`inbox.reply` y WhatsApp activado), también marca leído en WhatsApp: el cliente ve los tics azules.
+  - Con WiWO Talk deja la conversación sin no leídos allá.
+  - Los contactos de `GET /api/inbox/contacts` de WhatsApp traen `unreadCount`: mensajes del cliente después de la última respuesta, sin abrir.
+- **`GET /api/whatsapp/presence?interactionId=`** → `{ state: "composing" | "recording" | null }`: si el cliente escribe o graba un audio ahora (dura 8 s si WhatsApp no lo renueva).
+- **`POST /api/whatsapp/typing`** con `{ interactionId, state: "composing" | "paused" }` (`inbox.reply`) muestra u oculta "escribiendo…" al cliente mientras la persona redacta.
+  - Responde `{ queued }`: como mucho una señal cada 4 s por chat, y el worker la apaga sola a los 6 s.
+  - Nunca pone el número "en línea".
+  - Solo números vinculados.
 
 **Worker** (`/api/internal/whatsapp/*`): no usan la sesión ni `SAC_FLOW_API_KEY`. Exigen la cabecera `X-WhatsApp-Worker-Key` igual a `SAC_FLOW_WHATSAPP_WORKER_KEY` (o, sin ella, a la clave derivada de `SAC_FLOW_API_KEY` con HMAC-SHA256; la clave del sitio en sí no sirve) (`401 WORKER_KEY_REQUIRED`) y solo existen en modo `live` (si no, `404`). No cuentan para el límite de solicitudes.
 
@@ -1296,10 +1321,55 @@ Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás d
 |---|---|---|---|
 | `GET` | `lines` | — | `[{ id, brandId, desiredState, generation, status, importHistory, pairingPhone? }]`; cuenta como señal de vida del worker |
 | `GET` | `history-requests` | — | Pedidos de "Cargar anteriores" `[{ lineId, chatId, anchor: { messageId, fromMe, timestamp }, count }]`; cada uno se entrega una sola vez |
+| `GET` | `chat-commands` | — | Órdenes de chats abiertos, una sola vez: `{ kind: "read", lineId, chatId, messageIds }`, `{ kind: "watch", lineId, chatId }` (seguir la presencia) y `{ kind: "typing", lineId, chatId, state }` |
+| `POST` | `lines/:id/presence` | `{ chatId, state: "composing" \| "recording" \| "paused" }` | El cliente escribe, graba o dejó de hacerlo (solo en memoria) |
+| `POST` | `lines/:id/updates` | `{ updates: [{ type: "receipt" \| "reaction" \| "edit" \| "delete", messageId, … }] (1–500) }` | Tics, reacciones, ediciones y borrados sobre mensajes ya guardados, sin cambiar la versión del caso → `{ applied, unknown }` |
+| `PUT` | `lines/:id/media` | archivo crudo con `X-Media-Type`, `X-File-Name` (hasta 16 MB) | Guarda un archivo recibido antes del mensaje que lo trae → `WhatsAppMediaRef` |
+| `GET` | `media/:key` | — | Un adjunto subido por una persona, para enviarlo |
 | `POST` | `lines/:id/state` | `{ generation, status, qr?, pairingCode?, phoneNumber?, displayName?, error? }` | `{ accepted }`; un informe de otra generación se ignora |
 | `POST` | `lines/:id/messages` | `{ messages: [{ messageId, chatId, phoneNumber?, fromMe, timestamp, pushName?, text, kind }] (1–200), history?: "link" \| "on_demand" }` | `{ created, duplicates, ignored, history? }`. Con `history`, el lote se guarda como historial (ver arriba). Interacciones `whatsapp` con `externalId` `wa:<lineId>:<messageId>`; el eco de lo que envió wiwo.sac (`providerResponseRef` `whatsapp:<messageId>`) se ignora; un cliente oculto o un número desvinculado no guarda nada |
-| `POST` | `deliveries/claim` | `{ lineIds }` | La entrega `pending` más antigua, aprobada por una persona, de un número conectado: `{ deliveryId, lineId, chatId, text, replyToMessageId, leaseExpiresAt }` (lease de 2 min), o `null` |
+| `POST` | `deliveries/claim` | `{ lineIds }` | La entrega `pending` más antigua, aprobada por una persona, de un número conectado: `{ deliveryId, lineId, chatId, text, replyToMessageId, attachment?, quote?, leaseExpiresAt }` (lease de 2 min), o `null`. Una entrega con más de 24 h en cola se cierra `failed` con `WHATSAPP_QUEUE_EXPIRED` en vez de salir tarde |
 | `POST` | `deliveries/:id/result` | `{ status: "sent" \| "failed" \| "uncertain", messageId?, errorCode? }` | Cierra la entrega (`sent` exige `messageId`); `409 DELIVERY_NOT_IN_PROGRESS` si no estaba en envío |
+
+### WiWO Talk
+
+Subcuentas de WiWO Talk (HighLevel con marca blanca) cuyo WhatsApp se atiende desde Gestión WhatsApp. Runbook: [WIWO_TALK.md](WIWO_TALK.md).
+- **Claves en la base.** El token de integración privada y el secreto del webhook de cada conexión se guardan cifrados (`wiwo_talk_connections.encrypted_secrets`, migración `0028_wiwo_talk_connections.sql`), nunca en variables de entorno, y el token no vuelve al navegador.
+- **Quién.** Solo admins principales (`403 MASTER_ADMIN_REQUIRED`).
+
+| Método | Ruta | Body | Resultado |
+|---|---|---|---|
+| `GET` | `/api/wiwo-talk/connections` | — | `{ connections: WiwoTalkConnectionView[], demo }` |
+| `POST` | `/api/wiwo-talk/connections` | `{ brandId, label, locationId, token }` | `201`, `meta.connectionId`. Comprueba el token con `GET /locations/:id` antes de guardar (`422 WIWO_TALK_TOKEN_INVALID`, `422 WIWO_TALK_SCOPE_MISSING`, `422 WIWO_TALK_NOT_FOUND`, `502 WIWO_TALK_UNREACHABLE`; `409 WIWO_TALK_LOCATION_TAKEN` si la subcuenta ya está conectada). Lanza de fondo la primera lectura |
+| `PUT` | `/api/wiwo-talk/connections/:id/token` | `{ token }` | Cambia el token (comprobado); el webhook no cambia |
+| `POST` | `/api/wiwo-talk/connections/:id/webhook-secret` | — | Nueva clave para el webhook; la anterior deja de valer |
+| `POST` | `/api/wiwo-talk/connections/:id/pause` | `{ paused }` | Pausa o reanuda la lectura y los envíos |
+| `POST` | `/api/wiwo-talk/connections/:id/sync` | — | Lee ahora las conversaciones recientes → `{ conversations, created, connections }` |
+| `DELETE` | `/api/wiwo-talk/connections/:id` | — | Borra la conexión y su token; las conversaciones se conservan |
+| `POST` | `/api/wiwo-talk/connections/:id/demo-message` | `{ text? }` | Solo demo: mensaje ficticio por el mismo camino que uno real |
+
+`WiwoTalkConnectionView` tiene estos campos:
+- `id`, `brandId`, `label`, `locationId`, `locationName?`
+- `tokenHint`: los últimos 4 caracteres del token.
+- `status`: `active`, `error` o `paused`.
+- `lastError?`: un código, sin datos de clientes; `lastErrorAt?`.
+- `lastSyncAt?`, `lastWebhookAt?`
+- `webhookPath` y `webhookSecret`.
+
+**Webhook:** `POST /api/webhooks/wiwo-talk/:id?key=<webhookSecret>` (o cabecera `X-WiWO-Talk-Key`).
+- No usa sesión ni cuenta para el límite de solicitudes, y acepta hasta 256 KB.
+- Responde `200 { received: true }` de inmediato. Con una clave incorrecta, o si la conexión no existe, responde `404`.
+- Del cuerpo solo usa el id del contacto (`contact_id`, `contactId` o `contact.id`) y, si viene, `conversationId`. Luego lee esa conversación por la API.
+
+**Conciliación:** cada `SAC_FLOW_WIWO_TALK_SYNC_MINUTES` minutos (10; `0` la apaga) se leen las conversaciones recientes de cada conexión activa.
+- Solo entran mensajes `TYPE_WHATSAPP`, como interacciones `whatsapp` con `externalId` `wa:<connectionId>:<messageId>` y `metricoolRef.whatsapp.provider: "wiwo_talk"` (`chatId` = contacto, `talkConversationId`).
+- La primera lectura llega como historial, salvo el último mensaje reciente del cliente de cada chat.
+
+**Responder:** `POST /api/interactions/:id/reply` en un chat de WiWO Talk envía en la misma solicitud `POST /conversations/messages` con `{ type: "WhatsApp", contactId, message }`.
+- Si sale, devuelve `delivery: "sent"` con `providerResponseRef` = id del mensaje.
+- Un rechazo 4xx (token, permisos, ventana de 24 h) devuelve el código (`422 WIWO_TALK_REJECTED`…) y deja la entrega `failed`. Sin respuesta clara: `502 DELIVERY_UNCERTAIN`.
+- Otros rechazos: `409 WIWO_TALK_PAUSED`, `422 WIWO_TALK_CONNECTION_NOT_FOUND`, `422 WIWO_TALK_TEXT_ONLY`.
+- Valen las mismas reglas de WhatsApp: solo personas (`WHATSAPP_HUMAN_ONLY`) y el ajuste individual de WhatsApp.
 
 ### `PATCH /api/interactions/:id/status`
 

@@ -1,4 +1,5 @@
 import type { StoredPostThumbnail } from "./post-thumbnails.js";
+import type { StoredWhatsAppMedia, WhatsAppDeliveryOptions } from "./whatsapp/media.js";
 import type {
   AccessRole,
   Brand,
@@ -23,6 +24,7 @@ import type {
   WorkflowRun,
   WorkflowJob,
   WhatsAppLine,
+  WiwoTalkConnection,
 } from "./types.js";
 import type { AutomationState } from "./automation-types.js";
 import type { AccessRoleRecord, Permission } from "./permissions.js";
@@ -72,6 +74,12 @@ export interface SacFlowRepository {
     operation: (store: DataStore) => T | Promise<T>,
   ): Promise<T>;
   insertInteractions(incoming: Interaction[]): Promise<{ created: Interaction[]; duplicates: number }>;
+  /**
+   * Cambia lo que el proveedor informa de un mensaje ya guardado (tics, reacciones, edición,
+   * borrado, leído) sin tocar su versión ni su estado de caso: así abrir un chat o recibir un tic
+   * nunca invalida la respuesta que alguien está escribiendo. `update` devuelve si cambió algo.
+   */
+  updateMessageDetail(id: string, update: (interaction: Interaction) => boolean): Promise<boolean>;
   prepareReplyDelivery(input: PrepareReplyDeliveryInput): Promise<{ delivery: ReplyDelivery; created: boolean }>;
   prepareAutoReplyDelivery(
     input: PrepareReplyDeliveryInput,
@@ -128,6 +136,11 @@ export interface SacFlowRepository {
    * un registro sin rol, ingreso, ajustes ni clientes ocultos se elimina.
    */
   setUserHiddenBrands(input: SetUserHiddenBrandsInput): Promise<UserAccessRecord | undefined>;
+  /**
+   * Guarda hasta cuándo leyó una persona sus notificaciones. Solo avanza: un valor anterior al
+   * guardado no lo retrocede.
+   */
+  setUserNotificationsSeen(input: { email: string; name?: string | null; seenAt: string }): Promise<string | undefined>;
   /** Activa o apaga WhatsApp para una persona (solo admin principal). Activado por defecto. */
   setUserWhatsApp(input: SetUserWhatsAppInput): Promise<UserAccessRecord | undefined>;
   /** Registra un inicio de sesión exitoso (nombre y fecha). */
@@ -138,6 +151,13 @@ export interface SacFlowRepository {
   getPostThumbnail(key: string): Promise<StoredPostThumbnail | undefined>;
   /** Guarda (o reemplaza) la copia de una miniatura. */
   savePostThumbnail(thumbnail: StoredPostThumbnail): Promise<void>;
+  /** Archivo de WhatsApp guardado por la API (por sha256). */
+  getWhatsAppMedia(key: string): Promise<StoredWhatsAppMedia | undefined>;
+  /** Guarda un archivo de WhatsApp; el mismo sha256 no se duplica. */
+  saveWhatsAppMedia(media: StoredWhatsAppMedia): Promise<void>;
+  /** Adjunto y cita de un envío por WhatsApp, por id de entrega. */
+  getWhatsAppDeliveryOptions(deliveryId: string): Promise<WhatsAppDeliveryOptions | undefined>;
+  saveWhatsAppDeliveryOptions(deliveryId: string, options: WhatsAppDeliveryOptions): Promise<void>;
   /** Crea o reemplaza un rol guardado. */
   saveAccessRole(record: AccessRoleRecord): Promise<AccessRoleRecord>;
   /** Elimina un rol guardado (un rol propio o el ajuste de un rol de base). */
@@ -148,6 +168,10 @@ export interface SacFlowRepository {
   saveWhatsAppLine(line: WhatsAppLine): Promise<WhatsAppLine>;
   /** Quita un número (sus mensajes quedan en la bandeja). */
   deleteWhatsAppLine(id: string): Promise<boolean>;
+  /** Conexiones de WiWO Talk (con sus claves cifradas: nunca se devuelven al navegador). */
+  listWiwoTalkConnections(): Promise<WiwoTalkConnection[]>;
+  saveWiwoTalkConnection(connection: WiwoTalkConnection): Promise<WiwoTalkConnection>;
+  deleteWiwoTalkConnection(id: string): Promise<boolean>;
 }
 
 export interface SetUserPermissionOverridesInput {

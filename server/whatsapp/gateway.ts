@@ -5,8 +5,21 @@
  * dos entregan lo mismo: estados del número, mensajes normalizados y envíos con id.
  */
 import type { WhatsAppLineStatus } from "../types.js";
-import type { NormalizedWhatsAppMessage } from "./messages.js";
+import type { MediaDescriptor, NormalizedWhatsAppMessage, WhatsAppMessageUpdate } from "./messages.js";
 import type { WhatsAppHistoryMode } from "./ingest.js";
+import type { WhatsAppMediaKind } from "./media.js";
+
+/** Mensaje recibido; si trae un archivo aceptado, `downloadMedia` lo baja de WhatsApp. */
+export interface IncomingWhatsAppMessage extends NormalizedWhatsAppMessage {
+  pendingMedia?: { descriptor: MediaDescriptor; download(): Promise<Buffer> };
+}
+
+/** Lo que se envía: texto, y opcionalmente un archivo y la cita a un mensaje del cliente. */
+export interface OutgoingWhatsAppMessage {
+  text: string;
+  attachment?: { data: Buffer; mimeType: string; kind: WhatsAppMediaKind; fileName?: string };
+  quote?: { messageId: string; text: string };
+}
 
 export interface WhatsAppSessionState {
   status: WhatsAppLineStatus;
@@ -22,7 +35,11 @@ export interface WhatsAppSessionState {
 export interface WhatsAppSessionEvents {
   onState(state: WhatsAppSessionState): void;
   /** Mensajes nuevos, o un lote de historial antiguo si viene `history`. */
-  onMessages(messages: NormalizedWhatsAppMessage[], history?: WhatsAppHistoryMode): void;
+  onMessages(messages: IncomingWhatsAppMessage[], history?: WhatsAppHistoryMode): void;
+  /** Tics, reacciones, ediciones y borrados sobre mensajes ya entregados. */
+  onUpdates(updates: WhatsAppMessageUpdate[]): void;
+  /** El cliente empezó o dejó de escribir o grabar en un chat seguido con `watchPresence`. */
+  onPresence?(chatId: string, state: "composing" | "recording" | "paused"): void;
 }
 
 export interface HistoryAnchor {
@@ -42,12 +59,19 @@ export interface SendTextOptions {
 export interface WhatsAppSession {
   /** true mientras la conexión está abierta y se puede enviar. */
   isOpen(): boolean;
-  sendText(chatId: string, text: string, options: SendTextOptions): Promise<{ messageId: string }>;
+  /** Envía un mensaje (texto, archivo con leyenda, cita) después de mostrar "escribiendo…". */
+  send(chatId: string, message: OutgoingWhatsAppMessage, options: SendTextOptions): Promise<{ messageId: string }>;
   /**
    * Pide al teléfono hasta `count` mensajes anteriores a `anchor` en un chat. La respuesta llega
    * después por `onMessages(..., "on_demand")`, si WhatsApp la entrega.
    */
   fetchHistory(chatId: string, anchor: HistoryAnchor, count: number): Promise<void>;
+  /** Marca leídos estos mensajes del cliente (tics azules). */
+  markRead(chatId: string, messageIds: string[]): Promise<void>;
+  /** Empieza a recibir si el cliente escribe en este chat (`onPresence`). */
+  watchPresence(chatId: string): Promise<void>;
+  /** Muestra al cliente "escribiendo…" o lo quita. Nunca pone el número "en línea". */
+  sendTyping(chatId: string, state: "composing" | "paused"): Promise<void>;
   /** Cierra la conexión sin desvincular (el teléfono sigue mostrando el dispositivo). */
   close(): Promise<void>;
   /** Desvincula: cierra la sesión en WhatsApp y borra las credenciales guardadas. */

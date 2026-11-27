@@ -83,8 +83,27 @@ export interface WhatsAppHistoryRequest {
   count: number;
 }
 
+/**
+ * Órdenes rápidas para un chat abierto en wiwo.sac: marcar leído (tics azules), seguir si el
+ * cliente está escribiendo y mostrarle "escribiendo…" mientras alguien del equipo redacta.
+ */
+export type WhatsAppChatCommand =
+  | { kind: "read"; lineId: string; chatId: string; messageIds: string[] }
+  | { kind: "watch"; lineId: string; chatId: string }
+  | { kind: "typing"; lineId: string; chatId: string; state: WhatsAppTypingState };
+
+export type WhatsAppTypingState = "composing" | "paused";
+/** Lo que el cliente está haciendo en el chat, según WhatsApp. */
+export type WhatsAppPresenceState = "composing" | "recording";
+
 /** Un mismo chat no se vuelve a pedir antes de esto (el teléfono tarda en responder). */
 const HISTORY_REQUEST_COOLDOWN_MS = 20_000;
+/** "Escribiendo…" del cliente caduca si WhatsApp no lo renueva (lo hace cada pocos segundos). */
+const PRESENCE_TTL_MS = 8_000;
+/** Se vuelve a suscribir a la presencia de un chat abierto como mucho cada tanto. */
+const WATCH_COOLDOWN_MS = 60_000;
+/** "Escribiendo…" del equipo: una señal por chat cada tanto, aunque se escriba sin parar. */
+const TYPING_COOLDOWN_MS = 4_000;
 
 export class WhatsAppLineError extends Error {
   constructor(readonly statusCode: number, readonly code: string, message: string) {
@@ -98,6 +117,10 @@ export class WhatsAppLineService {
   private workerSeenAt?: number;
   private historyQueue: WhatsAppHistoryRequest[] = [];
   private readonly historyRequestedAt = new Map<string, number>();
+  private chatCommands: WhatsAppChatCommand[] = [];
+  private readonly watchedAt = new Map<string, number>();
+  private readonly typingAt = new Map<string, { state: WhatsAppTypingState; at: number }>();
+  private readonly presence = new Map<string, { state: WhatsAppPresenceState; at: number }>();
 
   constructor(
     private readonly repository: SacFlowRepository,
@@ -275,6 +298,63 @@ export class WhatsAppLineService {
     const taken = this.historyQueue;
     this.historyQueue = [];
     return taken;
+  }
+
+  /** Marca leídos en WhatsApp estos mensajes del cliente (los ve con tics azules). */
+  requestRead(lineId: string, chatId: string, messageIds: string[]): void {
+    if (!messageIds.length) return;
+    this.pushCommand({ kind: "read", lineId, chatId, messageIds: messageIds.slice(-50) });
+  }
+
+  /** Sigue la presencia de un chat abierto (para mostrar "escribiendo…"). */
+  requestWatch(lineId: string, chatId: string): void {
+    const key = `${lineId}\u0000${chatId}`;
+    const last = this.watchedAt.get(key);
+    if (last !== undefined && this.now() - last < WATCH_COOLDOWN_MS) return;
+    this.watchedAt.set(key, this.now());
+    this.pushCommand({ kind: "watch", lineId, chatId });
+  }
+
+  /**
+   * "Escribiendo…" del equipo hacia el cliente. Se manda una señal por chat cada pocos segundos;
+   * "paused" solo si antes se mandó "composing". Devuelve si se encoló.
+   */
+  requestTyping(lineId: string, chatId: string, state: WhatsAppTypingState): boolean {
+    const key = `${lineId}\u0000${chatId}`;
+    const last = this.typingAt.get(key);
+    if (state === "composing" && last?.state === "composing" && this.now() - last.at < TYPING_COOLDOWN_MS) return false;
+    if (state === "paused" && last?.state !== "composing") return false;
+    this.typingAt.set(key, { state, at: this.now() });
+    this.pushCommand({ kind: "typing", lineId, chatId, state });
+    return true;
+  }
+
+  takeChatCommands(): WhatsAppChatCommand[] {
+    const taken = this.chatCommands;
+    this.chatCommands = [];
+    return taken;
+  }
+
+  private pushCommand(command: WhatsAppChatCommand): void {
+    // Cola acotada: si el worker no la retira, lo más viejo sobra.
+    this.chatCommands = [...this.chatCommands, command].slice(-200);
+  }
+
+  /** El worker informa lo que hace el cliente en un chat (solo en memoria, caduca sola). */
+  reportPresence(lineId: string, chatId: string, state: WhatsAppPresenceState | "paused"): void {
+    const key = `${lineId}\u0000${chatId}`;
+    if (state === "paused") this.presence.delete(key);
+    else this.presence.set(key, { state, at: this.now() });
+    if (this.presence.size > 2_000) {
+      for (const [entryKey, entry] of this.presence) {
+        if (this.now() - entry.at >= PRESENCE_TTL_MS) this.presence.delete(entryKey);
+      }
+    }
+  }
+
+  presenceOf(lineId: string, chatId: string): WhatsAppPresenceState | null {
+    const entry = this.presence.get(`${lineId}\u0000${chatId}`);
+    return entry && this.now() - entry.at < PRESENCE_TTL_MS ? entry.state : null;
   }
 
   /**

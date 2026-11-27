@@ -4,7 +4,19 @@
     {
       "name": "dev-all",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "set PORT=8787&& npm run dev:all"],
+      "runtimeArgs": [
+        "/c",
+        "set PORT=8787&& npm run dev:all"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "dev-demo",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PORT=8787&& set METRICOOL_MODE=demo&& set SAC_FLOW_DATA_FILE=data/demo-verify.json&& set SAC_FLOW_AUTH_ADMIN_EMAILS=admin@wiwo.test&& npm run dev:all"
+      ],
       "port": 5173
     }
   ]

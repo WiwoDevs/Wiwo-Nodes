@@ -34,6 +34,10 @@ import type {
   ReportTriage,
   NoiseSignal,
   WhatsAppAdminData,
+  WiwoTalkAdminData,
+  WiwoTalkConnectionView,
+  WhatsAppAttachment,
+  WhatsAppMessageDetail,
   WhatsAppStatusData,
 } from "../types";
 
@@ -168,6 +172,8 @@ type ApiInboxContact = {
   threadCount: number;
   assignmentConflict: boolean;
   noiseCount?: number;
+  /** WhatsApp: mensajes del cliente sin abrir desde la última respuesta. */
+  unreadCount?: number;
 };
 
 type ApiInboxPost = {
@@ -207,6 +213,7 @@ type ApiConversationMessage = {
   status: string;
   contentContext?: InteractionContentContext;
   postContext?: InteractionPostContext;
+  whatsapp?: WhatsAppMessageDetail;
 };
 
 type ApiStats = {
@@ -689,6 +696,7 @@ function mapInboxContacts(contacts: ApiInboxContact[], brands: ApiBrand[]): Inte
         latestStatus: mapRawStatus(contact.latest.status),
         hasReplyTarget: Boolean(replyTarget),
         noiseCount: contact.noiseCount ?? 0,
+        ...(contact.unreadCount !== undefined ? { unreadCount: contact.unreadCount } : {}),
       },
       responseSummary: replyTarget?.responseText
         || (rawStatus === "escalated"
@@ -1067,6 +1075,7 @@ export async function loadInteractionDetail(interactionId: string): Promise<Inte
     status: message.status,
     contentContext: message.contentContext,
     postContext: message.postContext,
+    ...(message.whatsapp ? { whatsapp: message.whatsapp } : {}),
   }));
   // La persona del caso viaja con su historial: así la vista en vivo reconoce que un cambio en
   // esa conversación (p. ej. la respuesta del chatbot) es del chat abierto y lo refresca, aunque
@@ -1423,6 +1432,16 @@ export function setUserPermissions(email: string, permissions: string[] | null):
 }
 
 /** Clientes que una persona no ve (solo admin principal); lista vacía = ve todos. */
+/**
+ * Marca las notificaciones de la campana como leídas hasta `seenAt`. `stored: false` cuando la
+ * sesión no tiene correo (modo local): entonces se recuerda en el navegador.
+ */
+export async function markNotificationsSeen(seenAt: string): Promise<{ stored: boolean; notificationsSeenAt?: string }> {
+  const response = await fetch(`${API_BASE}/me/notifications`, jsonInit("PUT", { seenAt }));
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: { stored: boolean; notificationsSeenAt?: string } }).data;
+}
+
 /** Activa o apaga WhatsApp para una persona (solo admin principal). */
 export function setUserWhatsApp(email: string, enabled: boolean): Promise<AccessControlListing & { user?: UserAccessView }> {
   return accessControlRequest("/admin/users/whatsapp", jsonInit("PUT", { email, enabled }));
@@ -1565,7 +1584,7 @@ export async function saveInteractionReply(
   text: string,
   mode: "draft" | "send" = "draft",
   expectedVersion = 1,
-  options: { followUp?: boolean } = {},
+  options: { followUp?: boolean; attachmentKey?: string; quote?: boolean } = {},
 ): Promise<{ delivery?: string }> {
   const response = await fetch(`${API_BASE}/interactions/${encodeURIComponent(interactionId)}/reply`, {
     method: "POST",
@@ -1579,12 +1598,29 @@ export async function saveInteractionReply(
       approvedByHuman: mode === "send",
       expectedVersion,
       ...(mode === "send" && options.followUp ? { followUp: true } : {}),
+      ...(mode === "send" && options.attachmentKey ? { attachmentKey: options.attachmentKey } : {}),
+      ...(mode === "send" && options.quote ? { quote: true } : {}),
     }),
   });
   if (!response.ok) await throwApiError(response);
   const payload = await response.json().catch(() => undefined) as { meta?: { delivery?: string } } | undefined;
   // "queued": WhatsApp deja la respuesta en cola y el worker la envía con su pausa.
   return { delivery: payload?.meta?.delivery };
+}
+
+/** Sube un archivo para responder por WhatsApp (hasta 16 MB); la respuesta lo usa por su clave. */
+export async function uploadWhatsAppAttachment(interactionId: string, file: File): Promise<WhatsAppAttachment> {
+  const response = await fetch(`${API_BASE}/whatsapp/media?interactionId=${encodeURIComponent(interactionId)}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Media-Type": encodeURIComponent(file.type || "application/octet-stream"),
+      "X-File-Name": encodeURIComponent(file.name),
+    },
+    body: file,
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: WhatsAppAttachment }).data;
 }
 
 /** Estado de los números de WhatsApp de las marcas visibles (cualquier rol de la bandeja). */
@@ -1648,12 +1684,98 @@ export async function requestWhatsAppHistory(interactionId: string): Promise<{ r
   return (await response.json() as { data: { requested: boolean } }).data;
 }
 
+/**
+ * Abrir un chat de WhatsApp lo marca leído en wiwo.sac y, si la persona puede responder, también
+ * en WhatsApp (tics azules). Se llama solo cuando el chat está a la vista.
+ */
+export async function markWhatsAppRead(interactionId: string): Promise<{ read: number; remote: boolean }> {
+  const response = await fetch(`${API_BASE}/whatsapp/read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ interactionId }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: { read: number; remote: boolean } }).data;
+}
+
+export type WhatsAppPresence = "composing" | "recording" | null;
+
+/** Si el cliente está escribiendo o grabando un audio en este chat ahora mismo. */
+export async function loadWhatsAppPresence(interactionId: string): Promise<WhatsAppPresence> {
+  const response = await fetch(`${API_BASE}/whatsapp/presence?interactionId=${encodeURIComponent(interactionId)}`);
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: { state: WhatsAppPresence } }).data.state;
+}
+
+/** Muestra (o quita) "escribiendo…" al cliente mientras la persona redacta. */
+export async function sendWhatsAppTyping(interactionId: string, state: "composing" | "paused"): Promise<void> {
+  const response = await fetch(`${API_BASE}/whatsapp/typing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ interactionId, state }),
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
 export function unlinkWhatsAppLine(lineId: string): Promise<WhatsAppAdminData> {
   return postWhatsApp(`lines/${encodeURIComponent(lineId)}/unlink`);
 }
 
 export function removeWhatsAppLine(lineId: string): Promise<WhatsAppAdminData> {
   return postWhatsApp(`lines/${encodeURIComponent(lineId)}`, undefined, "DELETE");
+}
+
+// ── WiWO Talk (HighLevel): conexiones por subcuenta, solo admins principales ──────────────────
+
+/** Conexiones con su URL de webhook. El token nunca vuelve al navegador: solo sus últimos 4 caracteres. */
+export async function loadWiwoTalkConnections(): Promise<WiwoTalkAdminData> {
+  const response = await fetch(`${API_BASE}/wiwo-talk/connections`);
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: WiwoTalkAdminData }).data;
+}
+
+async function sendWiwoTalk(path: string, method: "POST" | "PUT" | "DELETE", body?: unknown): Promise<WiwoTalkConnectionView[]> {
+  const response = await fetch(`${API_BASE}/wiwo-talk/connections${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json() as { data: { connections: WiwoTalkConnectionView[] } }).data.connections;
+}
+
+export function createWiwoTalkConnection(input: { brandId: string; label: string; locationId: string; token: string }): Promise<WiwoTalkConnectionView[]> {
+  return sendWiwoTalk("", "POST", input);
+}
+
+export function replaceWiwoTalkToken(id: string, token: string): Promise<WiwoTalkConnectionView[]> {
+  return sendWiwoTalk(`/${encodeURIComponent(id)}/token`, "PUT", { token });
+}
+
+export function rotateWiwoTalkWebhookSecret(id: string): Promise<WiwoTalkConnectionView[]> {
+  return sendWiwoTalk(`/${encodeURIComponent(id)}/webhook-secret`, "POST");
+}
+
+export function pauseWiwoTalkConnection(id: string, paused: boolean): Promise<WiwoTalkConnectionView[]> {
+  return sendWiwoTalk(`/${encodeURIComponent(id)}/pause`, "POST", { paused });
+}
+
+export function syncWiwoTalkConnection(id: string): Promise<WiwoTalkConnectionView[]> {
+  return sendWiwoTalk(`/${encodeURIComponent(id)}/sync`, "POST");
+}
+
+export function removeWiwoTalkConnection(id: string): Promise<WiwoTalkConnectionView[]> {
+  return sendWiwoTalk(`/${encodeURIComponent(id)}`, "DELETE");
+}
+
+/** Solo demo: un mensaje ficticio de WiWO Talk por el mismo camino que uno real. */
+export async function simulateWiwoTalkMessage(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/wiwo-talk/connections/${encodeURIComponent(id)}/demo-message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!response.ok) await throwApiError(response);
 }
 
 /** Solo demo: deja un mensaje ficticio en la bandeja por el mismo camino que uno real. */

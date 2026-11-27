@@ -2257,3 +2257,279 @@ input[type="radio"] { accent-color: var(--neo-blue); }
   text-transform: none;
   font-weight: 400;
 }
+
+/* ── Campana de notificaciones: mensajes, comentarios y reseñas nuevas ───────────────── */
+.notifications-menu { position: relative; display: flex; }
+.notification-button__count {
+  position: absolute;
+  top: 3px;
+  right: 1px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  place-items: center;
+  border: 2px solid var(--bg);
+  border-radius: 999px;
+  /* Verde WiWO con tinta oscura, como los demás contadores de la marca. */
+  color: #1a1a1a;
+  background: var(--neo-green);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+.notifications-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--lab-card);
+  box-shadow: var(--shadow-elevated);
+}
+.notifications-popover__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.notifications-popover__head strong { color: var(--ink); font-size: 14px; }
+.notifications-popover__mark,
+.notifications-popover__foot button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.notifications-popover__mark:hover:not(:disabled),
+.notifications-popover__foot button:hover { color: var(--ink); background: var(--neo-hover); }
+.notifications-popover__mark:disabled { cursor: default; opacity: 0.5; }
+.notifications-popover__list { margin: 0; padding: 4px; overflow-y: auto; list-style: none; }
+.notification-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.notification-item:hover,
+.notification-item:focus-visible { background: var(--neo-hover); }
+.notification-item__avatar {
+  position: relative;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  overflow: visible;
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--lab-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.notification-item__avatar .profile-avatar-img { width: 36px; height: 36px; border-radius: 999px; object-fit: cover; }
+.notification-item__network {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border: 2px solid var(--lab-card);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--lab-muted);
+}
+.notification-item__body { display: grid; min-width: 0; gap: 2px; }
+.notification-item__title { color: var(--muted); font-size: 12px; }
+.notification-item__title strong { color: var(--ink); font-weight: 700; }
+.notification-item__who { overflow: hidden; color: var(--ink-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.notification-item__text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.notification-item.is-unread .notification-item__who { color: var(--ink); font-weight: 600; }
+.notification-item__meta { display: grid; justify-items: end; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.notification-item__dot { width: 8px; height: 8px; border-radius: 999px; background: var(--neo-green); }
+.notifications-popover__empty { margin: 0; padding: 28px 16px; color: var(--muted); font-size: 13px; text-align: center; }
+.notifications-popover__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ── WhatsApp en el chat: cita, reacciones, tics y herramientas del compositor ───────── */
+.manual-inbox-message__quote {
+  margin: 4px 0 6px;
+  padding: 4px 10px;
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--neo-hover);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.manual-inbox-message__deleted { color: var(--muted); font-style: italic; }
+.manual-inbox-message__reactions { display: inline-flex; gap: 4px; margin-top: 4px; }
+.manual-inbox-message__reactions span {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--lab-card);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.manual-inbox-message__ticks { color: var(--muted); font-size: 11px; font-weight: 600; }
+.manual-inbox-message__ticks--read,
+.manual-inbox-message__ticks--played { color: var(--green); }
+.manual-inbox-whatsapp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.manual-inbox-whatsapp-tools .is-warning { color: var(--amber); font-size: 12px; }
+.manual-inbox-tool {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.manual-inbox-tool:disabled { cursor: default; opacity: 0.55; }
+.manual-inbox-tool--check input { accent-color: var(--accent); }
+.manual-inbox-attachment {
+  display: inline-flex;
+  max-width: 260px;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--neo-hover);
+  font-size: 12px;
+}
+.manual-inbox-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.manual-inbox-attachment button {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+/* WhatsApp: no leídos y "escribiendo…" (lectura y presencia). */
+.manual-inbox-unread {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0 6px;
+  place-items: center;
+  border-radius: 999px;
+  color: #1a1a1a;
+  background: var(--neo-green);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.manual-inbox-typing {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 14px 4px;
+  color: var(--neo-muted-fg);
+  font-size: 12px;
+}
+.manual-inbox-typing:empty { min-height: 0; padding: 0; }
+.manual-inbox-typing__dots { display: inline-flex; gap: 3px; }
+.manual-inbox-typing__dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--neo-muted-fg);
+  animation: manual-inbox-typing 1.2s ease-in-out infinite;
+}
+.manual-inbox-typing__dots i:nth-child(2) { animation-delay: 0.15s; }
+.manual-inbox-typing__dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes manual-inbox-typing {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .manual-inbox-typing__dots i { animation: none; opacity: 0.7; }
+}
+
+/* WiWO Talk: conexiones por subcuenta (panel de admins principales) y marca en el chat. */
+.wiwo-talk__webhook {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--neo-border);
+  border-radius: 10px;
+  background: var(--neo-hover);
+}
+.wiwo-talk__webhook p { margin: 0; color: var(--neo-fg); font-size: 13px; line-height: 1.45; }
+.wiwo-talk__webhook small { color: var(--neo-muted-fg); font-size: 12px; }
+.wiwo-talk__url { display: flex; gap: 8px; align-items: center; }
+.wiwo-talk__url input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--neo-border);
+  border-radius: 10px;
+  color: var(--neo-fg);
+  background: var(--neo-canvas);
+  font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.wiwo-talk__token { display: grid; gap: 8px; }
+.manual-inbox-talk-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--neo-border);
+  border-radius: 999px;
+  color: var(--neo-muted-fg);
+  font-size: 11px;
+  font-weight: 600;
+}

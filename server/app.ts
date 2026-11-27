@@ -59,6 +59,7 @@ import {
   brandSacUsageSchema,
   userHiddenBrandsSchema,
   userWhatsAppSchema,
+  notificationsSeenSchema,
   messageVolumeQuerySchema,
   brandWorkbookUpdateSchema,
   manualRecordsQuerySchema,
@@ -209,8 +210,12 @@ import { queueEligibleAutoReplies } from "./auto-reply-outbox.js";
 import { registerAutomationRoutes } from "./automation-routes.js";
 import { ApiError } from "./api-error.js";
 import { isWhatsAppWorkerPath, registerWhatsAppRoutes, whatsappMode } from "./whatsapp-routes.js";
+import { CredentialVault } from "./credential-vault.js";
+import { WiwoTalkError, type FetchLike } from "./wiwo-talk/client.js";
+import { isWiwoTalkWebhookPath, registerWiwoTalkRoutes } from "./wiwo-talk/routes.js";
+import { WiwoTalkService, WiwoTalkServiceError } from "./wiwo-talk/service.js";
 import { WhatsAppLineService } from "./whatsapp/line-service.js";
-import { buildWhatsAppInteraction, historyMessageIds } from "./whatsapp/ingest.js";
+import { buildSentWhatsAppInteraction, buildWhatsAppInteraction, historyMessageIds } from "./whatsapp/ingest.js";
 import { AutomationServiceError } from "./automation-service.js";
 import {
   contactKeyFor,
@@ -238,6 +243,8 @@ export interface BuildAppOptions {
   aiProvider?: AiProvider;
   /** Descarga de miniaturas simulada (pruebas); por defecto `fetch`. */
   thumbnailFetcher?: ThumbnailFetcher;
+  /** API de WiWO Talk (HighLevel) simulada (pruebas); por defecto `fetch`. */
+  wiwoTalkFetch?: FetchLike;
 }
 
 export interface SacFlowApp extends FastifyInstance {
@@ -602,6 +609,8 @@ function isProtectedApiPath(url: string): boolean {
     && !isServiceApiPath(routePath)
     // El worker de WhatsApp no tiene sesión: sus rutas exigen su propia clave (whatsapp-routes.ts).
     && !isWhatsAppWorkerPath(routePath)
+    // Avisos del workflow de WiWO Talk: cada conexión los firma con su propio secreto.
+    && !isWiwoTalkWebhookPath(routePath)
     && !isOperationalProbePath(routePath);
 }
 
@@ -1768,6 +1777,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   }
   // Números de WhatsApp: estado vivo (QR, código, señal del worker) en memoria de este proceso.
   const whatsappLines = new WhatsAppLineService(repository, { demoMode: config.demoMode });
+  /**
+   * Mensajes de WhatsApp ya armados → bandeja: los guarda (sin duplicar), cierra como respondidos
+   * los casos que la cuenta contestó después y pasa lo nuevo por el protocolo SAC. Nunca encola
+   * respuestas automáticas: WhatsApp solo envía lo que aprobó una persona.
+   */
+  const ingestWhatsAppInteractions = async (brand: Brand, incoming: Interaction[]) => {
+    const inserted = await repository.insertInteractions(incoming);
+    if (!inserted.created.length) return { created: 0, duplicates: inserted.duplicates, history: 0 };
+    const historyCreated = inserted.created.filter((interaction) => interaction.metricoolRef?.whatsapp?.history).length;
+    if (inserted.created.some((interaction) => interaction.direction === "outbound")) {
+      await reconcileDetectedTeamResponses(repository, [brand.account.id]);
+    }
+    const protocolIds = inserted.created
+      .filter((interaction) => interaction.direction === "inbound")
+      .filter((interaction) => ["new", "pending", "drafted", "escalated"].includes(interaction.status))
+      .map((interaction) => interaction.id);
+    if (protocolIds.length) {
+      await repository.mutateInteractions(protocolIds, (current) => processSacInteractions(
+        current,
+        protocolIds,
+        sacAutomationOptions(config),
+      ));
+    }
+    return { created: inserted.created.length, duplicates: inserted.duplicates, history: historyCreated };
+  };
+  // WiWO Talk: claves por conexión, cifradas en la base con la clave de credenciales de la API.
+  const wiwoTalk = new WiwoTalkService({
+    repository,
+    vault: new CredentialVault(config.automation.credentialEncryptionKey),
+    ingest: ingestWhatsAppInteractions,
+    demoMode: config.demoMode,
+    ...(options.wiwoTalkFetch ? { fetchImpl: options.wiwoTalkFetch } : {}),
+  });
   // Roles asignados desde "Usuarios y roles": la identidad los consulta en cada solicitud.
   const accessDirectory = createAccessDirectory(repository);
   const identityConfig = { ...config.auth, accessDirectory };
@@ -1883,6 +1925,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       && isApiPath(request.url)
       && !isOperationalProbePath(request.url)
       && !isWhatsAppWorkerPath(request.url)
+      && !isWiwoTalkWebhookPath(request.url)
     ) {
       const now = Date.now();
       const key = rateLimitKey(request.headers as Record<string, unknown>, request.ip, [config.auth.cookieName, API_SESSION_COOKIE]);
@@ -2669,6 +2712,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   });
 
   /**
+   * Campana de notificaciones: guarda hasta cuándo leyó la persona sus avisos. Solo avanza y
+   * nunca más allá de ahora. Sin correo de sesión (modo local sin inicio de sesión) no hay dónde
+   * guardarlo por persona y responde `stored: false`: la web lo recuerda en el navegador.
+   */
+  app.put("/api/me/notifications", async (request) => {
+    const actor = requireRole(config, request, "viewer");
+    const body = notificationsSeenSchema.parse(request.body);
+    if (!actor.email) return { data: { stored: false }, meta: apiMeta(config) };
+    const seenAt = new Date(Math.min(Date.parse(body.seenAt), Date.now())).toISOString();
+    const stored = await repository.setUserNotificationsSeen({ email: actor.email, name: actor.displayName, seenAt });
+    accessDirectory.invalidate();
+    return { data: { stored: true, notificationsSeenAt: stored ?? seenAt }, meta: apiMeta(config) };
+  });
+
+  /**
    * Activa o apaga WhatsApp para una persona (solo admin principal). Apagado, no ve Gestión
    * WhatsApp y la API rechaza sus envíos por WhatsApp; sus casos y el historial no cambian.
    */
@@ -2770,8 +2828,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
 
   app.get("/api/me", async (request) => {
     const actor = requireRole(config, request, "viewer");
+    // Campana: hasta cuándo leyó sus notificaciones (por persona, en la base).
+    const notificationsSeenAt = actor.email ? (await accessDirectory.find(actor.email))?.notificationsSeenAt : undefined;
     return {
       data: {
+        ...(notificationsSeenAt ? { notificationsSeenAt } : {}),
         userId: actor.userId,
         displayName: actor.displayName,
         tenantId: actor.tenantId,
@@ -3731,6 +3792,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           status: item.status,
           contentContext: publicItem.contentContext,
           postContext: publicPostContext(item),
+          ...(item.metricoolRef?.whatsapp ? {
+            whatsapp: {
+              ...(item.metricoolRef.whatsapp.status ? { status: item.metricoolRef.whatsapp.status } : {}),
+              ...(item.metricoolRef.whatsapp.quotedText ? { quotedText: item.metricoolRef.whatsapp.quotedText } : {}),
+              ...(item.metricoolRef.whatsapp.reactions?.length
+                ? { reactions: item.metricoolRef.whatsapp.reactions.map(({ emoji, fromMe }) => ({ emoji, fromMe })) }
+                : {}),
+              ...(item.metricoolRef.whatsapp.editedAt ? { edited: true } : {}),
+              ...(item.metricoolRef.whatsapp.deletedAt ? { deleted: true } : {}),
+              ...(item.metricoolRef.whatsapp.sentBy ? { sentBy: item.metricoolRef.whatsapp.sentBy } : {}),
+              ...(item.metricoolRef.whatsapp.provider ? { provider: item.metricoolRef.whatsapp.provider } : {}),
+            },
+          } : {}),
         };
         const sentReply = item.direction === "inbound" && item.responseText && item.respondedAt
           && !alreadySynced(item.responseText, item.respondedAt)
@@ -4767,14 +4841,25 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     let replyDeliveryId: string | undefined;
     let replyDeliveryStatus: "sent" | "demo_simulated" | "queued" | undefined;
     let liveCredentials: MetricoolAccountReference | undefined;
-    // WhatsApp no pasa por Metricool: la API deja la entrega en cola y el worker la envía.
+    // WhatsApp no pasa por Metricool: con un número vinculado la API deja la entrega en cola y el
+    // worker la envía; con WiWO Talk la API la envía a HighLevel en la misma solicitud.
     const isWhatsApp = interaction.channel === "whatsapp";
-    const whatsappQueued = isWhatsApp && !config.demoMode;
+    const talkReference = isWhatsApp && interaction.metricoolRef?.whatsapp?.provider === "wiwo_talk"
+      ? interaction.metricoolRef.whatsapp
+      : undefined;
+    const whatsappQueued = isWhatsApp && !talkReference && !config.demoMode;
+    const talkLive = Boolean(talkReference) && !config.demoMode;
+    if ((body.attachmentKey || body.quote) && !isWhatsApp) {
+      throw new ApiError(422, "WHATSAPP_ONLY_OPTION", "Los adjuntos y las citas solo están disponibles en WhatsApp.");
+    }
+    if ((body.attachmentKey || body.quote) && talkReference) {
+      throw new ApiError(422, "WIWO_TALK_TEXT_ONLY", "Por WiWO Talk, por ahora, solo se responde con texto.");
+    }
 
     if (body.mode === "send") {
       // WhatsApp (live) tiene su propio cortacorriente: los de Metricool no lo abren ni lo
       // cierran, así se puede probar WhatsApp sin habilitar respuestas a Metricool.
-      if (whatsappQueued) {
+      if (whatsappQueued || talkLive) {
         // WhatsApp se habilita por persona en la base (Usuarios y roles), no por variable de entorno.
         if (actor.whatsappEnabled === false) {
           throw new ApiError(
@@ -4797,7 +4882,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
           "WhatsApp no tiene envío automático: cada respuesta la aprueba y envía una persona.",
         );
       }
-      if (!config.demoMode && !whatsappQueued) {
+      if (!config.demoMode && !whatsappQueued && !talkLive) {
         if (body.approvedByHuman && !config.operations.manualRepliesEnabled) {
           throw new ApiError(
             423,
@@ -4853,23 +4938,34 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         );
       }
 
-      if (whatsappQueued) {
-        if (whatsappMode(config) !== "live") {
-          throw new ApiError(503, "WHATSAPP_DISABLED", "WhatsApp no está habilitado en este servidor.");
-        }
-        const reference = interaction.metricoolRef?.whatsapp;
-        const line = reference ? await whatsappLines.find(reference.lineId) : undefined;
-        if (!reference || !line) {
-          throw new ApiError(422, "WHATSAPP_LINE_NOT_FOUND", "El número de WhatsApp de esta conversación ya no existe.");
-        }
-        if (line.desiredState !== "linked") {
-          throw new ApiError(409, "WHATSAPP_LINE_UNLINKED", "El número de WhatsApp de esta conversación está desvinculado.");
+      if (whatsappQueued || talkLive) {
+        if (talkReference) {
+          const connection = await wiwoTalk.find(talkReference.lineId);
+          if (!connection) {
+            throw new ApiError(422, "WIWO_TALK_CONNECTION_NOT_FOUND", "La conexión de WiWO Talk de esta conversación ya no existe.");
+          }
+          if (connection.status === "paused") {
+            throw new ApiError(409, "WIWO_TALK_PAUSED", "La conexión de WiWO Talk de esta conversación está en pausa.");
+          }
+        } else {
+          if (whatsappMode(config) !== "live") {
+            throw new ApiError(503, "WHATSAPP_DISABLED", "WhatsApp no está habilitado en este servidor.");
+          }
+          const reference = interaction.metricoolRef?.whatsapp;
+          const line = reference ? await whatsappLines.find(reference.lineId) : undefined;
+          if (!reference || !line) {
+            throw new ApiError(422, "WHATSAPP_LINE_NOT_FOUND", "El número de WhatsApp de esta conversación ya no existe.");
+          }
+          if (line.desiredState !== "linked") {
+            throw new ApiError(409, "WHATSAPP_LINE_UNLINKED", "El número de WhatsApp de esta conversación está desvinculado.");
+          }
         }
         // Un mismo texto exacto a muchos chats en poco tiempo es lo que más marca un número como spam.
         const since = Date.now() - 30 * 60_000;
         const recent = await repository.listReplyDeliveries({ accountId: interaction.accountId, limit: 300 });
         const sameText = new Set(recent
-          .filter((delivery) => delivery.bodyText === body.text
+          // Un envío que es solo un archivo (sin texto) no cuenta como texto repetido.
+          .filter((delivery) => body.text.length > 0 && delivery.bodyText === body.text
             && delivery.interactionId !== interaction.id
             && !["failed", "cancelled"].includes(delivery.status)
             && Date.parse(delivery.createdAt) >= since)
@@ -4950,6 +5046,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       });
       const delivery = prepared.delivery;
       replyDeliveryId = delivery.id;
+      // WhatsApp: el adjunto y la cita viajan aparte de la entrega común (whatsapp_delivery_options).
+      if (prepared.created && isWhatsApp && (body.attachmentKey || body.quote)) {
+        const attachment = body.attachmentKey ? await repository.getWhatsAppMedia(body.attachmentKey) : undefined;
+        if (body.attachmentKey && (!attachment || attachment.brandId !== interaction.brandId)) {
+          throw new ApiError(422, "MEDIA_NOT_FOUND", "El adjunto no existe o es de otra marca; vuelve a subirlo.");
+        }
+        const reference = interaction.metricoolRef?.whatsapp;
+        await repository.saveWhatsAppDeliveryOptions(delivery.id, {
+          ...(attachment ? {
+            attachment: {
+              key: attachment.key,
+              mimeType: attachment.mimeType,
+              kind: attachment.kind,
+              size: attachment.size,
+              ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
+            },
+          } : {}),
+          ...(body.quote && reference ? { quote: { messageId: reference.messageId, text: interaction.text.slice(0, 300) } } : {}),
+        });
+      }
       if (!prepared.created && delivery.idempotencyKey !== operationKey) {
         throw new ApiError(
           409,
@@ -5035,6 +5151,62 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         // muestra "escribiendo…" y confirma el envío por la ruta interna.
         updatedAfterDelivery = interaction;
         replyDeliveryStatus = "queued";
+      } else if (talkReference) {
+        // WiWO Talk: se envía a HighLevel ahora. Un rechazo explícito (token, permisos, ventana de
+        // 24 h) falla; si no hay respuesta clara queda incierta y una persona la concilia.
+        const claimed = await repository.claimReplyDelivery(delivery.id, 2 * 60_000);
+        if (!claimed) {
+          throw new ApiError(409, "DELIVERY_IN_PROGRESS", "La entrega no pudo reservarse para envío.", { deliveryId: delivery.id });
+        }
+        let sent: { messageId: string; conversationId?: string };
+        try {
+          sent = await wiwoTalk.sendReply(talkReference.lineId, talkReference.chatId, body.text);
+        } catch (error) {
+          const explicit = error instanceof WiwoTalkServiceError
+            || (error instanceof WiwoTalkError && error.status >= 400 && error.status < 500);
+          const errorCode = error instanceof WiwoTalkError || error instanceof WiwoTalkServiceError ? error.code : "WIWO_TALK_DELIVERY_UNKNOWN";
+          await repository.settleReplyDelivery(delivery.id, {
+            status: explicit ? "failed" : "uncertain",
+            errorCode,
+            at: new Date().toISOString(),
+          });
+          request.log.warn({ event: "wiwo_talk_reply_failed", deliveryId: delivery.id, errorCode }, "WiWO Talk no aceptó la respuesta.");
+          if (!explicit) {
+            throw new ApiError(502, "DELIVERY_UNCERTAIN", "WiWO Talk no confirmó el resultado. No se reenviará hasta verificar y conciliar la entrega.", { deliveryId: delivery.id });
+          }
+          throw new ApiError(
+            error instanceof WiwoTalkServiceError ? error.statusCode : 422,
+            errorCode,
+            error instanceof Error ? error.message : "WiWO Talk rechazó la respuesta.",
+            { deliveryId: delivery.id },
+          );
+        }
+        const settled = await repository.settleReplyDelivery(delivery.id, {
+          status: "sent",
+          providerResponseRef: sent.messageId,
+          at: new Date().toISOString(),
+        });
+        if (!settled?.interaction) {
+          throw new ApiError(502, "DELIVERY_UNCERTAIN", "WiWO Talk respondió, pero no se pudo confirmar el estado local. La entrega requiere conciliación.", { deliveryId: delivery.id });
+        }
+        // El mensaje enviado queda en la conversación; la conciliación lo reconoce por su id.
+        const outbound = buildSentWhatsAppInteraction({
+          inbound: settled.interaction,
+          lineId: talkReference.lineId,
+          chatId: talkReference.chatId,
+          messageId: sent.messageId,
+          text: body.text,
+          sentBy: actor.displayName,
+          at: new Date().toISOString(),
+        });
+        outbound.metricoolRef!.whatsapp!.provider = "wiwo_talk";
+        const conversationId = sent.conversationId ?? talkReference.talkConversationId;
+        if (conversationId) outbound.metricoolRef!.whatsapp!.talkConversationId = conversationId;
+        outbound.audit = outbound.audit.map((entry) => ({ ...entry, detail: `Mensaje enviado por WhatsApp (WiWO Talk) desde wiwo.sac por ${actor.displayName}.` }));
+        await repository.insertInteractions([outbound]);
+        updatedAfterDelivery = settled.interaction;
+        replyDeliveryStatus = "sent";
+        request.log.info({ event: "wiwo_talk_reply_sent", deliveryId: delivery.id }, "Respuesta enviada por WiWO Talk.");
       } else {
         const claimed = await repository.claimReplyDelivery(delivery.id, 2 * 60_000);
         if (!claimed) {
@@ -5056,7 +5228,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         }
       }
 
-      if (!config.demoMode && !whatsappQueued) {
+      if (!config.demoMode && !whatsappQueued && !talkReference) {
         if (!metricoolClient || !liveCredentials) {
           throw new ApiError(500, "DELIVERY_STATE_ERROR", "La entrega perdió su configuración validada.");
         }
@@ -5585,36 +5757,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     requireActor: (request) => requestActor(config, request),
     requirePermission: (request, permission) => requirePermission(config, request, permission),
     isMasterAdmin: (actor) => actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+    wiwoTalk,
     ingest: async (line, brand, messages, historyMode) => {
       // Historial antiguo: llega cerrado y no pasa por el protocolo SAC (no es un caso). Solo el
       // último mensaje reciente sin responder de cada chat queda abierto (historyMessageIds).
-      const historyIds = historyMode ? historyMessageIds(messages, historyMode) : new Set<string>();
-      const incoming = messages.map((message) => buildWhatsAppInteraction(message, line, brand, {
-        history: historyIds.has(message.messageId),
-      }));
-      const inserted = await repository.insertInteractions(incoming);
-      const historyCreated = inserted.created.filter((interaction) => interaction.metricoolRef?.whatsapp?.history).length;
-      if (!inserted.created.length) return { created: 0, duplicates: inserted.duplicates, history: 0 };
       // Una respuesta escrita desde el teléfono cierra el caso como "Respondido por el equipo".
-      if (inserted.created.some((interaction) => interaction.direction === "outbound")) {
-        await reconcileDetectedTeamResponses(repository, [brand.account.id]);
-      }
-      const protocolIds = inserted.created
-        .filter((interaction) => interaction.direction === "inbound")
-        .filter((interaction) => ["new", "pending", "drafted", "escalated"].includes(interaction.status))
-        .map((interaction) => interaction.id);
-      // Clasifica y evalúa el protocolo SAC como con Metricool. Nunca se encolan respuestas
-      // automáticas: WhatsApp solo envía lo que aprobó una persona.
-      if (protocolIds.length) {
-        await repository.mutateInteractions(protocolIds, (current) => processSacInteractions(
-          current,
-          protocolIds,
-          sacAutomationOptions(config),
-        ));
-      }
-      return { created: inserted.created.length, duplicates: inserted.duplicates, history: historyCreated };
+      const historyIds = historyMode ? historyMessageIds(messages, historyMode) : new Set<string>();
+      return ingestWhatsAppInteractions(brand, messages.map((message) => buildWhatsAppInteraction(message, line, brand, {
+        history: historyIds.has(message.messageId),
+      })));
     },
   });
+
+  registerWiwoTalkRoutes(app, {
+    service: wiwoTalk,
+    demoMode: config.demoMode,
+    requireActor: (request) => requestActor(config, request),
+    isMasterAdmin: (actor) => actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+    brandExists: async (brandId) => (await repository.snapshotCatalog()).brands.some((brand) => brand.id === brandId),
+  });
+  wiwoTalk.startScheduler(config.whatsapp.wiwoTalkSyncMinutes);
+  app.addHook("onClose", async () => wiwoTalk.stop());
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {

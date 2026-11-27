@@ -30,6 +30,8 @@ export interface SessionActor {
   masterAdmin?: boolean;
   /** WhatsApp para esta persona (Usuarios y roles); false = no ve Gestión WhatsApp. */
   whatsappEnabled?: boolean;
+  /** Hasta cuándo leyó sus notificaciones de la campana (por persona, en la base). */
+  notificationsSeenAt?: string;
 }
 
 /** Rol asignable desde "Usuarios y roles": id de un rol (de base o propio) o "none" (sin acceso). */
@@ -258,6 +260,8 @@ export interface InteractionConversationSummary {
   hasReplyTarget: boolean;
   /** Mensajes abiertos de esta persona señalados como posible spam o ruido. */
   noiseCount?: number;
+  /** WhatsApp: mensajes del cliente que nadie del equipo abrió desde la última respuesta. */
+  unreadCount?: number;
 }
 
 export type SacAutomationRoute = "auto_reply" | "draft" | "human_review" | "quarantine" | "ignore";
@@ -451,6 +455,30 @@ export interface ConversationMessage {
   status: string;
   contentContext?: InteractionContentContext;
   postContext?: InteractionPostContext;
+  /** Detalle propio de WhatsApp: tics, cita, reacciones, editado/borrado y quién envió. */
+  whatsapp?: WhatsAppMessageDetail;
+}
+
+export type WhatsAppDeliveryState = "sent" | "delivered" | "read" | "played";
+
+export interface WhatsAppMessageDetail {
+  status?: WhatsAppDeliveryState;
+  quotedText?: string;
+  reactions?: Array<{ emoji: string; fromMe: boolean }>;
+  edited?: boolean;
+  deleted?: boolean;
+  sentBy?: string;
+  /** Chat de una conexión de WiWO Talk (HighLevel) en vez de un número vinculado. */
+  provider?: "wiwo_talk";
+}
+
+/** Adjunto subido para responder por WhatsApp. */
+export interface WhatsAppAttachment {
+  key: string;
+  mimeType: string;
+  kind: "image" | "video" | "audio" | "sticker" | "document";
+  size: number;
+  fileName?: string;
 }
 
 export type DashboardKpiId =
@@ -630,4 +658,30 @@ export interface WhatsAppAdminData {
 export interface WhatsAppStatusData {
   mode: WhatsAppMode;
   lines: WhatsAppLineSummary[];
+  /** Conexiones de WiWO Talk de las marcas visibles. */
+  talk?: Array<{ id: string; brandId: string; label: string; status: WiwoTalkConnectionStatus }>;
+}
+
+export type WiwoTalkConnectionStatus = "active" | "error" | "paused";
+
+/** Conexión de WiWO Talk vista por un admin principal (el token nunca sale de la API). */
+export interface WiwoTalkConnectionView {
+  id: string;
+  brandId: string;
+  label: string;
+  locationId: string;
+  locationName?: string;
+  tokenHint: string;
+  status: WiwoTalkConnectionStatus;
+  lastError?: string;
+  lastErrorAt?: string;
+  lastSyncAt?: string;
+  lastWebhookAt?: string;
+  webhookPath: string;
+  webhookSecret: string;
+}
+
+export interface WiwoTalkAdminData {
+  connections: WiwoTalkConnectionView[];
+  demo: boolean;
 }

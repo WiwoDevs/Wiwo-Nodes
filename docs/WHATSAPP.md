@@ -51,12 +51,33 @@ Cómo se guarda (`server/whatsapp/ingest.ts`):
 - Excepción al vincular: el último mensaje de cada chat, si es del cliente y de los últimos 7 días, entra como **caso normal**, porque es alguien esperando respuesta.
 - Baileys sincroniza el historial como WhatsApp Web aunque no se importe: lo necesita para asociar los identificadores privados (LID) con los números. Si no se pidió, wiwo.sac simplemente no lo guarda.
 
+### Chat completo
+
+- **Archivos.** El worker descarga fotos, videos, audios, stickers y documentos de hasta 16 MB, de los tipos aceptados. La API guarda su propia copia por sha256 (`whatsapp_media`, migración `0027_whatsapp_media.sql`). Se abren con `GET /api/media/whatsapp/:key`, solo para quien ve la marca; los documentos se descargan, nunca se muestran en la página. El historial no descarga archivos: queda la etiqueta ("[Imagen]").
+- **Adjuntar y citar.** En el compositor, **Adjuntar** sube un archivo (`POST /api/whatsapp/media`) y **Citar su mensaje** cita el del cliente. El worker envía el archivo con su leyenda; un audio se "graba" en vez de "escribirse".
+- **Tics, reacciones, ediciones y borrados.** Llegan como cambios sobre el mensaje ya guardado (`lines/:id/updates`) sin cambiar la versión del caso. Los tics solo avanzan: enviado → entregado → leído → reproducido.
+- **Quién envió.** Cada mensaje enviado desde wiwo.sac muestra la persona que lo envió.
+
+### Lectura y presencia
+
+- **Leído.** Abrir un chat a la vista lo marca leído en wiwo.sac (`POST /api/whatsapp/read`). Si la persona puede responder, también en WhatsApp: el cliente ve los tics azules. Nada se marca leído en el teléfono sin que alguien lo haya abierto. La lista muestra cuántos mensajes sin leer tiene cada chat, y el filtro **No leídos** deja solo esos.
+- **El cliente escribe.** Mientras un chat está abierto, la API sigue su presencia (el worker se suscribe) y la vista muestra "está escribiendo…" o "está grabando un audio…".
+- **El equipo escribe.** Mientras alguien redacta, el cliente ve "escribiendo…". Sale como mucho una señal cada 4 s por chat, se apaga sola a los 6 s sin escribir, y nunca pone el número "en línea".
+
+### Robustez del worker
+
+- **Sesión cifrada.** La sesión de cada número se guarda cifrada en disco: AES-256-GCM, con una clave derivada de `SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY`, y nombres de archivo con hash, porque los de Baileys llevan teléfonos. Una sesión antigua en texto plano se cifra sola al primer uso, sin volver a escanear. Sin esa clave, copiar la carpeta no sirve.
+- **Cola durable.** Los mensajes recibidos se guardan cifrados en `<carpeta de sesiones>/_spool/` antes de entregarlos a la API. Se borran cuando la API los aceptó, y si el worker o la API se caen se reenvían al volver, sin duplicar.
+- **Respuestas vencidas.** Una respuesta que lleva 24 h en cola (número desconectado) falla con `WHATSAPP_QUEUE_EXPIRED` en vez de salir un día tarde.
+- **Salud.** `/health` del worker informa los envíos de la última hora y del último día por número, y los mensajes pendientes de entregar. No incluye datos de clientes.
+
 ### Resguardos contra el marcado como spam
 
 | Resguardo | Dónde | Por defecto |
 | --- | --- | --- |
 | Pausa al azar entre envíos del mismo número | worker (`SendPacer`) | 4–12 s (`SAC_FLOW_WHATSAPP_MIN_GAP_MS`, `_MAX_GAP_MS`) |
-| Tope por minuto y por hora | worker | 6 por minuto, 60 por hora (`_MAX_PER_MINUTE`, `_MAX_PER_HOUR`) |
+| Tope por minuto, por hora y por día | worker | 6 por minuto, 60 por hora, 400 por día (`_MAX_PER_MINUTE`, `_MAX_PER_HOUR`, `_MAX_PER_DAY`) |
+| Pausa extra al pasar a otro chat y al enviar un archivo | worker | +3 s y +4 s (`_CHAT_CHANGE_EXTRA_MS`, `_ATTACHMENT_EXTRA_MS`) |
 | "Escribiendo…" según el largo del texto (±20 %) | worker | 45 ms por carácter, entre 1,5 y 8 s (`_TYPING_*`) |
 | Marcar como leído antes de responder | worker | siempre |
 | Mismo texto exacto a muchos chats en 30 min | API (`WHATSAPP_REPEATED_TEXT`) | bloquea desde el 5.º chat (`_REPEATED_TEXT_LIMIT`) |

@@ -9,10 +9,14 @@ import type { WhatsAppPacingConfig } from "../config.js";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
 
 export class SendPacer {
   private readonly sends: number[] = [];
+  /** Envíos de las últimas 24 h (el tope diario; `sends` guarda solo la última hora). */
+  private readonly daySends: number[] = [];
   private nextAllowedAt = 0;
+  private lastChatId?: string;
 
   constructor(
     private readonly config: WhatsAppPacingConfig,
@@ -30,7 +34,16 @@ export class SendPacer {
     if (this.sends.length >= this.config.maxPerHour) {
       at = Math.max(at, this.sends[this.sends.length - this.config.maxPerHour]! + HOUR_MS);
     }
+    if (this.daySends.length >= this.config.maxPerDay) {
+      at = Math.max(at, this.daySends[this.daySends.length - this.config.maxPerDay]! + DAY_MS);
+    }
     return at;
+  }
+
+  /** Envíos en las últimas 24 h y en la última hora (para la salud del worker). */
+  usage(now: number): { lastHour: number; lastDay: number } {
+    this.prune(now);
+    return { lastHour: this.sends.length, lastDay: this.daySends.length };
   }
 
   isReady(now: number): boolean {
@@ -38,10 +51,19 @@ export class SendPacer {
   }
 
   /** Registra un envío y fija la próxima pausa al azar entre el mínimo y el máximo. */
-  record(now: number): void {
+  /**
+   * Registra un envío y fija la próxima pausa al azar entre el mínimo y el máximo, más un extra si
+   * el siguiente puede ir a otro chat (se suma al pasar de chat) o si este llevaba un archivo.
+   */
+  record(now: number, detail: { chatId?: string; attachment?: boolean } = {}): void {
     this.sends.push(now);
+    this.daySends.push(now);
     const span = Math.max(0, this.config.maxGapMs - this.config.minGapMs);
-    this.nextAllowedAt = now + this.config.minGapMs + Math.round(this.random() * span);
+    const chatChanged = Boolean(detail.chatId && this.lastChatId && detail.chatId !== this.lastChatId);
+    const extra = (chatChanged ? this.config.chatChangeExtraMs ?? 0 : 0)
+      + (detail.attachment ? this.config.attachmentExtraMs ?? 0 : 0);
+    this.nextAllowedAt = now + this.config.minGapMs + Math.round(this.random() * span) + extra;
+    if (detail.chatId) this.lastChatId = detail.chatId;
     this.prune(now);
   }
 
@@ -54,6 +76,7 @@ export class SendPacer {
 
   private prune(now: number): void {
     while (this.sends.length && this.sends[0]! <= now - HOUR_MS) this.sends.shift();
+    while (this.daySends.length && this.daySends[0]! <= now - DAY_MS) this.daySends.shift();
   }
 }
 

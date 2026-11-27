@@ -133,6 +133,11 @@ export interface AppConfig {
     pacing: WhatsAppPacingConfig;
     /** Un mismo texto exacto a más de este número de chats en 30 minutos se bloquea. */
     repeatedTextLimit: number;
+    /**
+     * WiWO Talk: cada cuántos minutos se concilian las conversaciones recientes de cada conexión
+     * (0 = solo webhook y "Sincronizar ahora"). Las claves de cada conexión viven en la base.
+     */
+    wiwoTalkSyncMinutes: number;
   };
   ai: {
     enabled: boolean;
@@ -164,6 +169,11 @@ export interface WhatsAppPacingConfig {
   maxGapMs: number;
   maxPerMinute: number;
   maxPerHour: number;
+  /** Tope de mensajes por día y número (como WiWO Talk). */
+  maxPerDay: number;
+  /** Pausa extra al pasar a otro chat y al enviar un archivo, para no parecer un bot. */
+  chatChangeExtraMs: number;
+  attachmentExtraMs: number;
   /** "Escribiendo…" según el largo del texto, acotado entre un mínimo y un máximo. */
   typingMsPerChar: number;
   typingMinMs: number;
@@ -201,11 +211,15 @@ function loadWhatsAppConfig(env: NodeJS.ProcessEnv, cwd: string): AppConfig["wha
       maxGapMs,
       maxPerMinute: integer(env.SAC_FLOW_WHATSAPP_MAX_PER_MINUTE, 6, 1, 60),
       maxPerHour: integer(env.SAC_FLOW_WHATSAPP_MAX_PER_HOUR, 60, 1, 1_000),
+      maxPerDay: integer(env.SAC_FLOW_WHATSAPP_MAX_PER_DAY, 400, 1, 10_000),
+      chatChangeExtraMs: integer(env.SAC_FLOW_WHATSAPP_CHAT_CHANGE_EXTRA_MS, 3_000, 0, 60_000),
+      attachmentExtraMs: integer(env.SAC_FLOW_WHATSAPP_ATTACHMENT_EXTRA_MS, 4_000, 0, 60_000),
       typingMsPerChar: integer(env.SAC_FLOW_WHATSAPP_TYPING_MS_PER_CHAR, 45, 0, 500),
       typingMinMs,
       typingMaxMs: Math.max(typingMinMs, integer(env.SAC_FLOW_WHATSAPP_TYPING_MAX_MS, 8_000, 0, 60_000)),
     },
     repeatedTextLimit: integer(env.SAC_FLOW_WHATSAPP_REPEATED_TEXT_LIMIT, 5, 1, 100),
+    wiwoTalkSyncMinutes: integer(env.SAC_FLOW_WIWO_TALK_SYNC_MINUTES, 10, 0, 1_440),
   };
 }
 

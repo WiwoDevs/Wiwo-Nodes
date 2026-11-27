@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsClockwise,
-  Bell,
   Buildings,
   ChartLineUp,
   PresentationChart,
@@ -20,6 +19,7 @@ import {
   Play,
   SidebarSimple,
   UsersThree,
+  Plugs,
   WhatsappLogo,
   Sun,
   TestTube,
@@ -32,6 +32,9 @@ import { InteractionDetailPanel } from "./components/InteractionDetailPanel";
 import { InteractionsView, type InteractionsViewProps } from "./components/InteractionsView";
 import { ManualManagementView } from "./components/ManualManagementView";
 import { WhatsAppLinesPanel } from "./components/WhatsAppLinesPanel";
+import { WiwoTalkPanel } from "./components/WiwoTalkPanel";
+import { NotificationsMenu } from "./components/NotificationsMenu";
+import { buildNotifications } from "./lib/notifications";
 import { SettingsView } from "./components/SettingsView";
 import { UsersRolesView } from "./components/UsersRolesView";
 import { can, type Permission } from "./lib/permissions";
@@ -53,7 +56,12 @@ import {
   deactivateBrand,
   liveSyncAccount,
   loadWhatsAppStatus,
+  markNotificationsSeen,
   requestWhatsAppHistory,
+  uploadWhatsAppAttachment,
+  markWhatsAppRead,
+  loadWhatsAppPresence,
+  sendWhatsAppTyping,
   setBrandVisibility,
   setBrandSacUsage,
   importMetricoolBrands,
@@ -121,6 +129,8 @@ type EditorTab = "editor" | "executions" | "evaluations";
  * Gestión WhatsApp es Gestión DMs limitada a los chats de WhatsApp (que Gestión DMs no muestra).
  */
 const MANUAL_VIEWS = ["manual-dms", "manual-whatsapp", "manual-comments"] as const;
+/** Respaldo en el navegador de lo leído en la campana (cuando la sesión no tiene correo). */
+const NOTIFICATIONS_SEEN_KEY = "wiwo-nodes-notifications-seen";
 type ManualViewId = (typeof MANUAL_VIEWS)[number];
 /** Superficie de cada vista manual, para los conteos del selector de cuenta. */
 type ManualSurface = "dm" | "comment" | "whatsapp";
@@ -441,6 +451,21 @@ function suggestedDraft(interaction: Interaction): string {
 /** Aviso flotante. `sound`: true hace sonar un éxito (proceso lento); false silencia un fallo de fondo. */
 type AppToast = { tone: "success" | "warning"; title: string; detail: string; sound?: boolean };
 
+// WhatsApp, lectura y presencia. Funciones estables (fuera del componente) para que la vista no
+// reinicie su consulta de "escribiendo…" en cada render. Son señales de cortesía: un fallo no se
+// muestra ni suena; el próximo intento las repite.
+function markWhatsAppChatRead(detail: InteractionDetail): Promise<void> {
+  return markWhatsAppRead(detail.id).then(() => undefined, () => undefined);
+}
+
+function loadWhatsAppChatPresence(detail: InteractionDetail): Promise<"composing" | "recording" | null> {
+  return loadWhatsAppPresence(detail.id).catch(() => null);
+}
+
+function sendWhatsAppChatTyping(detail: InteractionDetail, state: "composing" | "paused"): void {
+  void sendWhatsAppTyping(detail.id, state).catch(() => undefined);
+}
+
 export function App({ onSignOut, sessionActor }: {
   onSignOut?: () => Promise<void>;
   /** Usuario ya validado por el inicio de sesión: se muestra mientras cargan los datos. */
@@ -542,6 +567,41 @@ export function App({ onSignOut, sessionActor }: {
     () => operationalData ? scopedInteractions.filter((interaction) => needsAction(interaction) && !isExpired(interaction, minuteTick)).length : undefined,
     [operationalData, scopedInteractions, minuteTick],
   );
+  /**
+   * Campana: lo nuevo de la bandeja dentro del mismo alcance de trabajo que el Inicio. Lo leído se
+   * guarda por persona en la base; sin correo de sesión (modo local), en este navegador.
+   */
+  const [notificationsSeenAt, setNotificationsSeenAt] = useState<string | undefined>(() => {
+    try {
+      return localStorage.getItem(NOTIFICATIONS_SEEN_KEY) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const actorSeenAt = navActor?.notificationsSeenAt;
+  const seenAt = [actorSeenAt, notificationsSeenAt]
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+  const notifications = useMemo(
+    () => buildNotifications(scopedInteractions, { seenAt, whatsappEnabled: navActor?.whatsappEnabled, now: Date.now() }),
+    // minuteTick: los avisos de "hace N min" y lo no leído sin fecha guardada se recalculan solos.
+    [navActor?.whatsappEnabled, scopedInteractions, seenAt, minuteTick],
+  );
+  async function markAllNotificationsRead() {
+    const newest = notifications.items[0]?.at;
+    const at = new Date(Math.max(Date.now(), newest ? Date.parse(newest) : 0)).toISOString();
+    setNotificationsSeenAt(at);
+    try {
+      localStorage.setItem(NOTIFICATIONS_SEEN_KEY, at);
+    } catch {
+      // Sin almacenamiento del navegador: vale mientras la pestaña esté abierta.
+    }
+    try {
+      await markNotificationsSeen(at);
+    } catch {
+      // Sin red: queda marcado en este navegador y se guarda la próxima vez.
+    }
+  }
   const navItems = useMemo(
     () =>
       navigation.filter((item) => canSeeView(item.id)).map((item) => {
@@ -611,6 +671,7 @@ export function App({ onSignOut, sessionActor }: {
   /** Números de WhatsApp de las marcas visibles (estado para Gestión WhatsApp). */
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatusData | null>(null);
   const [showWhatsAppLines, setShowWhatsAppLines] = useState(false);
+  const [showWiwoTalk, setShowWiwoTalk] = useState(false);
   /**
    * Cuentas que atienden WhatsApp: las marcas con un número configurado o con chats de WhatsApp.
    * Su "red" visible es WhatsApp, conectada o no según el número.
@@ -623,27 +684,42 @@ export function App({ onSignOut, sessionActor }: {
     const withChats = new Set(visibleData.interactions
       .filter((interaction) => interaction.platform === "whatsapp")
       .map((interaction) => interaction.accountId));
+    // Subcuentas de WiWO Talk: su WhatsApp lo mantiene WiWO Talk; aquí cuenta si la conexión está activa.
+    const talkByBrand = new Map<string, NonNullable<NonNullable<typeof whatsappStatus>["talk"]>>();
+    for (const connection of whatsappStatus?.talk ?? []) {
+      talkByBrand.set(connection.brandId, [...(talkByBrand.get(connection.brandId) ?? []), connection]);
+    }
     return operationalAccounts
-      .filter((account) => linesByBrand.has(account.brandId ?? account.id) || withChats.has(account.id))
+      .filter((account) => linesByBrand.has(account.brandId ?? account.id)
+        || talkByBrand.has(account.brandId ?? account.id)
+        || withChats.has(account.id))
       .map((account) => {
         const lines = linesByBrand.get(account.brandId ?? account.id) ?? [];
+        const talk = talkByBrand.get(account.brandId ?? account.id) ?? [];
         const connected = lines.find((line) => line.status === "connected");
+        const talkActive = talk.find((connection) => connection.status === "active");
         const shown = connected ?? lines[0];
+        const handle = shown?.phoneNumber ?? shown?.label ?? talkActive?.label ?? talk[0]?.label ?? "WhatsApp";
+        const healthy = Boolean(connected || talkActive);
         return {
           ...account,
           // La salud que importa aquí es la del número, no la conexión con Metricool.
-          health: connected ? "healthy" as const : "disconnected" as const,
+          health: healthy ? "healthy" as const : "disconnected" as const,
           healthDetail: connected
             ? "Número de WhatsApp conectado."
-            : lines.length
-              ? "Número de WhatsApp desconectado: las respuestas quedan en cola hasta que vuelva."
-              : "Sin número de WhatsApp vinculado.",
-          accountHandle: shown?.phoneNumber ?? shown?.label ?? "WhatsApp",
+            : talkActive
+              ? "WhatsApp conectado por WiWO Talk."
+              : lines.length
+                ? "Número de WhatsApp desconectado: las respuestas quedan en cola hasta que vuelva."
+                : talk.length
+                  ? "La conexión de WiWO Talk está en pausa o requiere atención."
+                  : "Sin número de WhatsApp vinculado.",
+          accountHandle: handle,
           channels: [{
             platform: "whatsapp" as const,
-            username: shown?.phoneNumber ?? shown?.label ?? "WhatsApp",
-            externalId: shown?.id ?? account.id,
-            status: connected ? "connected" as const : "disconnected" as const,
+            username: handle,
+            externalId: shown?.id ?? talkActive?.id ?? account.id,
+            status: healthy ? "connected" as const : "disconnected" as const,
           }],
         };
       });
@@ -1498,13 +1574,13 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
-  async function sendDetailReply(detail: InteractionDetail, text: string) {
+  async function sendDetailReply(detail: InteractionDetail, text: string, options: { attachmentKey?: string; quote?: boolean } = {}) {
     if (isMutatingInteraction || isRunning) return false;
     setMutatingInteraction(true);
     // Un DM ya respondido sigue abierto como un chat: el mensaje nuevo va a la misma conversación.
     const followUp = detail.kind === "dm" && detail.direction === "inbound" && detail.status === "answered_by_team";
     try {
-      const result = await saveInteractionReply(detail.id, text, "send", detail.version, { followUp });
+      const result = await saveInteractionReply(detail.id, text, "send", detail.version, { followUp, ...options });
       await syncInboxChanges();
       await refreshInteractionDetail(detail.id);
       setToast(result.delivery === "queued"
@@ -2275,7 +2351,15 @@ export function App({ onSignOut, sessionActor }: {
             <SoundToggle />
             <button className="icon-button theme-toggle" aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"} title={theme === "dark" ? "Modo claro" : "Modo oscuro"} onClick={toggleTheme}>{theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}</button>
             <button className="icon-button" aria-label="Buscar conversaciones" onClick={() => navigateToView("interactions")}><MagnifyingGlass size={19} /></button>
-            <button className="icon-button notification-button" aria-label={`Abrir pendientes SAC en plazo: ${inWindowPending ?? 0}`} title="Pendientes en plazo" onClick={() => navigateToView("interactions")}><Bell size={19} />{inWindowPending ? <span /> : null}</button>
+            <NotificationsMenu
+              items={notifications.items}
+              unreadCount={notifications.unreadCount}
+              pendingCount={inWindowPending}
+              loading={isLoadingData && !operationalData}
+              onOpen={(interaction) => void openInteractionDetail(interaction, "panel")}
+              onMarkAllRead={() => void markAllNotificationsRead()}
+              onOpenInbox={() => navigateToView("interactions")}
+            />
             {view === "workflow" ? (
               <>
                 <div className="workflow-state">
@@ -2482,6 +2566,10 @@ export function App({ onSignOut, sessionActor }: {
               accounts={view === "manual-whatsapp" ? whatsappAccounts : operationalAccounts}
               pendingCounts={manualPendingCounts[manualSurfaceOf(view)]}
               {...(view === "manual-whatsapp" ? {
+                onUploadAttachment: (detail: InteractionDetail, file: File) => uploadWhatsAppAttachment(detail.id, file),
+                onMarkRead: markWhatsAppChatRead,
+                onLoadPresence: loadWhatsAppChatPresence,
+                onTyping: sendWhatsAppChatTyping,
                 onLoadOlderMessages: loadOlderWhatsAppMessages,
                 isLoadingOlderMessages: isLoadingOlderWhatsApp,
                 heading: {
@@ -2502,6 +2590,12 @@ export function App({ onSignOut, sessionActor }: {
                       <button className="manual-inbox-refresh" type="button" onClick={() => setShowWhatsAppLines(true)}>
                         <WhatsappLogo size={17} weight="bold" aria-hidden="true" />
                         Números de WhatsApp
+                      </button>
+                    ) : null}
+                    {canHideBrands ? (
+                      <button className="manual-inbox-refresh" type="button" onClick={() => setShowWiwoTalk(true)}>
+                        <Plugs size={17} weight="bold" aria-hidden="true" />
+                        WiWO Talk
                       </button>
                     ) : null}
                   </div>
@@ -2656,6 +2750,21 @@ export function App({ onSignOut, sessionActor }: {
           onClose={() => {
             setShowWhatsAppLines(false);
             // Mientras el panel estuvo abierto el número pudo conectarse o caerse.
+            void refreshWhatsAppStatus();
+          }}
+          onChanged={() => {
+            void refreshWhatsAppStatus();
+            void syncInboxChanges();
+          }}
+          onNotify={(tone, title, detail) => setToast({ tone, title, detail: detail ?? "" })}
+        />
+      ) : null}
+
+      {showWiwoTalk && canHideBrands ? (
+        <WiwoTalkPanel
+          brands={operationalAccounts.map((account) => ({ id: account.brandId ?? account.id, name: account.name }))}
+          onClose={() => {
+            setShowWiwoTalk(false);
             void refreshWhatsAppStatus();
           }}
           onChanged={() => {

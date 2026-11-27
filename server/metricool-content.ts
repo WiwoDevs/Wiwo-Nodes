@@ -301,6 +301,12 @@ export function metricoolContentForDisplay(value: unknown): string {
   return value;
 }
 
+/** Archivo de WhatsApp guardado por la propia API (server/whatsapp/media.ts): relativo y acotado. */
+export function isInternalWhatsAppMediaUrl(value: unknown): value is string {
+  return typeof value === "string"
+    && /^\/api\/media\/whatsapp\/[0-9a-f]{64}\?type=(?:image|video|audio|sticker|document)$/.test(value);
+}
+
 export function metricoolContentContextForDisplay(
   value: unknown,
   stored?: InteractionContentContext,
@@ -311,7 +317,8 @@ export function metricoolContentContextForDisplay(
     : fallbackKind === "legacy" ? "unavailable" : "text";
   const kind = stored && INTERACTION_CONTENT_KINDS.includes(stored.kind) ? stored.kind : fallback;
   const mediaUrls = Array.isArray(stored?.mediaUrls)
-    ? [...new Set(stored.mediaUrls.map(safeHttpsUrl).filter((url): url is string => Boolean(url)))].slice(0, MAX_MEDIA_URLS)
+    ? [...new Set(stored.mediaUrls.map((url) => isInternalWhatsAppMediaUrl(url) ? url : safeHttpsUrl(url))
+      .filter((url): url is string => Boolean(url)))].slice(0, MAX_MEDIA_URLS)
     : [];
   const permalink = safeHttpsUrl(stored?.permalink);
   return {

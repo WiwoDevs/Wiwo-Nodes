@@ -14,17 +14,31 @@ import { setTimeout as delay } from "node:timers/promises";
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
   proto,
-  useMultiFileAuthState,
+
+  type AnyMessageContent,
   type WAMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
 import type { ILogger } from "@whiskeysockets/baileys/lib/Utils/logger.js";
-import { normalizeBaileysMessage, phoneFromJid, type BaileysLikeMessage } from "./messages.js";
+import {
+  mediaDescriptor,
+  normalizeBaileysMessage,
+  normalizeBaileysUpdate,
+  phoneFromJid,
+  receiptFromStatus,
+  type BaileysLikeMessage,
+  type WhatsAppMessageUpdate,
+} from "./messages.js";
+import { WHATSAPP_MEDIA_MAX_BYTES } from "./media.js";
+import { useEncryptedFileAuthState } from "./encrypted-auth-state.js";
 import { reconnectDelayMs } from "./pacing.js";
 import type {
+  IncomingWhatsAppMessage,
+  OutgoingWhatsAppMessage,
   SendTextOptions,
   WhatsAppGateway,
   WhatsAppLineTarget,
@@ -72,7 +86,8 @@ class RecentIds {
 export class BaileysGateway implements WhatsAppGateway {
   readonly name = "baileys";
 
-  constructor(private readonly authDir: string, private readonly log: LogFn) {}
+  /** `atRestKey`: clave para cifrar la sesión en disco (ver at-rest.ts). */
+  constructor(private readonly authDir: string, private readonly log: LogFn, private readonly atRestKey: Buffer) {}
 
   private dirFor(lineId: string): string {
     if (!/^[0-9a-f-]{36}$/i.test(lineId)) throw new Error("Id de número inválido.");
@@ -99,7 +114,7 @@ export class BaileysGateway implements WhatsAppGateway {
 
     const connect = async (): Promise<void> => {
       if (stopped) return;
-      const { state, saveCreds } = await useMultiFileAuthState(dir);
+      const { state, saveCreds } = await useEncryptedFileAuthState(dir, this.atRestKey);
       const registered = Boolean(state.creds.registered);
       registeredAtConnect = registered;
       events.onState({ status: registered ? "connecting" : "pending_link" });
@@ -182,13 +197,71 @@ export class BaileysGateway implements WhatsAppGateway {
         this.log("whatsapp_history_received", { lineId: line.id, mode, count: normalized.length });
       });
 
+      /** Mensaje normalizado y, si trae un archivo aceptado y no muy grande, cómo bajarlo. */
+      const incoming = async (message: WAMessage): Promise<IncomingWhatsAppMessage | undefined> => {
+        const normalized = normalizeBaileysMessage(await withPhoneAlt(message as unknown as BaileysLikeMessage));
+        if (!normalized) return undefined;
+        const descriptor = mediaDescriptor(message.message as Record<string, unknown> | undefined);
+        if (!descriptor || (descriptor.declaredSize ?? 0) > WHATSAPP_MEDIA_MAX_BYTES) return normalized;
+        return {
+          ...normalized,
+          pendingMedia: {
+            descriptor,
+            download: async () => {
+              const data = await downloadMediaMessage(message, "buffer", {}, {
+                logger: silentLogger(),
+                reuploadRequest: current.updateMediaMessage,
+              });
+              if (data.length > WHATSAPP_MEDIA_MAX_BYTES) throw new Error("WHATSAPP_MEDIA_TOO_LARGE");
+              return data;
+            },
+          },
+        };
+      };
+
       current.ev.on("messages.upsert", async ({ messages, type }) => {
         if (socket !== current || (type !== "notify" && type !== "append")) return;
         const fresh = messages.filter((message) => !(message.key?.fromMe && message.key.id && sent.has(message.key.id)));
-        const normalized = (await Promise.all(fresh.map(async (message) =>
-          normalizeBaileysMessage(await withPhoneAlt(message as unknown as BaileysLikeMessage)))))
-          .filter((message): message is NonNullable<typeof message> => Boolean(message));
+        // Reacciones, ediciones y borrados llegan como mensajes, pero cambian uno anterior.
+        const updates: WhatsAppMessageUpdate[] = [];
+        const plain: WAMessage[] = [];
+        for (const message of fresh) {
+          const update = normalizeBaileysUpdate(message as unknown as BaileysLikeMessage);
+          if (update) updates.push(update);
+          else plain.push(message);
+        }
+        if (updates.length) events.onUpdates(updates);
+        const normalized = (await Promise.all(plain.map(incoming)))
+          .filter((message): message is IncomingWhatsAppMessage => Boolean(message));
         if (normalized.length) events.onMessages(normalized);
+      });
+
+      // El cliente escribe o graba en un chat abierto en wiwo.sac. WhatsApp puede nombrar el chat
+      // por su LID: se traduce al número, que es como wiwo.sac guarda el chat.
+      current.ev.on("presence.update", async ({ id, presences }) => {
+        if (socket !== current || !events.onPresence || !id || id.endsWith("@g.us")) return;
+        const states = Object.values(presences ?? {}).map((entry) => entry?.lastKnownPresence);
+        const state = states.includes("recording") ? "recording" as const
+          : states.includes("composing") ? "composing" as const
+            : "paused" as const;
+        let chatId = jidNormalizedUser(id);
+        if (chatId.endsWith("@lid")) {
+          const pn = await current.signalRepository.lidMapping.getPNForLID(chatId).catch(() => null);
+          if (pn) chatId = jidNormalizedUser(pn);
+        }
+        events.onPresence(chatId, state);
+      });
+
+      // Tics de los mensajes que envió la cuenta: entregado, leído, reproducido.
+      current.ev.on("messages.update", (changes) => {
+        if (socket !== current) return;
+        const at = new Date().toISOString();
+        const receipts = changes.flatMap((change): WhatsAppMessageUpdate[] => {
+          const status = receiptFromStatus(change.update?.status);
+          const messageId = change.key?.id;
+          return change.key?.fromMe && status && messageId ? [{ type: "receipt", messageId, status, at }] : [];
+        });
+        if (receipts.length) events.onUpdates(receipts);
       });
     };
 
@@ -239,20 +312,44 @@ export class BaileysGateway implements WhatsAppGateway {
 
     return {
       isOpen: () => open && !stopped,
-      sendText: async (chatId: string, text: string, options: SendTextOptions) => {
+      send: async (chatId: string, outgoing: OutgoingWhatsAppMessage, options: SendTextOptions) => {
         const current = socket;
         if (!current || !open || stopped) throw new Error("WHATSAPP_NOT_CONNECTED");
         if (options.markReadMessageId) {
           await current.readMessages([{ remoteJid: chatId, id: options.markReadMessageId, fromMe: false }]).catch(() => undefined);
         }
+        const attachment = outgoing.attachment;
+        // Un audio se "graba"; lo demás se "escribe".
+        const presence = attachment?.kind === "audio" ? "recording" : "composing";
         await current.presenceSubscribe(chatId).catch(() => undefined);
-        await current.sendPresenceUpdate("composing", chatId).catch(() => undefined);
+        await current.sendPresenceUpdate(presence, chatId).catch(() => undefined);
         await delay(options.typingMs);
         await current.sendPresenceUpdate("paused", chatId).catch(() => undefined);
-        const result = await current.sendMessage(chatId, { text });
+        const quoted = outgoing.quote
+          ? { quoted: { key: { remoteJid: chatId, id: outgoing.quote.messageId, fromMe: false }, message: { conversation: outgoing.quote.text } } as WAMessage }
+          : {};
+        const caption = outgoing.text || undefined;
+        const content: AnyMessageContent = !attachment
+          ? { text: outgoing.text }
+          : attachment.kind === "image"
+            ? { image: attachment.data, mimetype: attachment.mimeType, ...(caption ? { caption } : {}) }
+            : attachment.kind === "video"
+              ? { video: attachment.data, mimetype: attachment.mimeType, ...(caption ? { caption } : {}) }
+              : attachment.kind === "audio"
+                ? { audio: attachment.data, mimetype: attachment.mimeType, ptt: false }
+                : attachment.kind === "sticker"
+                  ? { sticker: attachment.data }
+                  : { document: attachment.data, mimetype: attachment.mimeType, fileName: attachment.fileName ?? "archivo", ...(caption ? { caption } : {}) };
+        const result = await current.sendMessage(chatId, content, quoted);
         const messageId = result?.key?.id;
         if (!messageId) throw new Error("WHATSAPP_NO_MESSAGE_ID");
         sent.add(messageId, result.message);
+        // Audio y sticker no llevan leyenda: el texto sale aparte, después de una pausa breve.
+        if (attachment && (attachment.kind === "audio" || attachment.kind === "sticker") && outgoing.text) {
+          await delay(1_500);
+          const followUp = await current.sendMessage(chatId, { text: outgoing.text });
+          if (followUp?.key?.id) sent.add(followUp.key.id, followUp.message);
+        }
         return { messageId };
       },
       fetchHistory: async (chatId: string, anchor, count: number) => {
@@ -270,6 +367,25 @@ export class BaileysGateway implements WhatsAppGateway {
           { remoteJid: chatJid, id: anchor.messageId, fromMe: anchor.fromMe },
           Date.parse(anchor.timestamp),
         );
+      },
+      markRead: async (chatId: string, messageIds: string[]) => {
+        const current = socket;
+        if (!current || !open || stopped || !messageIds.length) return;
+        await current.readMessages(messageIds.map((id) => ({ remoteJid: chatId, id, fromMe: false })));
+      },
+      watchPresence: async (chatId: string) => {
+        const current = socket;
+        if (!current || !open || stopped) return;
+        await current.presenceSubscribe(chatId).catch(() => undefined);
+        if (chatId.endsWith("@s.whatsapp.net")) {
+          const lid = await current.signalRepository.lidMapping.getLIDForPN(chatId).catch(() => null);
+          if (lid) await current.presenceSubscribe(jidNormalizedUser(lid)).catch(() => undefined);
+        }
+      },
+      sendTyping: async (chatId: string, state: "composing" | "paused") => {
+        const current = socket;
+        if (!current || !open || stopped) return;
+        await current.sendPresenceUpdate(state, chatId);
       },
       close: async () => {
         stopped = true;

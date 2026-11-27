@@ -178,6 +178,8 @@ export interface UserAccessRecord {
   whatsappEnabled?: boolean;
   whatsappUpdatedBy?: string;
   whatsappUpdatedAt?: string;
+  /** Hasta cuándo leyó sus notificaciones (campana): lo posterior cuenta como no leído. */
+  notificationsSeenAt?: string;
 }
 
 export interface ActorContext {
@@ -600,16 +602,44 @@ export interface Interaction {
 
 /** Mensaje de WhatsApp: número (línea) por el que entró y su id en WhatsApp. */
 export interface WhatsAppMessageRef {
+  /**
+   * De dónde viene: sin valor, un número vinculado en wiwo.sac (Baileys); `wiwo_talk`, una
+   * conexión de WiWO Talk (HighLevel), y entonces `lineId` es el id de la conexión y `chatId` el
+   * id del contacto en HighLevel.
+   */
+  provider?: "wiwo_talk";
   lineId: string;
-  /** Chat al que se responde (JID de la persona). */
+  /** Chat al que se responde (JID de la persona, o el contacto de HighLevel en WiWO Talk). */
   chatId: string;
   messageId: string;
+  /** WiWO Talk: conversación de HighLevel (para marcarla leída y conciliar). */
+  talkConversationId?: string;
   /**
    * Mensaje antiguo importado del teléfono (historial al vincular o "Cargar anteriores"). Se ve
    * en la conversación, pero no es un caso: no cuenta en Reportes, Clientes ni METRIQ.
    */
   history?: true;
+  /** Foto, video, audio, sticker o documento (copia de la API, `/api/media/whatsapp/:key`). */
+  media?: import("./whatsapp/media.js").WhatsAppMediaRef;
+  /** Texto del mensaje al que responde (cita). */
+  quotedText?: string;
+  /** Mensajes salientes: hasta dónde llegó (WhatsApp lo informa con los tics). */
+  status?: WhatsAppDeliveryState;
+  /** Reacciones con emoji (del cliente o de la cuenta). */
+  reactions?: Array<{ emoji: string; fromMe: boolean; at: string }>;
+  /** El cliente editó el mensaje (el texto ya es el editado). */
+  editedAt?: string;
+  /** El cliente lo borró para todos. */
+  deletedAt?: string;
+  /** Persona del equipo que lo envió desde wiwo.sac. */
+  sentBy?: string;
+  /** Alguien del equipo abrió el chat (y WhatsApp lo marcó como leído). */
+  readAt?: string;
 }
+
+/** Estado de entrega de un mensaje saliente de WhatsApp: solo avanza. */
+export const WHATSAPP_DELIVERY_STATES = ["sent", "delivered", "read", "played"] as const;
+export type WhatsAppDeliveryState = (typeof WHATSAPP_DELIVERY_STATES)[number];
 
 /** Historial antiguo de WhatsApp importado: contexto de la conversación, nunca un caso. */
 export function isImportedHistory(interaction: Pick<Interaction, "metricoolRef">): boolean {
@@ -632,6 +662,39 @@ export type WhatsAppLineStatus = (typeof WHATSAPP_LINE_STATUSES)[number];
  * conocido: la sesión (credenciales de WhatsApp Web) vive en el worker, fuera del repo, y el QR
  * o código de vinculación solo en la memoria de la API.
  */
+/**
+ * Conexión con una subcuenta de WiWO Talk (HighLevel con marca blanca) para atender su WhatsApp
+ * desde wiwo.sac. Cada marca puede tener la suya: las claves viven cifradas en la base, nunca en
+ * variables de entorno ni en el navegador.
+ */
+export interface WiwoTalkConnection {
+  id: string;
+  brandId: string;
+  label: string;
+  /** Location ID de la subcuenta en HighLevel. */
+  locationId: string;
+  /** Nombre de la subcuenta, leído de HighLevel al conectar. */
+  locationName?: string;
+  /** Token de integración privada y secreto del webhook, cifrados (CredentialVault). */
+  encryptedSecrets: string;
+  /** Últimos 4 caracteres del token, para reconocerlo sin mostrarlo. */
+  tokenHint: string;
+  status: WiwoTalkConnectionStatus;
+  /** Código del último error (sin datos de clientes). */
+  lastError?: string;
+  lastErrorAt?: string;
+  lastSyncAt?: string;
+  lastWebhookAt?: string;
+  /** Fecha del mensaje más nuevo ya conciliado: la conciliación lee solo lo posterior. */
+  syncCursor?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const WIWO_TALK_CONNECTION_STATUSES = ["active", "error", "paused"] as const;
+export type WiwoTalkConnectionStatus = (typeof WIWO_TALK_CONNECTION_STATUSES)[number];
+
 export interface WhatsAppLine {
   id: string;
   brandId: string;
@@ -676,6 +739,15 @@ export interface ConversationMessage {
     caption?: string;
     thumbnailUrl?: string;
     publishedAt?: string;
+  };
+  /** Detalle propio de WhatsApp para el chat. */
+  whatsapp?: {
+    status?: WhatsAppDeliveryState;
+    quotedText?: string;
+    reactions?: Array<{ emoji: string; fromMe: boolean }>;
+    edited?: boolean;
+    deleted?: boolean;
+    sentBy?: string;
   };
 }
 
@@ -822,6 +894,9 @@ export interface DataStore {
   accessRoles?: AccessRoleRecord[];
   /** Solo JSON local; en PostgreSQL vive en la tabla `whatsapp_lines`. */
   whatsappLines?: WhatsAppLine[];
+  wiwoTalkConnections?: WiwoTalkConnection[];
+  /** Solo JSON local; en PostgreSQL vive en la tabla `whatsapp_delivery_options`. */
+  whatsappDeliveryOptions?: Array<{ deliveryId: string; options: import("./whatsapp/media.js").WhatsAppDeliveryOptions }>;
 }
 
 /**
