@@ -69,7 +69,7 @@ export interface WiwoTalkPanelProps {
 
 /**
  * Conexiones con subcuentas de WiWO Talk (HighLevel) para atender su WhatsApp desde wiwo.sac.
- * Solo admins principales: el token da acceso a todos los chats y contactos de la subcuenta. Se
+ * Solo admins: el token da acceso a todos los chats y contactos de la subcuenta. Se
  * guarda cifrado en la base y nunca vuelve al navegador.
  */
 export function WiwoTalkPanel({ brands, onClose, onChanged, onNotify }: WiwoTalkPanelProps) {
@@ -218,7 +218,7 @@ export function WiwoTalkPanel({ brands, onClose, onChanged, onNotify }: WiwoTalk
             <Plugs size={20} weight="fill" aria-hidden="true" />
           </span>
           <div>
-            <p className="view-header__eyebrow">Solo admins principales</p>
+            <p className="view-header__eyebrow">Solo admins</p>
             <h2 id="wiwo-talk-title">Conexiones WiWO Talk</h2>
             <p>Atiende desde wiwo.sac el WhatsApp de una subcuenta de WiWO Talk (Boost). Cada marca puede tener la suya.</p>
           </div>

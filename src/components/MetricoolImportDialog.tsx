@@ -36,7 +36,7 @@ type MetricoolImportDialogProps = {
   accounts: BrandAccount[];
   onClose: () => void;
   onImport: (blogIds: string[], instagramProvider: MetricoolInstagramProvider) => Promise<MetricoolImportResult>;
-  /** Solo para el admin principal: ocultar marcas sin conexión (p. ej. las de ejemplo). */
+  /** Solo para un admin: ocultar marcas sin conexión (p. ej. las de ejemplo). */
   onDeactivate?: (accounts: BrandAccount[]) => Promise<void>;
 };
 

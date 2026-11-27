@@ -7,7 +7,7 @@ WiWO Talk es HighLevel (GoHighLevel) con marca blanca. Una subcuenta de WiWO Tal
 - Cada subcuenta es una **conexión** (`wiwo_talk_connections`, migración `0028_wiwo_talk_connections.sql`) que pertenece a una marca, así que puede haber varias cuentas conectadas a la vez.
 - **No hay variables de entorno con tokens.** El token `pit-…` y el secreto del webhook se guardan cifrados en `encrypted_secrets` con `CredentialVault` (AES-256-GCM). La clave de cifrado es la de credenciales de la API (`SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY`), la misma de las demás credenciales.
 - El token nunca vuelve al navegador ni a los registros: la web solo ve sus últimos 4 caracteres.
-- Solo los **admins principales** (`SAC_FLOW_AUTH_ADMIN_EMAILS`) administran conexiones: el token da acceso a todos los chats y contactos de la subcuenta.
+- Cualquier **admin** (principal o asignado desde la app) administra conexiones: el token da acceso a todos los chats y contactos de la subcuenta.
 
 ## Cómo llegan y salen los mensajes
 
@@ -41,7 +41,7 @@ En WiWO Talk (lo hace WiWO, como administrador de la subcuenta):
    - `locations.readonly`, para comprobar la subcuenta.
 2. Copia el token `pit-…` (se muestra una sola vez) y el **Location ID** (Settings → Business Profile, o la URL `…/location/<id>/…`).
 
-En wiwo.sac (admin principal):
+En wiwo.sac (admin):
 
 3. **Gestión WhatsApp → WiWO Talk → Conectar subcuenta.** Elige la marca, ponle un nombre y pega el Location ID y el token. wiwo.sac lo comprueba contra HighLevel antes de guardarlo; un token inválido o sin permisos no se guarda.
 4. Copia la **URL del webhook** (botón **Ver webhook**). Lleva la clave propia de la conexión, así que compártela solo por un canal seguro.

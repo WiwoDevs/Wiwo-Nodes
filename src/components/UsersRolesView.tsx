@@ -67,7 +67,7 @@ export type HideableBrand = { id: string; name: string; handle?: string };
 
 type UsersRolesViewProps = {
   onToast: (toast: Toast) => void;
-  /** Clientes del catálogo, para ocultárselos a una persona (solo admin principal). */
+  /** Clientes del catálogo, para ocultárselos a una persona (solo admin). */
   brands?: HideableBrand[];
   brandsLoading?: boolean;
 };
@@ -318,7 +318,7 @@ function PeopleTab({ data, loading, busy, roleName, onApplyRole, onOpenRoles, on
             const lockTitle = user.isSelf
               ? "No puedes cambiar tu propio rol."
               : adminOfOther && !user.locked
-                ? "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede cambiar a otro admin."
+                ? "Solo un admin (SAC_FLOW_AUTH_ADMIN_EMAILS) puede cambiar a otro admin."
               : user.locked
                 ? user.serverSource === "server_admin"
                   ? "Admin definido en el .env del servidor (SAC_FLOW_AUTH_ADMIN_EMAILS)."
@@ -537,7 +537,7 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
         ? "Es admin por configuración del servidor (SAC_FLOW_AUTH_ADMIN_EMAILS): se cambia en el .env del servidor."
         : "Está definido en el archivo de usuarios del servidor: se cambia en ese archivo."
       : !master && isAdmin
-        ? "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede cambiar a otro admin."
+        ? "Solo un admin (SAC_FLOW_AUTH_ADMIN_EMAILS) puede cambiar a otro admin."
       : isAdmin
         ? "Admin tiene siempre todos los permisos."
         : revoked
@@ -548,8 +548,8 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
     setDraft((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
   }
 
-  // Clientes que ve: solo un admin principal los edita, y nunca para otro admin principal.
-  const canHideBrands = master && !user.masterAdmin && !user.isSelf;
+  // Clientes que ve: lo edita un admin, nunca para otro admin (un admin ve todos los clientes).
+  const canHideBrands = master && !user.masterAdmin && user.effectiveRole !== "admin" && !user.isSelf;
   const hiddenDirty = !sameSet(hiddenDraft, savedHidden);
   const sortedBrands = useMemo(() => [...brands].sort((left, right) => left.name.localeCompare(right.name, "es")), [brands]);
   const filteredBrands = useMemo(() => {
@@ -623,7 +623,7 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
                   // Un admin asignado puede quitar un permiso sensible, pero no darlo a quien no lo tiene.
                   const masterLocked = !master && masterOnly.has(permission.key) && !user.permissions.includes(permission.key);
                   return (
-                    <label key={permission.key} className={`users-roles-perm${checked ? " is-on" : ""}${state ? ` is-${state}` : ""}${masterLocked ? " is-master-locked" : ""}`} title={masterLocked ? "Solo un admin principal puede dar este permiso." : undefined}>
+                    <label key={permission.key} className={`users-roles-perm${checked ? " is-on" : ""}${state ? ` is-${state}` : ""}${masterLocked ? " is-master-locked" : ""}`} title={masterLocked ? "Solo un admin puede dar este permiso." : undefined}>
                       <input type="checkbox" checked={checked} disabled={permissionsLocked || busy || masterLocked} onChange={() => toggle(permission.key)} />
                       <span>
                         <strong>
@@ -649,7 +649,7 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
             <section className="users-roles-drawer__section users-roles-brands" aria-labelledby="users-roles-brands-title">
               <h3 id="users-roles-brands-title">Clientes que ve</h3>
               <p className="users-roles-drawer__hint">
-                Desmarca los clientes que esta persona no debe ver: desaparecen de su bandeja, Inicio, Clientes y Reportes. No se borra nada y solo un admin principal lo cambia.
+                Desmarca los clientes que esta persona no debe ver: desaparecen de su bandeja, Inicio, Clientes y Reportes. No se borra nada y solo un admin lo cambia.
                 {user.hiddenBrandsUpdatedBy ? ` Último cambio por ${user.hiddenBrandsUpdatedBy}${when(user.hiddenBrandsUpdatedAt) ? ` (${when(user.hiddenBrandsUpdatedAt)})` : ""}.` : ""}
               </p>
               <div className="users-roles-brands__tools">
@@ -686,10 +686,10 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
               <h3>Clientes que ve</h3>
               <p className="users-roles-drawer__hint"><BusyOrb /> Cargando clientes…</p>
             </section>
-          ) : user.masterAdmin && master ? (
+          ) : (user.masterAdmin || user.effectiveRole === "admin") && master ? (
             <section className="users-roles-drawer__section">
               <h3>Clientes que ve</h3>
-              <p className="users-roles-drawer__hint">Es admin principal: ve todos los clientes.</p>
+              <p className="users-roles-drawer__hint">Es admin: ve todos los clientes.</p>
             </section>
           ) : null}
 
@@ -711,7 +711,7 @@ function PersonDrawer({ user, data, busy, roleName, roleOptions, onClose, onAppl
               <p className="users-roles-drawer__hint">
                 {master
                   ? "Activado por defecto para todas las personas. Apagado, no ve Gestión WhatsApp y la API rechaza sus envíos; sus casos no cambian."
-                  : "Solo un admin principal lo cambia."}
+                  : "Solo un admin lo cambia."}
                 {user.whatsappEnabled === false && user.whatsappUpdatedBy ? ` Apagado por ${user.whatsappUpdatedBy}${when(user.whatsappUpdatedAt) ? ` (${when(user.whatsappUpdatedAt)})` : ""}.` : ""}
               </p>
             </section>
@@ -774,7 +774,7 @@ function RolesTab({ data, busy, onSave, onCreate, onRemove }: RolesTabProps) {
   if (!selected) return <p className="users-roles-empty">Cargando roles…</p>;
 
   const isAdmin = selected.id === "admin";
-  // Crear, editar o restablecer roles cambia a todas sus personas: solo un admin principal.
+  // Crear, editar o restablecer roles cambia a todas sus personas: solo un admin.
   const readOnly = !(data?.viewer?.masterAdmin ?? true);
   const dirty = !isAdmin && (!sameSet(draftPermissions, selected.permissions) || (!selected.builtIn && draftName.trim() !== selected.name));
   const isBusy = busy === `role:${selected.id}`;
@@ -827,7 +827,7 @@ function RolesTab({ data, busy, onSave, onCreate, onRemove }: RolesTabProps) {
         {readOnly ? (
           <p className="users-roles-drawer__lock users-roles-readonly">
             <LockSimple size={14} weight="bold" aria-hidden="true" />
-            Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede crear, editar o restablecer roles. Tú puedes asignarlos a las personas.
+            Solo un admin (SAC_FLOW_AUTH_ADMIN_EMAILS) puede crear, editar o restablecer roles. Tú puedes asignarlos a las personas.
           </p>
         ) : null}
 

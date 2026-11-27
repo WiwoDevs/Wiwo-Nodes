@@ -2068,9 +2068,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       }
       actor = { ...actor, ...resolved };
     }
-    // Clientes que un admin principal le ocultó a esta persona: salen de su alcance de marcas, así
-    // que todas las rutas (bandeja, Inicio, Clientes, Reportes, exportes) dejan de mostrarlos.
-    if (actor.email && !isMasterAdmin(identityConfig, actor.email)) {
+    // Clientes que un admin le ocultó a esta persona: salen de su alcance de marcas, así que todas
+    // las rutas (bandeja, Inicio, Clientes, Reportes, exportes) dejan de mostrarlos. Un admin ve todo.
+    if (actor.email && actor.role !== "admin" && !isMasterAdmin(identityConfig, actor.email)) {
       const hidden = (await accessDirectory.find(actor.email))?.hiddenBrandIds ?? [];
       if (hidden.length) {
         const blocked = new Set(hidden);
@@ -2572,20 +2572,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     return { data: buildSecurityAudit(config, { ...catalog, automation }), meta: apiMeta(config) };
   });
 
-  /** Crear, editar o restablecer roles cambia a todas sus personas: solo un admin principal. */
-  const requireMasterAdmin = (email: string | undefined) => {
-    if (!isMasterAdmin(identityConfig, email)) {
-      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede crear, editar o restablecer roles.");
+  /**
+   * Todo admin tiene las funciones completas (por pedido del usuario, noviembre 2026): un admin
+   * asignado en la app puede lo mismo que uno de SAC_FLOW_AUTH_ADMIN_EMAILS. Esa lista solo
+   * protege a esas personas: su rol no se cambia desde la app (lockedReason).
+   */
+  const isFullAdmin = (actor: Pick<ActorContext, "role">) => actor.role === "admin";
+  /** Crear, editar o restablecer roles cambia a todas sus personas: solo un admin. */
+  const requireMasterAdmin = (actor: ActorContext) => {
+    if (!isFullAdmin(actor)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin puede crear, editar o restablecer roles.");
     }
   };
   /**
    * Ocultar o mostrar clientes define qué marcas existen para todo el equipo (sincronización,
-   * operación, Reportes y METRIQ): solo un admin principal, nunca un admin asignado en la app.
+   * operación, Reportes y METRIQ): solo un admin.
    */
-  const canHideBrands = (actor: ActorContext) => actor.role === "admin" && isMasterAdmin(identityConfig, actor.email);
+  const canHideBrands = (actor: ActorContext) => isFullAdmin(actor);
   const requireBrandVisibilityAdmin = (actor: ActorContext) => {
     if (!canHideBrands(actor)) {
-      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede ocultar o mostrar clientes.");
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin puede ocultar o mostrar clientes.");
     }
   };
   const masterOnlyError = (granted: Permission[], subject: string) => {
@@ -2612,20 +2618,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     if (body.role && body.role !== "none" && !roleCatalog.some((role) => role.id === body.role)) {
       throw new ApiError(400, "ROLE_NOT_FOUND", "El rol elegido no existe.");
     }
-    if (!isMasterAdmin(identityConfig, actor.email)) {
-      // Un admin asignado no crea admins, no cambia a otros admins y no reparte permisos sensibles.
+    if (!isFullAdmin(actor)) {
+      // Defensa adicional (la ruta ya exige Admin): quien no es admin no reparte el rol Admin ni
+      // permisos sensibles.
       if (body.role === "admin") {
-        throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede dar el rol Admin.");
+        throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin puede dar el rol Admin.");
       }
       const listing = await listAccessControl(identityConfig, repository, actor.email);
       const person = listing.users.find((user) => user.email === normalizeEmail(body.email));
-      if (person?.effectiveRole === "admin") {
-        throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal puede cambiar el rol de otro admin.");
-      }
       const nextRole = body.role ?? person?.serverRole ?? "none";
-      if (nextRole === "admin") {
-        throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Sin rol asignado esta persona sería Admin por la configuración del servidor; solo un admin principal puede hacerlo.");
-      }
       const granted = newlyGrantedMasterOnly(person?.permissions ?? [], permissionsWithRole(roleCatalog, nextRole, person ?? {}));
       if (granted.length) throw masterOnlyError(granted, "Ese rol");
     }
@@ -2660,7 +2661,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     const overrides = body.permissions === null
       ? { add: [], remove: [] }
       : permissionOverridesFor(person.rolePermissions, body.permissions);
-    if (!isMasterAdmin(identityConfig, actor.email)) {
+    if (!isFullAdmin(actor)) {
       const after = applyPermissionOverrides(person.rolePermissions, { permissionsAdd: overrides.add, permissionsRemove: overrides.remove });
       const granted = newlyGrantedMasterOnly(person.permissions, after);
       if (granted.length) throw masterOnlyError(granted, "Ese ajuste");
@@ -2685,15 +2686,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    */
   app.put("/api/admin/users/hidden-brands", async (request) => {
     const actor = requireRole(config, request, "admin");
-    if (!isMasterAdmin(identityConfig, actor.email)) {
-      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede ocultar clientes a una persona.");
+    if (!isFullAdmin(actor)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin puede ocultar clientes a una persona.");
     }
     const body = userHiddenBrandsSchema.parse(request.body);
-    if (isMasterAdmin(identityConfig, body.email)) {
-      throw new ApiError(409, "MASTER_ADMIN_SEES_ALL", "Un admin principal ve todos los clientes; no se le pueden ocultar.");
-    }
     const before = await listAccessControl(identityConfig, repository, actor.email);
-    if (!before.users.some((user) => user.email === body.email)) {
+    const target = before.users.find((user) => user.email === body.email);
+    if (isMasterAdmin(identityConfig, body.email) || target?.effectiveRole === "admin") {
+      throw new ApiError(409, "MASTER_ADMIN_SEES_ALL", "Un admin ve todos los clientes; no se le pueden ocultar.");
+    }
+    if (!target) {
       throw new ApiError(404, "USER_NOT_FOUND", "Esa persona no está en la lista. Asígnale un rol primero.");
     }
     const known = new Set((await repository.snapshotCatalog()).brands.map((brand) => brand.id));
@@ -2732,8 +2734,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
    */
   app.put("/api/admin/users/whatsapp", async (request) => {
     const actor = requireRole(config, request, "admin");
-    if (!isMasterAdmin(identityConfig, actor.email)) {
-      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede activar o apagar WhatsApp a una persona.");
+    if (!isFullAdmin(actor)) {
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin puede activar o apagar WhatsApp a una persona.");
     }
     const body = userWhatsAppSchema.parse(request.body);
     const before = await listAccessControl(identityConfig, repository, actor.email);
@@ -2755,7 +2757,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   /** Crea un rol propio a partir de un rol de base. */
   app.post("/api/admin/roles", async (request) => {
     const actor = requireRole(config, request, "admin");
-    requireMasterAdmin(actor.email);
+    requireMasterAdmin(actor);
     const body = accessRoleCreateSchema.parse(request.body);
     const catalog = await accessDirectory.roles();
     const name = body.name.trim();
@@ -2780,7 +2782,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   /** Cambia los permisos (y el nombre, si es propio) de un rol. Admin no se edita. */
   app.put("/api/admin/roles/:roleId", async (request) => {
     const actor = requireRole(config, request, "admin");
-    requireMasterAdmin(actor.email);
+    requireMasterAdmin(actor);
     const { roleId } = accessRoleIdParamsSchema.parse(request.params);
     const body = accessRoleUpdateSchema.parse(request.body);
     if (roleId === "admin") throw new ApiError(409, "ROLE_LOCKED", "Admin tiene siempre todos los permisos y no se edita.");
@@ -2808,7 +2810,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   /** Borra un rol propio sin personas asignadas, o restablece un rol de base. */
   app.delete("/api/admin/roles/:roleId", async (request) => {
     const actor = requireRole(config, request, "admin");
-    requireMasterAdmin(actor.email);
+    requireMasterAdmin(actor);
     const { roleId } = accessRoleIdParamsSchema.parse(request.params);
     if (roleId === "admin") throw new ApiError(409, "ROLE_LOCKED", "Admin no se puede borrar ni restablecer.");
     const catalog = await accessDirectory.roles();
@@ -2844,7 +2846,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
         source: actor.source,
         ...(actor.email ? { email: actor.email } : {}),
         // Admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS): el único que oculta o muestra clientes.
-        masterAdmin: actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+        masterAdmin: actor.role === "admin",
         // Ajuste individual de WhatsApp (activado por defecto).
         whatsappEnabled: actor.whatsappEnabled !== false,
       },
@@ -3117,7 +3119,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
   app.put("/api/brands/:brandId/sac-usage", async (request) => {
     const actor = requireRole(config, request, "admin");
     if (!canHideBrands(actor)) {
-      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) puede marcar qué cuentas se usan en SAC.");
+      throw new ApiError(403, "MASTER_ADMIN_REQUIRED", "Solo un admin puede marcar qué cuentas se usan en SAC.");
     }
     const { brandId } = brandParamsSchema.parse(request.params);
     assertBrandAccess(actor, brandId);
@@ -3992,7 +3994,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
       role: actor.role,
       roleName: actor.roleName ?? actor.role,
       permissions: PERMISSION_KEYS.filter((permission) => actorCan(actor, permission)),
-      masterAdmin: actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+      masterAdmin: actor.role === "admin",
     };
     const question = body.messages.at(-1)!.content;
     const offline = offlineHelpAnswer(question, helpActor);
@@ -5756,7 +5758,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     lines: whatsappLines,
     requireActor: (request) => requestActor(config, request),
     requirePermission: (request, permission) => requirePermission(config, request, permission),
-    isMasterAdmin: (actor) => actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+    isMasterAdmin: (actor) => actor.role === "admin",
     wiwoTalk,
     ingest: async (line, brand, messages, historyMode) => {
       // Historial antiguo: llega cerrado y no pasa por el protocolo SAC (no es un caso). Solo el
@@ -5773,7 +5775,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     service: wiwoTalk,
     demoMode: config.demoMode,
     requireActor: (request) => requestActor(config, request),
-    isMasterAdmin: (actor) => actor.role === "admin" && isMasterAdmin(identityConfig, actor.email),
+    isMasterAdmin: (actor) => actor.role === "admin",
     brandExists: async (brandId) => (await repository.snapshotCatalog()).brands.some((brand) => brand.id === brandId),
   });
   wiwoTalk.startScheduler(config.whatsapp.wiwoTalkSyncMinutes);
