@@ -5776,7 +5776,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<SacFlowAp
     demoMode: config.demoMode,
     requireActor: (request) => requestActor(config, request),
     isMasterAdmin: (actor) => actor.role === "admin",
-    brandExists: async (brandId) => (await repository.snapshotCatalog()).brands.some((brand) => brand.id === brandId),
+    brandEligibility: async (brandId) => {
+      const brands = (await repository.snapshotCatalog()).brands;
+      const brand = brands.find((item) => item.id === brandId);
+      if (!brand) return "missing";
+      const anyInSac = brands.some((item) => item.account.sacChannels?.length);
+      return anyInSac && !brand.account.sacChannels?.length ? "not_in_sac" : "ok";
+    },
   });
   wiwoTalk.startScheduler(config.whatsapp.wiwoTalkSyncMinutes);
   app.addHook("onClose", async () => wiwoTalk.stop());

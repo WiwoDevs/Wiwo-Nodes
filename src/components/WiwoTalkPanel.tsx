@@ -60,7 +60,12 @@ function webhookUrl(connection: WiwoTalkConnectionView): string {
 }
 
 export interface WiwoTalkPanelProps {
+  /** Clientes que se pueden conectar (los marcados «En SAC» en Clientes). */
   brands: Array<{ id: string; name: string }>;
+  /** Todos los clientes, para nombrar conexiones de clientes que ya no están En SAC. */
+  brandLabels?: Array<{ id: string; name: string }>;
+  /** La lista se limitó a los clientes En SAC. */
+  onlySac?: boolean;
   onClose: () => void;
   /** Avisa a la vista que cambió una conexión (para releer el estado y la bandeja). */
   onChanged?: () => void;
@@ -72,7 +77,7 @@ export interface WiwoTalkPanelProps {
  * Solo admins: el token da acceso a todos los chats y contactos de la subcuenta. Se
  * guarda cifrado en la base y nunca vuelve al navegador.
  */
-export function WiwoTalkPanel({ brands, onClose, onChanged, onNotify }: WiwoTalkPanelProps) {
+export function WiwoTalkPanel({ brands, brandLabels, onlySac = false, onClose, onChanged, onNotify }: WiwoTalkPanelProps) {
   const [connections, setConnections] = useState<WiwoTalkConnectionView[] | null>(null);
   const [demo, setDemo] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -117,7 +122,7 @@ export function WiwoTalkPanel({ brands, onClose, onChanged, onNotify }: WiwoTalk
     () => [...brands].sort((left, right) => left.name.localeCompare(right.name, "es")),
     [brands],
   );
-  const brandName = (id: string) => brands.find((brand) => brand.id === id)?.name ?? id;
+  const brandName = (id: string) => (brandLabels ?? brands).find((brand) => brand.id === id)?.name ?? brands.find((brand) => brand.id === id)?.name ?? id;
 
   async function run(id: string, action: () => Promise<WiwoTalkConnectionView[]>, success?: [string, string?]) {
     setBusyId(id);
@@ -220,7 +225,7 @@ export function WiwoTalkPanel({ brands, onClose, onChanged, onNotify }: WiwoTalk
           <div>
             <p className="view-header__eyebrow">Solo admins</p>
             <h2 id="wiwo-talk-title">Conexiones WiWO Talk</h2>
-            <p>Atiende desde wiwo.sac el WhatsApp de una subcuenta de WiWO Talk (Boost). Cada marca puede tener la suya.</p>
+            <p>Conecta el WhatsApp de cada cliente En SAC con su subcuenta de WiWO Talk (Boost) para atenderlo desde wiwo.sac.</p>
           </div>
           <button className="icon-button" type="button" aria-label="Cerrar conexiones WiWO Talk" onClick={onClose}>
             <X size={16} weight="bold" aria-hidden="true" />
@@ -239,7 +244,7 @@ export function WiwoTalkPanel({ brands, onClose, onChanged, onNotify }: WiwoTalk
           <ul className="whatsapp-lines__list">
             {connections.length === 0 ? (
               <li className="whatsapp-lines__empty">
-                Aún no hay subcuentas conectadas. Necesitas el token de integración privada (pit-…) y el Location ID de la subcuenta.
+                Aún no hay clientes conectados. Para cada cliente En SAC necesitas el token de integración privada (pit-…) y el Location ID de su subcuenta en WiWO Talk.
               </li>
             ) : connections.map((connection) => {
               const busy = busyId === connection.id;
@@ -368,15 +373,16 @@ export function WiwoTalkPanel({ brands, onClose, onChanged, onNotify }: WiwoTalk
         {showForm ? (
           <form className="whatsapp-lines__form" onSubmit={(event) => void handleCreate(event)} autoComplete="off">
             <label className="form-field">
-              <span>Marca</span>
+              <span>{onlySac ? "Cliente En SAC" : "Cliente"}</span>
               <select value={brandId} onChange={(event) => setBrandId(event.target.value)} required disabled={creating}>
-                <option value="">Elige la marca</option>
+                <option value="">{brandOptions.length ? "Elige el cliente" : "No hay clientes En SAC"}</option>
                 {brandOptions.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
               </select>
+              {onlySac ? <small>Solo aparecen los clientes marcados «En SAC» en Clientes.</small> : null}
             </label>
             <label className="form-field">
               <span>Nombre de la conexión</span>
-              <input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={80} placeholder="Ej.: WhatsApp MG Motor" required disabled={creating} />
+              <input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={80} placeholder="Ej.: WhatsApp del cliente" required disabled={creating} />
             </label>
             <label className="form-field">
               <span>Location ID de la subcuenta</span>

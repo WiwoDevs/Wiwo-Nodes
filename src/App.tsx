@@ -2762,7 +2762,13 @@ export function App({ onSignOut, sessionActor }: {
 
       {showWiwoTalk && canHideBrands ? (
         <WiwoTalkPanel
-          brands={operationalAccounts.map((account) => ({ id: account.brandId ?? account.id, name: account.name }))}
+          // WiWO Talk es para los clientes que el equipo atiende en SAC: solo se eligen los marcados
+          // «En SAC» en Clientes (si ninguno está marcado, todos).
+          brands={(operationalAccounts.some((account) => account.sacChannels?.length)
+            ? operationalAccounts.filter((account) => account.sacChannels?.length)
+            : operationalAccounts).map((account) => ({ id: account.brandId ?? account.id, name: account.name }))}
+          onlySac={operationalAccounts.some((account) => account.sacChannels?.length)}
+          brandLabels={operationalAccounts.map((account) => ({ id: account.brandId ?? account.id, name: account.name }))}
           onClose={() => {
             setShowWiwoTalk(false);
             void refreshWhatsAppStatus();

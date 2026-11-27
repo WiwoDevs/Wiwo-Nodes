@@ -1,10 +1,10 @@
 # WiWO Talk en wiwo.sac
 
-WiWO Talk es HighLevel (GoHighLevel) con marca blanca. Una subcuenta de WiWO Talk que ya tiene su WhatsApp conectado, como MG Motor - MGC con su agente "MG Contact 2.0", se puede atender desde **Gestión WhatsApp** en wiwo.sac. Sus chats se leen por la API v2 de HighLevel, con el token de integración privada (PIT) de esa subcuenta.
+WiWO Talk es HighLevel (GoHighLevel) con marca blanca. Los clientes que el equipo atiende en SAC (los marcados **En SAC** en Clientes) y que tienen su WhatsApp en una subcuenta de WiWO Talk se pueden atender desde **Gestión WhatsApp** en wiwo.sac. Sus chats se leen por la API v2 de HighLevel, con el token de integración privada (PIT) de esa subcuenta.
 
 ## Claves por conexión, en la base
 
-- Cada subcuenta es una **conexión** (`wiwo_talk_connections`, migración `0028_wiwo_talk_connections.sql`) que pertenece a una marca, así que puede haber varias cuentas conectadas a la vez.
+- Cada subcuenta es una **conexión** (`wiwo_talk_connections`, migración `0028_wiwo_talk_connections.sql`) que pertenece a un cliente, así que puede haber varios clientes conectados a la vez. Solo se conectan clientes marcados **En SAC** en Clientes: el panel lista solo esos y la API responde `422 WIWO_TALK_BRAND_NOT_IN_SAC` para otro. Si ningún cliente está marcado, se puede elegir cualquiera.
 - **No hay variables de entorno con tokens.** El token `pit-…` y el secreto del webhook se guardan cifrados en `encrypted_secrets` con `CredentialVault` (AES-256-GCM). La clave de cifrado es la de credenciales de la API (`SAC_FLOW_CREDENTIALS_ENCRYPTION_KEY`), la misma de las demás credenciales.
 - El token nunca vuelve al navegador ni a los registros: la web solo ve sus últimos 4 caracteres.
 - Cualquier **admin** (principal o asignado desde la app) administra conexiones: el token da acceso a todos los chats y contactos de la subcuenta.
@@ -43,13 +43,13 @@ En WiWO Talk (lo hace WiWO, como administrador de la subcuenta):
 
 En wiwo.sac (admin):
 
-3. **Gestión WhatsApp → WiWO Talk → Conectar subcuenta.** Elige la marca, ponle un nombre y pega el Location ID y el token. wiwo.sac lo comprueba contra HighLevel antes de guardarlo; un token inválido o sin permisos no se guarda.
+3. **Gestión WhatsApp → WiWO Talk → Conectar subcuenta.** Elige el cliente En SAC (si no aparece, márcalo En SAC en Clientes), ponle un nombre y pega el Location ID y el token. wiwo.sac lo comprueba contra HighLevel antes de guardarlo; un token inválido o sin permisos no se guarda.
 4. Copia la **URL del webhook** (botón **Ver webhook**). Lleva la clave propia de la conexión, así que compártela solo por un canal seguro.
 
 De vuelta en WiWO Talk:
 
 5. Crea un workflow con disparador **Customer Replied** (canal WhatsApp) y la acción **Webhook** (POST) a esa URL.
-6. Excluye con una condición los contactos que atiende el bot "MG Contact 2.0" (por etiqueta), o haz que el bot no responda a los que atiende wiwo.sac. Si no, cada mensaje puede recibir dos respuestas. Mientras no esté la URL definitiva, deja el workflow en borrador.
+6. Si la subcuenta tiene un bot (Conversation AI), excluye con una condición los contactos que atiende el bot (por etiqueta), o haz que el bot no responda a los que atiende wiwo.sac. Si no, cada mensaje puede recibir dos respuestas. Mientras no esté la URL definitiva, deja el workflow en borrador.
 
 ## Operación
 
