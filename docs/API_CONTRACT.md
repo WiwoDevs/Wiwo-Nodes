@@ -1341,7 +1341,7 @@ Subcuentas de WiWO Talk (HighLevel con marca blanca) cuyo WhatsApp se atiende de
 | Método | Ruta | Body | Resultado |
 |---|---|---|---|
 | `GET` | `/api/wiwo-talk/connections` | — | `{ connections: WiwoTalkConnectionView[], demo }` |
-| `POST` | `/api/wiwo-talk/connections` | `{ brandId, label, locationId, token }` | `201`, `meta.connectionId`. Comprueba el token con `GET /locations/:id` antes de guardar (`422 WIWO_TALK_TOKEN_INVALID`, `422 WIWO_TALK_SCOPE_MISSING`, `422 WIWO_TALK_NOT_FOUND`, `502 WIWO_TALK_UNREACHABLE`; `409 WIWO_TALK_LOCATION_TAKEN` si la subcuenta ya está conectada). Lanza de fondo la primera lectura |
+| `POST` | `/api/wiwo-talk/connections` | `{ brandId, label, locationId, token }` | `201`, `meta.connectionId`. Comprueba el token con `GET /locations/:id` antes de guardar (`422 WIWO_TALK_TOKEN_INVALID`, `422 WIWO_TALK_SCOPE_MISSING`, `422 WIWO_TALK_NOT_FOUND`, `502 WIWO_TALK_UNREACHABLE`; `409 WIWO_TALK_LOCATION_TAKEN` si la subcuenta ya está conectada; `422 WIWO_TALK_BRAND_NOT_IN_SAC` si hay clientes marcados En SAC y este no es uno de ellos). Lanza de fondo la primera lectura |
 | `PUT` | `/api/wiwo-talk/connections/:id/token` | `{ token }` | Cambia el token (comprobado); el webhook no cambia |
 | `POST` | `/api/wiwo-talk/connections/:id/webhook-secret` | — | Nueva clave para el webhook; la anterior deja de valer |
 | `POST` | `/api/wiwo-talk/connections/:id/pause` | `{ paused }` | Pausa o reanuda la lectura y los envíos |

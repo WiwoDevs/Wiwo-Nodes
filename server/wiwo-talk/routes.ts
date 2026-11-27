@@ -23,7 +23,11 @@ export interface WiwoTalkRouteDeps {
   demoMode: boolean;
   requireActor: (request: FastifyRequest) => ActorContext;
   isMasterAdmin: (actor: ActorContext) => boolean;
-  brandExists: (brandId: string) => Promise<boolean>;
+  /**
+   * Si el cliente se puede conectar: tiene que existir y, cuando hay clientes marcados «En SAC»
+   * en Clientes, ser uno de ellos (WiWO Talk es para los clientes que el equipo atiende en SAC).
+   */
+  brandEligibility: (brandId: string) => Promise<"ok" | "missing" | "not_in_sac">;
 }
 
 const idParams = z.object({ id: z.string().uuid() }).strict();
@@ -71,7 +75,11 @@ export function registerWiwoTalkRoutes(app: FastifyInstance, deps: WiwoTalkRoute
   app.post("/api/wiwo-talk/connections", async (request, reply) => {
     const actor = requireMaster(request);
     const body = createBody.parse(request.body);
-    if (!(await deps.brandExists(body.brandId))) throw new ApiError(404, "BRAND_NOT_FOUND", "La marca no existe.");
+    const eligibility = await deps.brandEligibility(body.brandId);
+    if (eligibility === "missing") throw new ApiError(404, "BRAND_NOT_FOUND", "El cliente no existe.");
+    if (eligibility === "not_in_sac") {
+      throw new ApiError(422, "WIWO_TALK_BRAND_NOT_IN_SAC", "Solo se conectan clientes marcados «En SAC» en Clientes.");
+    }
     const connection = await service.create({ ...body, createdBy: actor.email ?? actor.userId }).catch(asApiError);
     request.log.info({ event: "wiwo_talk_connection_created", connectionId: connection.id }, "Conexión de WiWO Talk creada.");
     return reply.code(201).send({ data: { connections: await listView() }, meta: { ...meta(), connectionId: connection.id } });

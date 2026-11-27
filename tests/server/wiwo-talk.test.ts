@@ -220,6 +220,27 @@ describe("WiWO Talk (HighLevel simulado)", () => {
     expect(JSON.stringify(conversation)).toContain("wiwo_talk");
   });
 
+  it("con clientes marcados En SAC, solo se conectan esos", async () => {
+    const { app, person } = await liveApp();
+    const marcada = await app.inject({ method: "PUT", url: "/api/brands/brand-02/sac-usage", headers: person, payload: { channels: ["instagram"] } });
+    expect(marcada.statusCode).toBe(200);
+    const fuera = await app.inject({
+      method: "POST",
+      url: "/api/wiwo-talk/connections",
+      headers: person,
+      payload: { brandId: "brand-01", label: "Fuera de SAC", locationId: LOCATION, token: TOKEN },
+    });
+    expect(fuera.statusCode).toBe(422);
+    expect(fuera.json().error.code).toBe("WIWO_TALK_BRAND_NOT_IN_SAC");
+    const enSac = await app.inject({
+      method: "POST",
+      url: "/api/wiwo-talk/connections",
+      headers: person,
+      payload: { brandId: "brand-02", label: "Cliente En SAC", locationId: LOCATION, token: TOKEN },
+    });
+    expect(enSac.statusCode).toBe(201);
+  });
+
   it("lee los ids del aviso con los nombres del workflow o de HighLevel", () => {
     expect(webhookTarget({ contact_id: "abc123XYZ" })).toEqual({ contactId: "abc123XYZ" });
     expect(webhookTarget({ contactId: "abc123XYZ", conversationId: "conv123456" })).toEqual({ contactId: "abc123XYZ", conversationId: "conv123456" });
