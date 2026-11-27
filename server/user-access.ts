@@ -142,7 +142,7 @@ export interface AccessControlListing {
   adminOnly: string[];
   /** Permisos que solo un admin principal puede otorgar. */
   masterOnlyPermissions: Permission[];
-  /** Quién mira: un admin principal (SAC_FLOW_AUTH_ADMIN_EMAILS) o uno asignado desde la app. */
+  /** Quién mira: siempre un admin, con todas las funciones (principal o asignado desde la app). */
   viewer: { masterAdmin: boolean };
   policy: UserAccessPolicy;
 }
@@ -214,7 +214,8 @@ export async function listAccessControl(
     const permissionsAdd = overridable ? stored?.permissionsAdd ?? [] : [];
     const permissionsRemove = overridable ? stored?.permissionsRemove ?? [] : [];
     const masterAdmin = Boolean(config.adminEmails?.includes(email));
-    const hiddenBrandIds = masterAdmin ? [] : stored?.hiddenBrandIds ?? [];
+    // Un admin (principal o asignado) ve todos los clientes: no se le pueden ocultar.
+    const hiddenBrandIds = masterAdmin || effectiveRole === "admin" ? [] : stored?.hiddenBrandIds ?? [];
     const whatsappEnabled = stored?.whatsappEnabled !== false;
     return {
       masterAdmin,
@@ -260,7 +261,8 @@ export async function listAccessControl(
     permissions: PERMISSION_CATALOG,
     adminOnly: ADMIN_ONLY_CAPABILITIES,
     masterOnlyPermissions: MASTER_ONLY_PERMISSIONS,
-    viewer: { masterAdmin: isMasterAdmin(config, currentEmail) },
+    // Solo un admin abre Usuarios y roles, y todo admin tiene las funciones completas.
+    viewer: { masterAdmin: true },
     policy: {
       authEnabled: config.enabled,
       allowedDomains: config.allowedDomains,

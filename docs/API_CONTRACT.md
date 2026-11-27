@@ -540,10 +540,11 @@ Techlab debe exponer esta ruta solo detrás del gateway/red de observabilidad y 
 
 ### Usuarios y roles (`admin`)
 
-- `GET /api/admin/users`: `{ data: { users: UserAccessView[], roles: RoleView[], permissions: PermissionDefinition[], adminOnly: string[], masterOnlyPermissions: Permission[], viewer: { masterAdmin: boolean }, policy: { authEnabled, allowedDomains, defaultRole } } }`. `viewer.masterAdmin` es `true` si quien consulta está en `SAC_FLOW_AUTH_ADMIN_EMAILS` (admin principal) y `false` si su rol Admin se asignó desde la app (admin asignado); `masterOnlyPermissions` lista los permisos que solo un admin principal puede otorgar (`brands.manage`, `automations.edit`, `workflow.publish`, `inbox.archive_expired`, `export.xlsx`). `RoleView` = `{ id, name, baseRole, permissions, builtIn, editable, customized, userCount, defaultPermissions?, updatedBy?, updatedAt? }`; `admin` aparece siempre con todos los permisos y `editable: false`. Lista a quienes están en el archivo o en las listas del entorno, tienen un rol asignado o ya iniciaron sesión. `UserAccessView` = `{ email, name, effectiveRole, assignedRole?, assignedBy?, assignedAt?, serverRole, serverSource, locked, lastSignInAt?, isSelf, rolePermissions, permissions, permissionsAdd, permissionsRemove, permissionsUpdatedBy?, permissionsUpdatedAt? }` (`permissions` = los del rol más los ajustes personales), con `effectiveRole`/`assignedRole` = id de un rol (`admin`, `viewer`, `agent`, `supervisor` o un rol propio `rol-…`) o `none` y `serverSource` en `allowlist_file | server_admin | server_supervisor | server_allowed | domain | null`.
+- `GET /api/admin/users`: `{ data: { users: UserAccessView[], roles: RoleView[], permissions: PermissionDefinition[], adminOnly: string[], masterOnlyPermissions: Permission[], viewer: { masterAdmin: boolean }, policy: { authEnabled, allowedDomains, defaultRole } } }`. `viewer.masterAdmin` es siempre `true`: todo admin (principal o asignado desde la app) tiene las funciones completas; `masterOnlyPermissions` lista los permisos que solo un admin puede otorgar (`brands.manage`, `automations.edit`, `workflow.publish`, `inbox.archive_expired`, `export.xlsx`). `RoleView` = `{ id, name, baseRole, permissions, builtIn, editable, customized, userCount, defaultPermissions?, updatedBy?, updatedAt? }`; `admin` aparece siempre con todos los permisos y `editable: false`. Lista a quienes están en el archivo o en las listas del entorno, tienen un rol asignado o ya iniciaron sesión. `UserAccessView` = `{ email, name, effectiveRole, assignedRole?, assignedBy?, assignedAt?, serverRole, serverSource, locked, lastSignInAt?, isSelf, rolePermissions, permissions, permissionsAdd, permissionsRemove, permissionsUpdatedBy?, permissionsUpdatedAt? }` (`permissions` = los del rol más los ajustes personales), con `effectiveRole`/`assignedRole` = id de un rol (`admin`, `viewer`, `agent`, `supervisor` o un rol propio `rol-…`) o `none` y `serverSource` en `allowlist_file | server_admin | server_supervisor | server_allowed | domain | null`.
 - `PUT /api/admin/users/role` con `{ "email", "role" }`: asigna el rol; `role: null` quita la asignación y vuelve a la regla del servidor. El correo va en el cuerpo, nunca en la URL, para que no quede en registros de acceso. Responde el listado completo más `user`. `409 ACCESS_LOCKED` si el correo es el propio, está en `SAC_FLOW_AUTH_ADMIN_EMAILS` o en el archivo; `400 ROLE_NOT_FOUND` si el rol no existe; `400 VALIDATION_ERROR` con correo inválido. Un admin asignado recibe `403 MASTER_ADMIN_REQUIRED` si intenta dar el rol Admin o cambiar a otro admin, y `403 MASTER_ONLY_PERMISSION` si el rol nuevo agregaría a esa persona un permiso de `masterOnlyPermissions` que no tenía (bajar de rol o quitar permisos sí está permitido).
 - `PUT /api/admin/users/permissions` con `{ "email", "permissions" }`: ajusta lo que puede hacer una persona en específico. La API guarda la diferencia con su rol como permisos agregados y quitados, así un cambio posterior del rol o de sus permisos se sigue aplicando con esos ajustes encima; `permissions: null` los quita. `409 ACCESS_LOCKED` (propio, admin del entorno o archivo), `409 ADMIN_HAS_ALL` si su rol es Admin, `409 ACCESS_REVOKED` si no tiene acceso, `404 USER_NOT_FOUND` si no está en la lista. Los permisos exclusivos de Admin nunca se pueden agregar. Un admin asignado recibe `403 MASTER_ONLY_PERMISSION` si el ajuste agrega un permiso de `masterOnlyPermissions` que la persona no tenía; quitarlo sí puede.
-- Crear, editar, borrar o restablecer roles (`POST`, `PUT` y `DELETE /api/admin/roles…`) es solo de admin principal; un admin asignado recibe `403 MASTER_ADMIN_REQUIRED`.
+- Crear, editar, borrar o restablecer roles (`POST`, `PUT` y `DELETE /api/admin/roles…`) es de cualquier admin.
+- **Todo admin tiene las funciones completas** (pedido del usuario, noviembre 2026): un admin asignado desde la app puede lo mismo que uno de `SAC_FLOW_AUTH_ADMIN_EMAILS`. Eso incluye dar el rol Admin, cambiar a otros admins, repartir permisos sensibles, editar roles, ocultar clientes (a todos o a una persona), marcar En SAC, WhatsApp por persona, números de WhatsApp y WiWO Talk. `GET /api/me` y `viewer.masterAdmin` responden `true` para todo admin. Esa lista solo protege a sus personas: su rol no se cambia desde la app (`409 ACCESS_LOCKED`), y nadie cambia su propio rol. `403 MASTER_ADMIN_REQUIRED` queda solo para quien no es admin.
 - `POST /api/admin/roles` con `{ name, baseRole: viewer|agent|supervisor, permissions }`: crea un rol propio (id `rol-<nombre>`); los permisos desconocidos o de administración se descartan. `409 ROLE_NAME_TAKEN` si el nombre ya existe. Responde el listado más `roleId`.
 - `PUT /api/admin/roles/:roleId` con `{ permissions, name? }`: cambia los permisos de un rol de base o propio (el nombre solo en los propios). `409 ROLE_LOCKED` para `admin`.
 - `DELETE /api/admin/roles/:roleId`: borra un rol propio (`409 ROLE_IN_USE` si alguien lo tiene asignado) o restablece un rol de base a sus permisos por defecto.
@@ -552,7 +553,7 @@ Techlab debe exponer esta ruta solo detrás del gateway/red de observabilidad y 
 
 ### `PUT /api/admin/users/whatsapp`
 
-Solo admin principal (`403 MASTER_ADMIN_REQUIRED` para los demás). Body `{ email, enabled }`: activa o apaga WhatsApp para una persona de la lista (`404 USER_NOT_FOUND` si no está). Apagado, no ve Gestión WhatsApp y la API rechaza sus envíos por WhatsApp (`403 WHATSAPP_DISABLED_FOR_USER`); sus casos y el historial no cambian. Se guarda en `user_access.whatsapp_enabled` (migración `0025_user_whatsapp_enabled.sql`, `true` por defecto para todas las personas) con `whatsapp_updated_by/at`. Responde la lista de Usuarios con `user`; cada persona trae `whatsappEnabled` (y `whatsappUpdatedBy/At` cuando está apagado), y `GET /api/me` trae `whatsappEnabled` de quien inicia sesión.
+Solo admins (`403` para los demás). Body `{ email, enabled }`: activa o apaga WhatsApp para una persona de la lista (`404 USER_NOT_FOUND` si no está). Apagado, no ve Gestión WhatsApp y la API rechaza sus envíos por WhatsApp (`403 WHATSAPP_DISABLED_FOR_USER`); sus casos y el historial no cambian. Se guarda en `user_access.whatsapp_enabled` (migración `0025_user_whatsapp_enabled.sql`, `true` por defecto para todas las personas) con `whatsapp_updated_by/at`. Responde la lista de Usuarios con `user`; cada persona trae `whatsappEnabled` (y `whatsappUpdatedBy/At` cuando está apagado), y `GET /api/me` trae `whatsappEnabled` de quien inicia sesión.
 
 ### `GET /api/me`
 
@@ -576,7 +577,7 @@ Devuelve el contexto seguro que la UI usa para ajustar acciones de solo lectura,
 }
 ```
 
-`brandIds` puede ser `"all"`. `source` indica el origen de la identidad (`local`, `trusted_headers`, `google` o `dev`); `email` solo aparece con sesión de Google o de prueba local y alimenta el menú de perfil. `masterAdmin` es `true` solo para un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`; sin inicio de sesión propio, el admin local), el único que oculta o muestra clientes. Esta respuesta informa la experiencia visual, pero la autorización sigue aplicándose en cada endpoint servidor.
+`brandIds` puede ser `"all"`. `source` indica el origen de la identidad (`local`, `trusted_headers`, `google` o `dev`); `email` solo aparece con sesión de Google o de prueba local y alimenta el menú de perfil. `masterAdmin` es `true` para todo admin (principal o asignado desde la app), y con él la web muestra las funciones de administración: ocultar o mostrar clientes, números de WhatsApp, WiWO Talk. Esta respuesta informa la experiencia visual, pero la autorización sigue aplicándose en cada endpoint servidor.
 
 `whatsappEnabled` es el ajuste individual de WhatsApp (activado por defecto). `notificationsSeenAt` aparece cuando la persona ya marcó su campana como leída: los avisos posteriores cuentan como no leídos.
 
@@ -588,7 +589,7 @@ Campana de notificaciones (cualquier rol con sesión). Body `{ seenAt }` (fecha 
 
 Respuesta: `{ data: PublicBrand[], meta: { demoMode, mode, count } }`.
 
-Un store nuevo devuelve 20 marcas demo cuando el actor tiene scope completo. Con contexto de actor, la lista se filtra por `X-SAC-Brand-Ids`. La API omite las referencias privadas de Metricool. Los clientes ocultos (`active: false` o `account.active: false`) solo se devuelven al admin principal, para que pueda volver a mostrarlos; para el resto del equipo no existen.
+Un store nuevo devuelve 20 marcas demo cuando el actor tiene scope completo. Con contexto de actor, la lista se filtra por `X-SAC-Brand-Ids`. La API omite las referencias privadas de Metricool. Los clientes ocultos (`active: false` o `account.active: false`) solo se devuelven a los admins, para que pueda volver a mostrarlos; para el resto del equipo no existen.
 
 ### `POST /api/brands`
 
@@ -636,19 +637,19 @@ Actualiza metadatos operativos de una marca/cuenta. No cambia `brandId` ni `acco
 }
 ```
 
-Todos los campos son opcionales, pero debe enviarse al menos uno. Requiere `brands.manage` y acceso a la marca. Si el nuevo handle ya existe en otra cuenta, responde `409 ACCOUNT_HANDLE_ALREADY_EXISTS`. Cambiar `active` o `accountActive` (ocultar o mostrar) exige además admin principal: si no, `403 MASTER_ADMIN_REQUIRED`; enviarlos con el mismo valor que ya tienen no cuenta como cambio.
+Todos los campos son opcionales, pero debe enviarse al menos uno. Requiere `brands.manage` y acceso a la marca. Si el nuevo handle ya existe en otra cuenta, responde `409 ACCOUNT_HANDLE_ALREADY_EXISTS`. Cambiar `active` o `accountActive` (ocultar o mostrar) exige además admin: si no, `403 MASTER_ADMIN_REQUIRED`; enviarlos con el mismo valor que ya tienen no cuenta como cambio.
 
 Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, updated: true, externalWrites: false } }`.
 
 ### `PUT /api/brands/:brandId/visibility`
 
-Oculta (`{ "hidden": true }`) o vuelve a mostrar (`{ "hidden": false }`) un cliente. Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. No borra historial ni contacta a Metricool.
+Oculta (`{ "hidden": true }`) o vuelve a mostrar (`{ "hidden": false }`) un cliente. Cualquier admin (principal o asignado); quien no es admin recibe `403`. No borra historial ni contacta a Metricool.
 
 Un cliente oculto (`active` y `account.active` en `false`):
 
 - deja de sincronizar con Metricool (la referencia se conserva, así que la vinculación automática no lo vuelve a crear);
 - sale de la bandeja, Inicio, el resumen, Reportes y las rutas de integración de METRIQ (`sac-brands` lo omite; pedirlo por `brandId` responde `409 BRAND_INACTIVE`);
-- deja de aparecer en `GET /api/brands` para todos salvo el admin principal;
+- deja de aparecer en `GET /api/brands` para todos salvo los admins;
 - al ocultarlo se retira de `autoReplyAccountIds` y se apaga `autoReplyEnabled` si la allowlist queda vacía.
 
 Al mostrarlo vuelve con todo su historial y la sincronización siguiente trae lo que llegó mientras estuvo oculto.
@@ -657,7 +658,7 @@ Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, hidden, externalWrites:
 
 ### `PUT /api/admin/users/hidden-brands`
 
-Oculta clientes a una persona: `{ "email": string, "brandIds": string[] }`; lista vacía = ve todos. Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. A un admin principal no se le pueden ocultar (`409 MASTER_ADMIN_SEES_ALL`); la persona debe estar en la lista (`404 USER_NOT_FOUND`) y cada cliente debe existir (`422 BRAND_NOT_FOUND`).
+Oculta clientes a una persona: `{ "email": string, "brandIds": string[] }`; lista vacía = ve todos. Cualquier admin (principal o asignado); quien no es admin recibe `403`. A un admin no se le pueden ocultar (`409 MASTER_ADMIN_SEES_ALL`); la persona debe estar en la lista (`404 USER_NOT_FOUND`) y cada cliente debe existir (`422 BRAND_NOT_FOUND`).
 
 En cada solicitud de esa persona, la API quita esos clientes de su alcance de marcas: dejan de aparecer en `GET /api/brands`, la bandeja, Inicio, el resumen, Reportes, los exportes y `/api/stats/messages`, y pedirlos directo responde `403`. No se borra nada y cambiar su rol o sus permisos conserva la lista. Se guarda en `user_access.hidden_brand_ids` (migración `0022_user_hidden_brands.sql`); `GET /api/admin/users` devuelve por persona `masterAdmin`, `hiddenBrandIds`, `hiddenBrandsUpdatedBy` y `hiddenBrandsUpdatedAt`.
 
@@ -665,7 +666,7 @@ Respuesta: el listado de `GET /api/admin/users` más `user` con la persona actua
 
 ### `PUT /api/brands/:brandId/sac-usage`
 
-Marca qué redes de la cuenta usa hoy el equipo en SAC (marca «En SAC» de Clientes): `{ "channels": Channel[] }`; una lista vacía deja la cuenta como «no se usa en SAC». Solo un admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`); un admin asignado desde la app recibe `403 MASTER_ADMIN_REQUIRED`. Se aceptan también redes aún no conectadas en la cuenta: quedan «pendientes» (la web las muestra atenuadas) y valen solas cuando se conecten en Metricool.
+Marca qué redes de la cuenta usa hoy el equipo en SAC (marca «En SAC» de Clientes): `{ "channels": Channel[] }`; una lista vacía deja la cuenta como «no se usa en SAC». Cualquier admin (principal o asignado); quien no es admin recibe `403`. Se aceptan también redes aún no conectadas en la cuenta: quedan «pendientes» (la web las muestra atenuadas) y valen solas cuando se conecten en Metricool.
 
 Es solo una etiqueta para filtrar Clientes y su tablero: no oculta, no deja de sincronizar y no cambia la bandeja, Reportes ni METRIQ. Las cuentas sin marcar siguen visibles con todo su historial. Se guarda en `account.sacChannels` (PostgreSQL: `social_accounts.sac_channels`, migración `0021_account_sac_usage.sql`) y viaja en `PublicBrand.account.sacChannels`; ausente significa que nunca se marcó. Al editar los canales de una marca, las redes marcadas que ya no estén conectadas se quitan.
 
@@ -675,7 +676,7 @@ Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, externalWrites: false }
 
 ### `DELETE /api/brands/:brandId`
 
-Equivale a `PUT /api/brands/:brandId/visibility` con `{ "hidden": true }` y se conserva por compatibilidad. Mismas reglas: solo admin principal, no borra historial ni contacta a Metricool.
+Equivale a `PUT /api/brands/:brandId/visibility` con `{ "hidden": true }` y se conserva por compatibilidad. Mismas reglas: solo admins, no borra historial ni contacta a Metricool.
 
 Respuesta: `{ data: PublicBrand, meta: { demoMode, mode, deactivated: true, hidden: true, autoReplyRemoved: true, externalWrites: false } }`.
 
@@ -1046,7 +1047,7 @@ Informe de un error de la interfaz desde la pantalla de recuperación (`src/comp
 
 Asistente de ayuda de wiwo.sac (el orbe de la barra superior), para cualquier sesión (rol `viewer` o superior). Cuerpo `{ messages: Array<{ role: "user" | "assistant", content }>, view? }`: hasta 12 turnos de hasta 2.000 caracteres (12.000 en total), el último de la persona; `view` es el id de la sección abierta. Responde `{ data: { answer, source: "ia" | "guia" }, meta: { externalWrites: false } }`.
 
-SOLO ORIENTA: no ejecuta acciones, no navega y no ve casos, mensajes ni cifras. `server/help-assistant.ts` arma el prompt con la guía de uso (`SAC_GUIDE`), el rol, los permisos efectivos de la sesión (cada permiso del catálogo con SÍ/no), si es admin principal y la sección abierta; la conversación se enmascara (`redactPersonalData`) y sale al mismo proveedor de IA (`completeText`, texto libre), sin datos de clientes, por eso no depende de `SAC_FLOW_AI_BRAND_IDS`. Con la IA apagada, las cuatro preguntas sugeridas tienen respuestas escritas según los permisos (`source: "guia"`) y cualquier otra pregunta responde `503 AI_NOT_AVAILABLE`; si el proveedor falla, una sugerida cae a la guía y otra responde `503 AI_HELP_FAILED`. Límite: 30 preguntas por persona cada 10 minutos (`429 HELP_RATE_LIMITED`, en memoria de la API). `400 VALIDATION_ERROR` con una conversación inválida. El registro `help_assistant` lleva sección, turnos, tokens y latencia, nunca la pregunta ni la respuesta. `GET /api/ai/availability` incluye `helpAssistant: "ia" | "guia"`.
+SOLO ORIENTA: no ejecuta acciones, no navega y no ve casos, mensajes ni cifras. `server/help-assistant.ts` arma el prompt con la guía de uso (`SAC_GUIDE`), el rol, los permisos efectivos de la sesión (cada permiso del catálogo con SÍ/no), si es admin y la sección abierta; la conversación se enmascara (`redactPersonalData`) y sale al mismo proveedor de IA (`completeText`, texto libre), sin datos de clientes, por eso no depende de `SAC_FLOW_AI_BRAND_IDS`. Con la IA apagada, las cuatro preguntas sugeridas tienen respuestas escritas según los permisos (`source: "guia"`) y cualquier otra pregunta responde `503 AI_NOT_AVAILABLE`; si el proveedor falla, una sugerida cae a la guía y otra responde `503 AI_HELP_FAILED`. Límite: 30 preguntas por persona cada 10 minutos (`429 HELP_RATE_LIMITED`, en memoria de la API). `400 VALIDATION_ERROR` con una conversación inválida. El registro `help_assistant` lleva sección, turnos, tokens y latencia, nunca la pregunta ni la respuesta. `GET /api/ai/availability` incluye `helpAssistant: "ia" | "guia"`.
 
 ### `GET /api/ai/availability`
 
@@ -1281,7 +1282,7 @@ Errores específicos: `DELIVERY_IN_PROGRESS`, `DELIVERY_ALREADY_ACTIVE`, `DELIVE
 
 Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás del adaptador `WhatsAppGateway`. Arquitectura, riesgos y operación: [WHATSAPP.md](WHATSAPP.md). Modo (`meta.whatsappMode`): `demo` (simulado, sin worker), `live` (con `SAC_FLOW_WHATSAPP_WORKER_KEY` o, sin ella, la clave derivada de `SAC_FLOW_API_KEY`) o `disabled` (sin ninguna de las dos). Quién lo usa se activa por persona en la base (`PUT /api/admin/users/whatsapp`).
 
-**Números** (solo admins principales: `SAC_FLOW_AUTH_ADMIN_EMAILS`, o cualquier admin sin inicio de sesión propio; los demás reciben `403 MASTER_ADMIN_REQUIRED` o `403 FORBIDDEN`):
+**Números** (cualquier admin, principal o asignado; los demás reciben `403 MASTER_ADMIN_REQUIRED` o `403 FORBIDDEN`):
 
 | Método | Ruta | Body | Resultado |
 |---|---|---|---|
@@ -1335,7 +1336,7 @@ Números de WhatsApp vinculados por Baileys (WhatsApp Web, no oficial) detrás d
 
 Subcuentas de WiWO Talk (HighLevel con marca blanca) cuyo WhatsApp se atiende desde Gestión WhatsApp. Runbook: [WIWO_TALK.md](WIWO_TALK.md).
 - **Claves en la base.** El token de integración privada y el secreto del webhook de cada conexión se guardan cifrados (`wiwo_talk_connections.encrypted_secrets`, migración `0028_wiwo_talk_connections.sql`), nunca en variables de entorno, y el token no vuelve al navegador.
-- **Quién.** Solo admins principales (`403 MASTER_ADMIN_REQUIRED`).
+- **Quién.** Cualquier admin, principal o asignado (`403 MASTER_ADMIN_REQUIRED` para los demás).
 
 | Método | Ruta | Body | Resultado |
 |---|---|---|---|
@@ -1529,7 +1530,7 @@ El worker reclama jobs en PostgreSQL con lease y `FOR UPDATE SKIP LOCKED`, recup
 | 400 | `INVALID_STATUS_REASON` | El motivo no corresponde al estado solicitado |
 | 400 | `STATUS_REASON_NOTE_REQUIRED` | El motivo `other` requiere nota |
 | 403 | `ORIGIN_NOT_ALLOWED` | Mutación originada en un sitio no autorizado |
-| 403 | `MASTER_ADMIN_REQUIRED` | Acción solo de admin principal (`SAC_FLOW_AUTH_ADMIN_EMAILS`): ocultar o mostrar clientes, dar el rol Admin, editar roles |
+| 403 | `MASTER_ADMIN_REQUIRED` | Acción solo de admins (principales o asignados): ocultar o mostrar clientes, dar el rol Admin, editar roles, números de WhatsApp, WiWO Talk |
 | 409 | `BRAND_INACTIVE` | La marca está oculta (integración METRIQ, carga manual) |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | La carga manual no llegó como archivo `.xlsx` |
 | 422 | `MANUAL_RECORDS_FORMAT_INVALID` | El Excel de la carga manual no se pudo leer o no tiene las columnas de la planilla BD SAC |

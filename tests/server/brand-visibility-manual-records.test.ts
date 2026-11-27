@@ -101,28 +101,26 @@ async function bdSacWorkbook(rows: ExcelJS.CellValue[][]): Promise<Buffer> {
 }
 
 describe("ocultar clientes", () => {
-  it("solo el admin principal oculta y muestra; el equipo deja de ver al cliente y su bandeja", async () => {
+  it("todo admin (principal o asignado) oculta y muestra; el equipo deja de ver al cliente y su bandeja", async () => {
     const context = await makeApp();
     const { app } = context;
     const jefa = await signIn(context, "jefa@demo.test", "Jefa Principal");
     expect((await app.inject({ method: "GET", url: "/api/me", headers: { cookie: jefa } })).json().data.masterAdmin).toBe(true);
 
-    // Un admin asignado desde la app no puede ocultar.
+    // Un admin asignado desde la app también oculta y muestra (mismas funciones que el principal).
     const asignado = await app.inject({
       method: "PUT", url: "/api/admin/users/role", headers: { cookie: jefa }, payload: { email: "otra@demo.test", role: "admin" },
     });
     expect(asignado.statusCode).toBe(200);
     const otra = await signIn(context, "otra@demo.test", "Otra Admin");
-    expect((await app.inject({ method: "GET", url: "/api/me", headers: { cookie: otra } })).json().data.masterAdmin).toBe(false);
-    const sinPermiso = await app.inject({
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: { cookie: otra } })).json().data.masterAdmin).toBe(true);
+    const porAsignada = await app.inject({
       method: "PUT", url: "/api/brands/brand-01/visibility", headers: { cookie: otra }, payload: { hidden: true },
     });
-    expect(sinPermiso.statusCode).toBe(403);
-    expect(sinPermiso.json().error.code).toBe("MASTER_ADMIN_REQUIRED");
-    const porEdicion = await app.inject({ method: "PATCH", url: "/api/brands/brand-01", headers: { cookie: otra }, payload: { active: false } });
-    expect(porEdicion.statusCode).toBe(403);
-    const porBorrado = await app.inject({ method: "DELETE", url: "/api/brands/brand-01", headers: { cookie: otra } });
-    expect(porBorrado.statusCode).toBe(403);
+    expect(porAsignada.statusCode).toBe(200);
+    expect((await app.inject({
+      method: "PUT", url: "/api/brands/brand-01/visibility", headers: { cookie: otra }, payload: { hidden: false },
+    })).statusCode).toBe(200);
     // Editar otros datos (con el estado que ya tenía) sigue permitido.
     const edicion = await app.inject({
       method: "PATCH", url: "/api/brands/brand-01", headers: { cookie: otra }, payload: { name: "Marca Uno", active: true, accountActive: true },
@@ -130,6 +128,10 @@ describe("ocultar clientes", () => {
     expect(edicion.statusCode).toBe(200);
 
     const supervisor = await signIn(context, "super@demo.test", "Super Visora");
+    // Quien no es admin no oculta.
+    expect((await app.inject({
+      method: "PUT", url: "/api/brands/brand-01/visibility", headers: { cookie: supervisor }, payload: { hidden: true },
+    })).statusCode).toBe(403);
     const contactosAntes = (await app.inject({ method: "GET", url: "/api/inbox/contacts?pageSize=200", headers: { cookie: supervisor } })).json();
     expect(contactosAntes.data.some((contact: { brandId: string }) => contact.brandId === "brand-01")).toBe(true);
 

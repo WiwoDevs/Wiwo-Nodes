@@ -745,7 +745,7 @@ export function App({ onSignOut, sessionActor }: {
   const canManageBrands = allowed("brands.manage");
   const canImportRecords = allowed("records.import");
   const canAdmin = !connectionIssue && visibleData.actor.role === "admin";
-  // Ocultar o mostrar clientes: solo el admin principal del servidor, no uno asignado en la app.
+  // Ocultar o mostrar clientes, números de WhatsApp y WiWO Talk: cualquier admin (principal o asignado).
   const canHideBrands = canAdmin && visibleData.actor.masterAdmin === true;
   // Supervisor/Admin ven la carga del equipo y pueden filtrar la bandeja por otra persona.
   const canSeeTeam = canAdmin || canReadMetrics || allowed("inbox.assign_others");
@@ -2004,7 +2004,7 @@ export function App({ onSignOut, sessionActor }: {
       : { tone: "success", sound: true, title: `${accounts.length} marca(s) oculta(s)`, detail: "No se borró historial; dejan de sincronizar y de aparecer en la operación, Reportes y MetriQ." });
   }
 
-  /** Oculta o vuelve a mostrar un cliente (solo admin principal). */
+  /** Oculta o vuelve a mostrar un cliente (solo admin). */
   async function setBrandAccountHidden(account: BrandAccount, hidden: boolean) {
     if (isSavingBrand) return;
     setSavingBrand(true);
@@ -2034,7 +2034,7 @@ export function App({ onSignOut, sessionActor }: {
     }
   }
 
-  /** Marca «En SAC» (solo admin principal): etiqueta para filtrar Clientes; no cambia la operación. */
+  /** Marca «En SAC» (solo admin): etiqueta para filtrar Clientes; no cambia la operación. */
   async function setAccountSacUsage(account: BrandAccount, channels: SocialPlatform[]) {
     try {
       await setBrandSacUsage(account.brandId ?? account.id, channels);
@@ -2578,7 +2578,7 @@ export function App({ onSignOut, sessionActor }: {
                 },
                 emptyAccounts: canHideBrands
                   ? { title: "Aún no hay números de WhatsApp", detail: "Agrega un número en «Números de WhatsApp» y vincúlalo desde el teléfono de la marca." }
-                  : { title: "Aún no hay números de WhatsApp", detail: "Un admin principal debe vincular el número de WhatsApp de cada marca." },
+                  : { title: "Aún no hay números de WhatsApp", detail: "Un admin debe vincular el número de WhatsApp de cada marca." },
                 headerActions: (
                   <div className="manual-inbox-whatsapp-actions">
                     {whatsappStatus?.mode === "disabled" ? (

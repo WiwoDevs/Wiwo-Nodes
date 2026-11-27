@@ -172,15 +172,15 @@ async function makeApp() {
 }
 
 describe("API de la marca En SAC y del tablero de Clientes", () => {
-  it("solo el admin principal marca redes conectadas; la marca no oculta nada", async () => {
+  it("todo admin marca redes conectadas; la marca no oculta nada", async () => {
     const { app, signIn } = await makeApp();
     const jefa = await signIn("jefa@demo.test", "Jefa Principal");
     await app.inject({ method: "PUT", url: "/api/admin/users/role", headers: { cookie: jefa }, payload: { email: "otra@demo.test", role: "admin" } });
     const otra = await signIn("otra@demo.test", "Otra Admin");
 
-    const sinPermiso = await app.inject({ method: "PUT", url: "/api/brands/brand-01/sac-usage", headers: { cookie: otra }, payload: { channels: ["instagram"] } });
-    expect(sinPermiso.statusCode).toBe(403);
-    expect(sinPermiso.json().error.code).toBe("MASTER_ADMIN_REQUIRED");
+    // Un admin asignado también marca (mismas funciones que el principal).
+    const porAsignada = await app.inject({ method: "PUT", url: "/api/brands/brand-01/sac-usage", headers: { cookie: otra }, payload: { channels: ["instagram"] } });
+    expect(porAsignada.statusCode).toBe(200);
 
     // Una red aún no conectada se puede marcar: queda pendiente hasta que se conecte.
     const pendiente = await app.inject({ method: "PUT", url: "/api/brands/brand-01/sac-usage", headers: { cookie: jefa }, payload: { channels: ["tiktok", "instagram"] } });

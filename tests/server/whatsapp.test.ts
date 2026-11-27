@@ -583,7 +583,7 @@ describe("WhatsApp por la API (worker simulado)", () => {
     expect(status.json().data.lines[0].qrDataUrl).toBeUndefined();
   });
 
-  it("con inicio de sesión, solo el admin principal ve y vincula números", async () => {
+  it("con inicio de sesión, cualquier admin (principal o asignado) ve y vincula números", async () => {
     const directory = await tempDir();
     const config = loadConfig({
       METRICOOL_MODE: "demo",
@@ -618,9 +618,8 @@ describe("WhatsApp por la API (worker simulado)", () => {
       headers: as(who),
       payload: { brandId: "brand-01", label: "Atención", method: "qr" },
     });
-    expect((await create("asignado")).json().error.code).toBe("MASTER_ADMIN_REQUIRED");
     expect((await create("agente")).statusCode).toBe(403);
-    const created = await create("principal");
+    const created = await create("asignado");
     expect(created.statusCode).toBe(201);
     expect(created.json().data.worker.mode).toBe("demo");
     expect((await app.inject({ method: "GET", url: "/api/whatsapp/lines", headers: as("agente") })).statusCode).toBe(403);

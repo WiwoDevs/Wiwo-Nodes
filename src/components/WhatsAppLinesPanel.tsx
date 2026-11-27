@@ -59,7 +59,7 @@ export interface WhatsAppLinesPanelProps {
 }
 
 /**
- * Números de WhatsApp de las marcas. Solo admins principales: vincular un número le da a
+ * Números de WhatsApp de las marcas. Solo admins: vincular un número le da a
  * wiwo.sac acceso a todos sus chats. Se vincula por QR o por código, desde el teléfono de la marca.
  */
 export function WhatsAppLinesPanel({ brands, onClose, onChanged, onNotify }: WhatsAppLinesPanelProps) {
@@ -199,7 +199,7 @@ export function WhatsAppLinesPanel({ brands, onClose, onChanged, onNotify }: Wha
             <WhatsappLogo size={20} weight="fill" aria-hidden="true" />
           </span>
           <div>
-            <p className="view-header__eyebrow">Solo admins principales</p>
+            <p className="view-header__eyebrow">Solo admins</p>
             <h2 id="whatsapp-lines-title">Números de WhatsApp</h2>
             <p>Cada número se vincula una vez desde el teléfono de la marca, como WhatsApp Web.</p>
           </div>

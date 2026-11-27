@@ -263,7 +263,7 @@ export function AccountsView({
   const [usageDraft, setUsageDraft] = useState<SocialPlatform[]>([]);
   const [isSavingUsage, setSavingUsage] = useState(false);
 
-  // Los clientes ocultos no cuentan como alertas ni se operan. Solo el admin principal los
+  // Los clientes ocultos no cuentan como alertas ni se operan. Solo un admin los
   // recibe de la API y los ve aparte, en el filtro "Ocultos", para volver a mostrarlos.
   const activeAccounts = useMemo(() => accounts.filter((account) => !isInactiveAccount(account)), [accounts]);
   const inactiveCount = accounts.length - activeAccounts.length;

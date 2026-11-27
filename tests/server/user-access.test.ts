@@ -321,7 +321,7 @@ describe("Permisos por persona", () => {
   });
 });
 
-describe("Admin principal y admin asignado", () => {
+describe("Admin principal y admin asignado (mismas funciones)", () => {
   async function setPermissions(app: SacFlowApp, session: string | undefined, email: string, permissions: string[] | null) {
     return app.inject({ method: "PUT", url: "/api/admin/users/permissions", headers: session ? { cookie: session } : {}, payload: { email, permissions } });
   }
@@ -329,76 +329,43 @@ describe("Admin principal y admin asignado", () => {
     return (await app.inject({ method: "GET", url: "/api/admin/users", headers: session ? { cookie: session } : {} })).json().data;
   }
 
-  it("solo un admin principal da el rol Admin o cambia a otro admin", async () => {
+  it("un admin asignado tiene todas las funciones de un admin principal", async () => {
     const context = await makeApp();
     const master = await signIn(context, "jefa@demo.test", "Jefa");
     await signIn(context, "agente@demo.test", "Agente Demo");
+    await signIn(context, "super@demo.test", "Super Demo");
     expect((await setRole(context.app, master.session, "segunda@demo.test", "admin")).statusCode).toBe(200);
     expect((await setRole(context.app, master.session, "tercera@demo.test", "admin")).statusCode).toBe(200);
     const assigned = await signIn(context, "segunda@demo.test", "Segunda");
 
     expect((await listing(context.app, master.session)).viewer).toEqual({ masterAdmin: true });
-    const view = await listing(context.app, assigned.session);
-    expect(view.viewer).toEqual({ masterAdmin: false });
-    expect(view.masterOnlyPermissions).toEqual(["brands.manage", "automations.edit", "workflow.publish", "inbox.archive_expired", "export.xlsx"]);
+    expect((await listing(context.app, assigned.session)).viewer).toEqual({ masterAdmin: true });
+    expect((await me(context.app, assigned.session)).json().data.masterAdmin).toBe(true);
 
-    const promote = await setRole(context.app, assigned.session, "agente@demo.test", "admin");
-    expect(promote.statusCode).toBe(403);
-    expect(promote.json().error.code).toBe("MASTER_ADMIN_REQUIRED");
-    const demote = await setRole(context.app, assigned.session, "tercera@demo.test", "agent");
-    expect(demote.statusCode).toBe(403);
-    expect(demote.json().error.code).toBe("MASTER_ADMIN_REQUIRED");
+    // Da el rol Admin, cambia a otro admin y reparte permisos sensibles.
+    expect((await setRole(context.app, assigned.session, "agente@demo.test", "admin")).statusCode).toBe(200);
+    expect((await setRole(context.app, assigned.session, "tercera@demo.test", "agent")).statusCode).toBe(200);
+    expect((await setRole(context.app, assigned.session, "agente@demo.test", "supervisor")).statusCode).toBe(200);
+    expect((await setPermissions(context.app, assigned.session, "tercera@demo.test", ["export.xlsx"])).statusCode).toBe(200);
 
-    // El principal sí puede quitarle el rol a un admin asignado.
-    expect((await setRole(context.app, master.session, "tercera@demo.test", "agent")).statusCode).toBe(200);
+    // Crea roles.
+    const create = await context.app.inject({
+      method: "POST",
+      url: "/api/admin/roles",
+      headers: { cookie: assigned.session! },
+      payload: { name: "Agente plus", baseRole: "agent", permissions: ["inbox.reply"] },
+    });
+    expect(create.statusCode).toBe(200);
   });
 
-  it("un admin asignado no reparte permisos sensibles, pero sí puede quitarlos", async () => {
-    const context = await makeApp();
-    const master = await signIn(context, "jefa@demo.test", "Jefa");
-    await signIn(context, "agente@demo.test", "Agente Demo");
-    await signIn(context, "super@demo.test", "Super Demo");
-    await setRole(context.app, master.session, "segunda@demo.test", "admin");
-    const assigned = await signIn(context, "segunda@demo.test", "Segunda");
-
-    // Supervisor trae Exportar y Archivar, que el agente no tenía.
-    const toSupervisor = await setRole(context.app, assigned.session, "agente@demo.test", "supervisor");
-    expect(toSupervisor.statusCode).toBe(403);
-    expect(toSupervisor.json().error.code).toBe("MASTER_ONLY_PERMISSION");
-    expect(toSupervisor.json().error.message).toContain("Exportar a Excel");
-    // Bajar de rol sí se puede.
-    expect((await setRole(context.app, assigned.session, "agente@demo.test", "viewer")).statusCode).toBe(200);
-
-    const addExport = await setPermissions(context.app, assigned.session, "agente@demo.test", ["export.xlsx"]);
-    expect(addExport.statusCode).toBe(403);
-    expect(addExport.json().error.code).toBe("MASTER_ONLY_PERMISSION");
-    // Un permiso no sensible sí lo puede dar.
-    expect((await setPermissions(context.app, assigned.session, "agente@demo.test", ["inbox.reply"])).statusCode).toBe(200);
-
-    // Quitar Exportar a un supervisor está permitido.
-    const supervisor = (await listing(context.app, master.session)).users.find((user: { email: string }) => user.email === "super@demo.test");
-    const withoutExport = supervisor.permissions.filter((permission: string) => permission !== "export.xlsx");
-    expect((await setPermissions(context.app, assigned.session, "super@demo.test", withoutExport)).statusCode).toBe(200);
-    // Y devolvérselo ya no: solo el principal.
-    expect((await setPermissions(context.app, assigned.session, "super@demo.test", supervisor.permissions)).statusCode).toBe(403);
-    expect((await setPermissions(context.app, master.session, "super@demo.test", supervisor.permissions)).statusCode).toBe(200);
-    expect((await setRole(context.app, master.session, "agente@demo.test", "supervisor")).statusCode).toBe(200);
-  });
-
-  it("solo un admin principal crea, edita o restablece roles", async () => {
+  it("los admins de SAC_FLOW_AUTH_ADMIN_EMAILS siguen protegidos y nadie cambia su propio rol", async () => {
     const context = await makeApp();
     const master = await signIn(context, "jefa@demo.test", "Jefa");
     await setRole(context.app, master.session, "segunda@demo.test", "admin");
     const assigned = await signIn(context, "segunda@demo.test", "Segunda");
-    const headers = { cookie: assigned.session! };
-
-    const create = await context.app.inject({ method: "POST", url: "/api/admin/roles", headers, payload: { name: "Agente plus", baseRole: "agent", permissions: ["inbox.reply"] } });
-    expect(create.statusCode).toBe(403);
-    expect(create.json().error.code).toBe("MASTER_ADMIN_REQUIRED");
-    expect((await context.app.inject({ method: "PUT", url: "/api/admin/roles/agent", headers, payload: { permissions: ["inbox.reply"] } })).statusCode).toBe(403);
-    expect((await context.app.inject({ method: "DELETE", url: "/api/admin/roles/supervisor", headers })).statusCode).toBe(403);
-
-    const masterCreate = await context.app.inject({ method: "POST", url: "/api/admin/roles", headers: { cookie: master.session! }, payload: { name: "Agente plus", baseRole: "agent", permissions: ["inbox.reply"] } });
-    expect(masterCreate.statusCode).toBe(200);
+    const locked = await setRole(context.app, assigned.session, "jefa@demo.test", "agent");
+    expect(locked.statusCode).toBe(409);
+    expect(locked.json().error.code).toBe("ACCESS_LOCKED");
+    expect((await setRole(context.app, assigned.session, "segunda@demo.test", "agent")).json().error.code).toBe("ACCESS_LOCKED");
   });
 });

@@ -76,7 +76,7 @@ async function makeApp() {
 }
 
 describe("clientes ocultos por persona", () => {
-  it("solo un admin principal los define y la persona deja de verlos en marcas y bandeja", async () => {
+  it("todo admin los define y la persona deja de verlos en marcas y bandeja", async () => {
     const { app, signIn } = await makeApp();
     const jefa = await signIn("jefa@demo.test", "Jefa Principal");
     const supervisor = await signIn("super@demo.test", "Super Visora");
@@ -90,11 +90,11 @@ describe("clientes ocultos por persona", () => {
     expect(await brandsOf(supervisor)).toContain("brand-01");
     expect(await contactsOf(supervisor)).toContain("brand-01");
 
-    // Un admin asignado en la app no puede ocultar clientes.
-    const asignado = await app.inject({ method: "PUT", url: "/api/admin/users/hidden-brands", headers: { cookie: otra }, payload: { email: "super@demo.test", brandIds: ["brand-01"] } });
-    expect(asignado.statusCode).toBe(403);
-    expect(asignado.json().error.code).toBe("MASTER_ADMIN_REQUIRED");
-    // A un admin principal no se le ocultan clientes; los clientes deben existir.
+    // Un admin asignado en la app también puede (mismas funciones que el principal).
+    const asignado = await app.inject({ method: "PUT", url: "/api/admin/users/hidden-brands", headers: { cookie: otra }, payload: { email: "super@demo.test", brandIds: ["brand-02"] } });
+    expect(asignado.statusCode).toBe(200);
+    // A un admin no se le ocultan clientes; los clientes deben existir.
+    expect((await app.inject({ method: "PUT", url: "/api/admin/users/hidden-brands", headers: { cookie: jefa }, payload: { email: "otra@demo.test", brandIds: ["brand-01"] } })).statusCode).toBe(409);
     expect((await app.inject({ method: "PUT", url: "/api/admin/users/hidden-brands", headers: { cookie: jefa }, payload: { email: "socia@demo.test", brandIds: ["brand-01"] } })).statusCode).toBe(409);
     expect((await app.inject({ method: "PUT", url: "/api/admin/users/hidden-brands", headers: { cookie: jefa }, payload: { email: "super@demo.test", brandIds: ["no-existe"] } })).statusCode).toBe(422);
 
